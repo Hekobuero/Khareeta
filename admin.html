@@ -5,18 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>Khareeta · Admin</title>
+<meta name="theme-color" content="#0b6e4f">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css">
 <style>
 @font-face{font-family:Inter;font-weight:400;src:url(fonts/inter-latin-400-normal.woff2) format("woff2")}
 @font-face{font-family:Inter;font-weight:600;src:url(fonts/inter-latin-600-normal.woff2) format("woff2")}
 @font-face{font-family:Inter;font-weight:700;src:url(fonts/inter-latin-700-normal.woff2) format("woff2")}
-:root{--bg:#f4f6f8;--card:#fff;--fg:#1f1f1f;--fg2:#5f6368;--line:#e3e6ea;--brand:#1A73E8;--blue:#1a73e8}
+:root{--bg:#f4f6f8;--card:#fff;--fg:#1f1f1f;--fg2:#5f6368;--line:#e3e6ea;--brand:#0b6e4f;--blue:#1a73e8}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
 header{display:flex;align-items:center;gap:12px;padding:14px 22px;background:var(--brand);color:#fff;position:sticky;top:0;z-index:5}
-header img{width:34px;height:34px;border-radius:8px}header h1{font-size:18px;margin:0;flex:1}
+header img{height:34px;width:auto;margin-inline-start:-4px}header h1{font-size:18px;margin:0;flex:1}
 header select,header button{font:inherit;border:0;border-radius:8px;padding:7px 12px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer}
 header option{color:#000}
+header .hsep{display:inline-block;width:1px;height:18px;background:rgba(255,255,255,.35);margin:0 12px 0 2px;vertical-align:-3px}
 main{max-width:1280px;margin:0 auto;padding:20px}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
 .kpi{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
@@ -32,6 +37,7 @@ main{max-width:1280px;margin:0 auto;padding:20px}
 #map{height:420px;border-radius:12px;overflow:hidden}
 svg text{font-family:Inter,sans-serif}
 .login{max-width:380px;margin:12vh auto;background:var(--card);padding:28px;border-radius:16px;box-shadow:0 4px 18px rgba(0,0,0,.1)}
+.login .lbrand{display:block;height:44px;width:auto;margin:-4px 0 18px -5px}
 .login h1{margin:0 0 6px;font-size:22px}.login p{color:var(--fg2);margin:0 0 18px;font-size:14px}
 .login input{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
 .login button{width:100%;font:inherit;font-weight:600;padding:12px;border:0;border-radius:10px;background:var(--brand);color:#fff;cursor:pointer}
@@ -43,7 +49,8 @@ svg text{font-family:Inter,sans-serif}
 </head>
 <body>
 <section id="login" class="login hidden">
-  <h1>Khareeta Admin</h1>
+  <img class="lbrand" src="icons/logo-lockup.svg" alt="Khareeta · خريطة" width="203" height="44">
+  <h1>Admin</h1>
   <p>Usage analytics – admins only.</p>
   <form id="lf">
     <input id="em" type="email" placeholder="E-mail" autocomplete="username" required>
@@ -54,7 +61,7 @@ svg text{font-family:Inter,sans-serif}
   <p class="muted" style="margin-top:14px">Privacy: the app stores only an anonymous random install id, language, device class, app version, coarse country/city (≈11 km grid, only when users shared GPS), referrer domain and event counts. No IPs, no search texts.</p>
 </section>
 <div id="app" class="hidden">
-  <header><img src="icons/icon-192.png" alt=""><h1>Khareeta · Usage</h1>
+  <header><img src="icons/logo-lockup-dark.svg" alt="Khareeta · خريطة" width="158" height="34"><h1><span class="hsep" aria-hidden="true"></span>Usage</h1>
     <select id="range"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
     <button id="reload">↻</button><button id="logout">Sign out</button></header>
   <main>

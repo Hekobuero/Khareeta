@@ -10,6 +10,9 @@ import { track } from './analytics.js';
 
 export const hooks = { restyle: null, relabel: null, rerenderUI: null, set3d: null };
 
+// ---------- brand lockup (light/dark variant switched in CSS via the theme tokens) ----------
+const brandLogo = cls => `<span class="klogo ${cls}" role="img" aria-label="Khareeta · خريطة"><img class="klogo-l" src="icons/logo-lockup.svg" alt="" width="964" height="208" decoding="async"><img class="klogo-d" src="icons/logo-lockup-dark.svg" alt="" width="964" height="208" decoding="async"></span>`;
+
 // ---------- drawer ----------
 const sw = on => `<span class="sw ${on ? 'on' : ''}" aria-hidden="true"></span>`;
 const seg = (id, opts, cur) => `<div class="seg" id="${id}" role="radiogroup">${opts.map(([k, n]) => `<button data-v="${k}" role="radio" aria-checked="${cur === k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
@@ -17,7 +20,8 @@ const appearance = () => seg('dTheme', [['system', t('system')], ['light', t('li
 export function openDrawer() {
   const d = $('#drawer');
   d.innerHTML = `
-    <div class="dbrand"><img src="icons/icon-192.png" alt=""><div><b>${t('settings')}</b><div class="muted" style="font-size:13px">Khareeta · خريطة</div></div><button class="ib" id="dClose" style="margin-inline-start:auto" aria-label="${t('close')}">${ic('close')}</button></div>
+    <div class="dbrand">${brandLogo('dlogo')}<button class="ib" id="dClose" style="margin-inline-start:auto" aria-label="${t('close')}">${ic('close')}</button></div>
+    <h2 class="dtitle">${t('settings')}</h2>
     <div class="dlabel">${t('language').toUpperCase()}</div>
     <div class="dgroup" id="dLang">${LANGS.map(([k, n]) => `<button class="ditem" data-l="${k}" lang="${k}" role="radio" aria-checked="${getLang() === k}"><span dir="auto">${n}</span>${getLang() === k ? `<span class="ck">${ic('check')}</span>` : ''}</button>`).join('')}</div>
     <div class="dlabel">${t('mapHdr').toUpperCase()}</div>
@@ -42,6 +46,7 @@ export function openDrawer() {
       <button class="ditem" data-a="about">${ic('info')}${t('about')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
     </div>
     <div class="dfoot">Khareeta v${VERSION}<br>© OpenStreetMap contributors · OpenFreeMap · OpenMapTiles</div>`;
+  d.setAttribute('aria-label', t('settings'));
   d.classList.add('open'); $('#scrim').classList.remove('hidden');
   if (!App.installPrompt && !/iphone|ipad/i.test(navigator.userAgent)) $('#dInstall').classList.add('hidden');
   if (matchMedia('(display-mode: standalone)').matches) $('#dInstall').classList.add('hidden');
@@ -91,7 +96,7 @@ export function showSaved() {
 }
 
 function showAbout() {
-  openSheet(`<div class="sec"><h2 class="ptitle">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
+  openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
   <div class="prow">${ic('info')}<div class="pv wiki">${getLang() === 'ar' ? 'خريطة تطبيق ملاحة مجاني ومفتوح المصدر مبني على بيانات OpenStreetMap ويستخدم فقط خدمات مجتمعية لا تتطلب مفاتيح ولا تحجب سوريا.' : getLang() === 'de' ? 'Khareeta ist eine freie Navigations-App auf Basis von OpenStreetMap. Sie nutzt nur schlüsselfreie Community-Dienste, die Syrien nicht sperren.' : 'Khareeta is a free navigation app built on OpenStreetMap. It only uses key-free community services that do not block Syria.'}</div></div>
   <div class="prow">${ic('map')}<div class="pv"><b>${t('sources')}</b><small>
   Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a> (ODbL)<br>Places (hotels, ATMs, restaurants …): bundled OpenStreetMap extract for Syria via <a href="https://download.geofabrik.de/asia/syria.html" target="_blank">Geofabrik</a>, data from 2026-10-31 (ODbL)<br>

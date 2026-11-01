@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261101-2100';
+const VERSION = '20261101-2152';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -54,8 +54,14 @@ const SHELL_FILES = [
   'sprites/khareeta-light@3x.json',
   'sprites/khareeta-light@3x.png',
   'icons/icon.svg',
+  'icons/icon-180.png',
   'icons/icon-192.png',
-  'icons/icon-512.png'];
+  'icons/icon-512.png',
+  'icons/maskable-512.png',
+  'icons/logo-lockup.svg',
+  'icons/logo-lockup-dark.svg',
+  'favicon.ico',
+  'favicon-32.png'];
 const TILES = 'kh-tiles', OFFLINE = 'kh-offline', RT = 'kh-rt';
 const MAX_TILES = 6000, MAX_AGE = 21 * 864e5;
 
