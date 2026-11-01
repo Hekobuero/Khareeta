@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261101-2137';
+const VERSION = '20261101-2152';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
