@@ -163,5 +163,5 @@ grant execute on function public.kh_dashboard(int) to authenticated;
 --    on conflict (user_id) do nothing;
 -- 3) Optional: Authentication → Providers → Email → disable "Allow new users to sign up",
 --    so nobody else can create accounts (non-admin accounts could not read anything anyway).
--- 4) Open https://hekobuero.github.io/Khareeta/admin.html and sign in.
+-- 4) Open https://khareeta.app/admin.html and sign in.
 -- ---------------------------------------------------------------------

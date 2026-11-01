@@ -5,7 +5,7 @@
 no API keys, no Google/Mapbox/HERE/Bing/Apple services, only community / FOSS services that do not
 geo-block Syria, and everything the app needs is self-hosted in this repository.
 
-Live: https://hekobuero.github.io/Khareeta/
+Live: https://khareeta.app/ (custom domain via the root `CNAME` file; the old https://hekobuero.github.io/Khareeta/ URL redirects there)
 
 ## Features
 - Vector map (MapLibre GL JS, self-hosted) with crisp high-DPI rendering, Arabic text shaping (RTL plugin, self-hosted)

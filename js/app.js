@@ -295,6 +295,8 @@ try { navigator.permissions?.query({ name: 'geolocation' }).then(s => { if (s.st
 
 // ---------- service worker ----------
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e)));
+  // app.js awaits the style at top level, so the window 'load' event may already have fired here
+  const regSW = () => navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));
+  if (document.readyState === 'complete') regSW(); else addEventListener('load', regSW);
 }
 track('visit', {});
