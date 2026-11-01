@@ -1,5 +1,6 @@
 // Directions (OSRM @ FOSSGIS with Valhalla @ FOSSGIS failover), alternatives, multi-stop,
 // turn-by-turn list, live GPS navigation with rerouting + voice guidance.
+import { setPoiVisible } from './poi.js';
 import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, debounce, toast, settings, lsGet } from './util.js';
 import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
@@ -324,8 +325,8 @@ function navArrowEl() {
   d.innerHTML = `<svg class="navarrow" viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="21.5" fill="var(--k-puck)" stroke="#fff" stroke-width="3"/><path d="M24 11l9.5 23L24 29l-9.5 5z" fill="#fff"/></svg>`;
   return d.firstChild;
 }
-const NAV_HIDE = ['poi', 'poi-dot', 'label-housenumber'];
-function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); }
+const NAV_HIDE = ['label-housenumber'];
+function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); setPoiVisible(App.map, !hide); }
 export function startNav(sim = false) {
   const r = R.routes[R.sel]; if (!r) return;
   R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false;

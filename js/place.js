@@ -1,5 +1,6 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
+import { poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
@@ -86,6 +87,8 @@ export async function openPlace(item, opts = {}) {
   const my = ++token;
   cur = item; track('place_view', { cat: item.tags?.amenity || item.tags?.shop || item.tags?.tourism || item.tags?.place || (item.coord ? 'pin' : null) });
   const ll = [item.lon, item.lat];
+  App.selPoi = poiIndexFor(item);
+  if (App.selPoi != null && !item.poi) { const b = toItem(POIS.all[App.selPoi]).tags; item.tags = Object.assign({}, b, item.tags || {}); }
   { const [icn, col] = catIcon(item.tags || {}); setSelMarker(ll, item.coord ? '#E5484D' : col, item.coord ? null : icn, item.tags?.name || item.name); }
   render(item, item.tags || {}, !item.coord && !item.full);
   if (!opts.noFly) {

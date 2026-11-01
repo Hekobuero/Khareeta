@@ -38,6 +38,7 @@ Live: https://hekobuero.github.io/Khareeta/
 |---|---|---|
 | Vector tiles, styles, fonts, sprites | [OpenFreeMap](https://openfreemap.org) (Hungary, via Cloudflare) | free, no key, no limits; offline downloads allowed ≤3000 tiles/50 MB, ≤4 parallel |
 | Map data | © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL | OSMF, open data |
+| Places (POIs) | `data/poi-syria.json` – bundled OSM extract for all of Syria (Geofabrik `syria-261031`, data 2026-10-31), ODbL | self-hosted, works offline |
 | Autocomplete | [Photon](https://photon.komoot.io) by komoot | key-free public instance (fair use) |
 | Search, reverse geocoding, place lookup | [Nominatim](https://nominatim.org) (OSMF) | key-free; app limits to 1 request/s, no autocomplete use (policy) |
 | Routing | [FOSSGIS OSRM](https://routing.openstreetmap.de) car/bike/foot, failover [FOSSGIS Valhalla](https://valhalla1.openstreetmap.de) | German non-profit, key-free, planet-wide |
@@ -71,3 +72,14 @@ coverage of opening hours/phones depends on OpenStreetMap contributors (everyone
 ## Development
 Static site, no build step. Serve the folder with any static web server (`python3 -m http.server`).
 Deep links: `?ll=lat,lon&p=n123&n=Name` (place), `?r=lat,lon;lat,lon&m=car|foot|bike` (route), `?q=text` (search), `#map=z/lat/lon`, `?debug`.
+
+## Places (POI) data
+
+`data/poi-syria.json` holds ~22 800 places for all of Syria (hotels, ATMs/banks/exchange, restaurants, cafés, fuel,
+pharmacies, hospitals/clinics, groceries, bakeries, mosques, churches, parking, police, sights, shops, schools …),
+extracted from the Geofabrik OpenStreetMap extract `syria-261031.osm.pbf` (data date 2026-10-31).
+Only name (local/ar/en), category, opening hours, phone, website, stars and cuisine/brand are kept.
+Licence: © OpenStreetMap contributors, ODbL 1.0 – keep the attribution. The app renders it as its own GeoJSON
+source (`kh-poi`), uses it for category filters and the local search, and refreshes details live from
+Nominatim/Overpass when a place is opened. To refresh: download a new extract and run the extractor
+(`extract.py` + `pack.py`, pyosmium) – see the deploy notes.

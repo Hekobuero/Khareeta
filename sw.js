@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261101-1600';
+const VERSION = '20261101-1800';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -23,6 +23,8 @@ const SHELL_FILES = [
   'js/mapstyle.js',
   'js/offline.js',
   'js/place.js',
+  'js/poi.js',
+  'data/poi-syria.json',
   'js/route.js',
   'js/search.js',
   'js/ui.js',

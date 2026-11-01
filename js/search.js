@@ -1,12 +1,13 @@
 // Search: Photon autocomplete (komoot, key-free) + Nominatim full search (1 req/s) + coordinates / plus codes,
 // recent searches & saved places, category search via Overpass.
-import { $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
+import { nf, $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, center, refPoint, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
 import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
+import { loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
 export const CATS = [
@@ -80,17 +81,20 @@ export function initSearch() {
     photonCtl?.abort(); photonCtl = new AbortController();
     let res = []; $('#searchProg').classList.remove('hidden');
     const local = localMatches(text);
+    const lp = poiLocal(text);
     try {
       const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=8&lang=${lang}&lat=${c[1].toFixed(4)}&lon=${c[0].toFixed(4)}&zoom=${Math.round(Math.max(6, z))}&location_bias_scale=0.4`, { signal: photonCtl.signal }, 8000);
       res = j.features.map(fromPhoton);
-    } catch (e) { if (e.name === 'AbortError') return; if (!navigator.onLine) { box.innerHTML = `<div class="shead">${t('offlineSearch')}</div>`; } }
+    } catch (e) { if (e.name === 'AbortError') return; }
     if (my !== seq) return;
     $('#searchProg').classList.add('hidden');
     // settlements whose name matches the query beat regions/bus lines with the same word (Photon ranks "Latakia Governorate" first)
     const ql = text.toLowerCase();
     const isTown = r => ['city', 'town', 'village'].includes(r.tags?.place) && (r.name || '').toLowerCase().startsWith(ql);
     res = [...res.filter(isTown), ...res.filter(r => !isTown(r))];
-    items = [...local, ...res.filter(r => !local.some(l => l.id === r.id))];
+    if (lp.chip) res = res.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
+    const seen = new Set([...local, ...lp.items].map(x => x.id));
+    items = [...(lp.chip ? [chipItem(lp.chip)] : []), ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id)), ...res.filter(r => !seen.has(r.id))].slice(0, 14);
     const coord = parseCoords(text) || plusDecode(text);
     if (coord) items.unshift({ id: 'c', name: text, sub: t('coords'), lon: coord[0], lat: coord[1], icon: ['pin', '#E5484D'], coord: true });
     box.innerHTML = items.length ? items.map((it, i) => row(it, i)).join('') : `<div class="srow muted">${t('noResults')}</div>`;
@@ -111,6 +115,7 @@ export function initSearch() {
   });
   box.addEventListener('pointerdown', e => e.preventDefault());
   box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) choose(items[+r.dataset.i]); });
+  loadPois().catch(() => {});
   q.addEventListener('blur', () => setTimeout(() => { box.innerHTML = ''; show(); }, 150));
   $('#btnClear').addEventListener('click', () => { q.value = ''; $('#btnClear').classList.add('hidden'); clearMarkers(); closeSheet(); q.focus(); renderIdle(); });
 }
@@ -121,7 +126,30 @@ function localMatches(text) {
     .filter(x => (x.name || '').toLowerCase().includes(s)).slice(0, 3);
 }
 
+function poiLocal(text) {
+  if (!P.all.length) return { chip: null, items: [] };
+  const r = searchLocal(text, refPoint(), 6);
+  return { chip: r.chip, items: r.items.map(rec => poiRow(rec)) };
+}
+function poiRow(rec) {
+  const it = toItem(rec);
+  const st = poiStatus(rec);
+  it.name = pickName(it.tags).primary || catLabel(it.tags);
+  it.sub = catLabel(it.tags) + (rec.d != null ? '' : '');
+  it.status = st; it.full = false; it.local = true;
+  const ui = { food: 'restaurant', cafe: 'cafe', bakery: 'bakery', hotel: 'hotel', money: rec.s === 'bank' ? 'bank' : 'atm', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', clinic: 'hospital',
+    grocery: 'supermarket', shop: 'shop', mosque: 'mosque', church: 'church', worship: 'mosque', parking: 'parking', police: 'police', sight: 'tourism', fun: 'tourism', edu: 'school',
+    gov: 'info', transport: 'bus', park: 'tourism', car: 'car', toilets: 'toilets' }[rec.c] || 'pin';
+  it.icon = [ui, POI[rec.grp] || POI.civic];
+  return it;
+}
+function chipItem(key) {
+  const c = CATS.find(x => x[0] === key);
+  const n = P.all.filter(r => CHIP_CATS[key].includes(r.c) && haversine(refPoint(), [r.lon, r.lat]) < 10000).length;
+  return { id: 'chip:' + key, chip: key, name: t(key), sub: t('nearbyN', { n: nf(n) }), icon: [c[1], c[2]] };
+}
 export function choose(item) {
+  if (item.chip) { $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden'); const q = $('#q'); q.value = t(item.chip); q.blur(); $('#btnClear').classList.remove('hidden'); track('search', { kind: 'cat', cat: item.chip }); applyChips([item.chip], false); return; }
   cancelCategory();
   $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden');
   const q = $('#q'); q.value = item.name; q.blur(); $('#btnClear').classList.remove('hidden');
@@ -140,13 +168,18 @@ export async function fullSearch(text) {
   const b = App.map.getBounds();
   const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => v.toFixed(4)).join(',');
   let res = [];
-  try {
+  if (navigator.onLine) try {
     const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=0&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
   } catch {
-    try { const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=12`); res = j.features.map(fromPhoton); } catch { toast(t('serviceDown')); }
+    try { const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=12`); res = j.features.map(fromPhoton); } catch {}
   }
   box.innerHTML = ''; box.classList.add('hidden');
+  try { await loadPois(); } catch {}
+  const lr = searchLocal(text, refPoint(), 30);
+  if (lr.chip && !lr.items.length) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
+  const loc = lr.items.map(poiRow);
+  res = [...loc, ...res.filter(r => !loc.some(l => l.id === r.id))];
   track('search', { kind: 'full', n: res.length });
   if (!res.length) { toast(t('noResults')); return; }
   if (res.length === 1) return choose(res[0]);
@@ -169,14 +202,62 @@ export function showResultList(res, title, fit = true) {
   }
 }
 
-// ---------- categories (Overpass) ----------
+// ---------- categories: bundled POIs (multi-select + open now), live Overpass as supplement ----------
 let catSeq = 0;
-export function cancelCategory() { catSeq++; document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); }
-export async function searchCategory(key) {
+export function cancelCategory() { catSeq++; if (getFilter().cats.size) { setFilter(App.map, []); } document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); }
+export function toggleChip(key) {
+  const cats = new Set(getFilter().cats);
+  cats.has(key) ? cats.delete(key) : cats.add(key);
+  applyChips([...cats], getFilter().openNow);
+}
+export async function applyChips(cats, openNow, fit = true) {
+  catSeq++;
+  try { await loadPois(); } catch { return searchCategoryLive(cats[0]); }
+  setFilter(App.map, cats, openNow);
+  document.querySelectorAll('.chip[data-cat]').forEach(c => c.classList.toggle('on', cats.includes(c.dataset.cat)));
+  if (!cats.length) { clearMarkers(); closeSheet(); return; }
+  track('category', { cat: cats.join(',') });
+  showFilterSheet(fit);
+}
+export function filterActive() { return getFilter().cats.size > 0; }
+export function showFilterSheet(fit = false) {
+  const f = getFilter(), cats = [...f.cats];
+  const ref = refPoint(), r = filterResults(ref, 80);
+  clearMarkers();
+  const res = r.list.map(rec => Object.assign(poiRow(rec), { d: rec.d }));
+  const title = cats.map(k => t(k)).join(' · ');
+  const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
+    [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
+  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`
+    : `<div class="sec"><p class="psub">${t(f.openNow ? 'noOpenNow' : 'noResults')}</p></div>`;
+  const body = openSheet(`<div class="sec fhead"><div class="fhrow"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><button class="act" id="fClear">${t('clear')}</button></div><p class="psub">${esc(countTxt)}</p></div>${chipsHtml}${list}<div class="sec"><button class="act" id="fLive">${ic('search')}<span>${t('liveSearch')}</span></button><p class="psub small">${esc(t('poiData', { d: P.meta?.date || '' }))}</p></div>`, fit ? 'half' : (sheetStateSafe() || 'half'),
+    () => { if (sheetStateSafe() === 'hidden') { setFilter(App.map, []); document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); clearMarkers(); } });
+  App.sheetKind = 'filter';
+  body.querySelector('.list')?.addEventListener('click', e => { const el = e.target.closest('.srow'); if (el) { const x = res[+el.dataset.i]; addRecent(x); openPlace(x); } });
+  body.querySelector('.fchips').addEventListener('click', e => {
+    const b = e.target.closest('.ochip'); if (!b) return;
+    if (b.dataset.open) { applyChips(cats, !f.openNow, false); return; }
+    const set = new Set(cats); set.has(b.dataset.fc) ? set.delete(b.dataset.fc) : set.add(b.dataset.fc);
+    applyChips([...set], f.openNow, true);
+  });
+  $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
+  $('#fLive').onclick = () => searchCategoryLive(cats[0]);
+  if (fit && res.length) {
+    const near = res.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
+    if (App.me && haversine(App.me, [near[0].lon, near[0].lat]) < 20000) b.extend(App.me);
+    const mp = mapPadding();
+    fitTo(b, { top: mp.top + 30, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 30, left: mp.left + 40, right: mp.right + 40 }, { maxZoom: 15.5, duration: 600 });
+  }
+}
+function sheetStateSafe() { return document.getElementById('sheet')?.dataset.state; }
+// legacy name used by app.js
+export function searchCategory(key) { return toggleChip(key); }
+// live OpenStreetMap (Overpass) in the current view – supplement for the newest data
+export async function searchCategoryLive(key) {
   const mySeq = ++catSeq;
   const cat = CATS.find(c => c[0] === key); if (!cat) return;
-  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.cat === key));
-  track('category', { cat: key });
+  track('category', { cat: key, live: 1 });
   const map = App.map, c = center();
   let b = map.getBounds();
   let s = b.getSouth(), w = b.getWest(), n = b.getNorth(), e = b.getEast();
@@ -185,7 +266,7 @@ export async function searchCategory(key) {
   const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
   const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
   const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
-  openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
+  openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
     let j;
     try { j = await overpass(q, 9000, 2500); }
@@ -194,7 +275,7 @@ export async function searchCategory(key) {
       const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
       j = { elements: r.map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
     }
-    if (mySeq !== catSeq || !document.querySelector('.chip.on')) return;
+    if (mySeq !== catSeq) return;
     const ref = refPoint();
     let res = j.elements.map(el => {
       const lon = el.lon ?? el.center?.lon, lat = el.lat ?? el.center?.lat;
@@ -206,10 +287,10 @@ export async function searchCategory(key) {
     res.sort((a, b) => (b.tags.name ? 1 : 0) - (a.tags.name ? 1 : 0) || a.d - b.d);
     res = res.slice(0, 100).sort((a, b) => a.d - b.d);
     if (!res.length) { openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('noResults')}</p></div>`, 'peek'); return; }
-    showResultList(res, t(key), false);
+    showResultList(res, t(key) + ' · OSM live', false);
   } catch (err) {
     if (mySeq !== catSeq) return;
     openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('serviceDown')}</p><div class="actions"><button class="act" id="retryCat">${t('tryAgain')}</button></div></div>`, 'peek');
-    $('#retryCat').onclick = () => searchCategory(key);
+    $('#retryCat').onclick = () => searchCategoryLive(key);
   }
 }

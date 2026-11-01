@@ -1,4 +1,5 @@
 // Shared state + sheet + marker helpers
+import { setPoiSelected } from './poi.js';
 import { $, esc } from './util.js';
 import { ic, P } from './icons.js';
 import { t, getLang } from './i18n.js';
@@ -235,6 +236,7 @@ export function setSelMarker(lnglat, color, icon, name) {
   App.selMarker?.remove();
   App.selName = lnglat ? name : null;
   applySelFilter(App.selName);
+  try { setPoiSelected(App.map, lnglat ? (App.selPoi ?? null) : null); } catch {}
   if (!lnglat) { App.selMarker = null; return; }
   App.selMarker = new maplibregl.Marker({ element: pinEl(color, icon), anchor: 'bottom' }).setLngLat(lnglat).addTo(App.map);
 }

@@ -332,3 +332,15 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
 .act .ic{width:18px;height:18px}
 .prog{height:6px;border-radius:3px;background:var(--k-surface-2);overflow:hidden;margin:8px 0}
 .prog i{display:block;height:6px;border-radius:3px;background:var(--k-accent);width:0;transition:width .2s}
+/* POI filter sheet */
+.fhead .fhrow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.fhead .fhrow .act{flex:none}
+.fchips{padding-top:4px}
+.fchips .ochip{border:0;color:var(--k-text);cursor:pointer}
+.fchips .ochip .ic{color:var(--chip-ic,var(--k-accent))}
+.fchips .ochip.on{background:var(--chip-ic,var(--k-accent));color:#fff}
+.fchips .ochip.on .ic{color:#fff}
+.fchips .ochip[data-open].on{background:#2E9E5B}
+.psub.small{font-size:12px;opacity:.75;margin-top:8px}
+.srow .t1[dir=auto]{unicode-bidi:plaintext;text-align:left}
+[dir=rtl] .srow .t1[dir=auto]{text-align:right}

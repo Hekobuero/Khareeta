@@ -94,7 +94,7 @@ function showAbout() {
   openSheet(`<div class="sec"><h2 class="ptitle">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
   <div class="prow">${ic('info')}<div class="pv wiki">${getLang() === 'ar' ? 'خريطة تطبيق ملاحة مجاني ومفتوح المصدر مبني على بيانات OpenStreetMap ويستخدم فقط خدمات مجتمعية لا تتطلب مفاتيح ولا تحجب سوريا.' : getLang() === 'de' ? 'Khareeta ist eine freie Navigations-App auf Basis von OpenStreetMap. Sie nutzt nur schlüsselfreie Community-Dienste, die Syrien nicht sperren.' : 'Khareeta is a free navigation app built on OpenStreetMap. It only uses key-free community services that do not block Syria.'}</div></div>
   <div class="prow">${ic('map')}<div class="pv"><b>${t('sources')}</b><small>
-  Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a> (ODbL)<br>
+  Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a> (ODbL)<br>Places (hotels, ATMs, restaurants …): bundled OpenStreetMap extract for Syria via <a href="https://download.geofabrik.de/asia/syria.html" target="_blank">Geofabrik</a>, data from 2026-10-31 (ODbL)<br>
   Vector tiles & styles: <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank">© OpenMapTiles</a><br>
   Map renderer: <a href="https://maplibre.org" target="_blank">MapLibre GL JS</a> (BSD-3) · RTL: mapbox-gl-rtl-text (BSD-2)<br>
   Search: <a href="https://photon.komoot.io" target="_blank">Photon by komoot</a> · <a href="https://nominatim.org" target="_blank">Nominatim</a> (OSMF)<br>

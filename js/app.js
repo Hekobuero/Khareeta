@@ -5,7 +5,9 @@ import { ic } from './icons.js';
 import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center, openSheet, catIcon, resetPoiFilters, applySelFilter } from './core.js';
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
-import { initSearch, renderChips, searchCategory, fullSearch } from './search.js';
+import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
+import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
+import { mapIsDark } from './mapstyle.js';
 import { openPlace, openPoint, weatherRaw, wmo, currentPlace } from './place.js';
 import { showSaved } from './ui.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
@@ -64,10 +66,14 @@ map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-lef
 map.once('load', () => document.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
 const scale = new maplibregl.ScaleControl({ maxWidth: 90, unit: 'metric' });
 map.addControl(scale, 'bottom-left');
+function poiLayers() { if (!POIS.geo || map.getSource('kh-poi')) return; addPoiLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }
+loadPois().then(function tryAdd() { if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250); }).catch(e => console.warn('poi data', e));
 map.on('style.load', () => {
+  if (POIS.geo) addPoiLayers(map, mapIsDark());
+  if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
   if (App.selName) applySelFilter(App.selName);
-  if (navActive()) for (const id of ['poi', 'poi-dot', 'label-housenumber']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+  if (navActive()) for (const id of ['label-housenumber']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
 });
 map.on('styleimagemissing', e => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
 map.on('moveend', debounce(() => { const c = map.getCenter(); lsSet('kh.view', { c: [c.lng, c.lat], z: map.getZoom() }); }, 500));
@@ -106,6 +112,11 @@ map.on('click', async e => {
   if (navActive()) return;
   if (measureActive()) { measureClick([e.lngLat.lng, e.lngLat.lat]); return; }
   $('#layersPop').classList.add('hidden');
+  const kp = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: POI_LAYERS.filter(id => map.getLayer(id)) });
+  if (kp.length) {
+    const rec = POIS.all[kp[0].properties.i];
+    if (rec) { const it = toItem(rec); it.name = pickName(it.tags).primary || ''; openPlace(it, { noFly: true }); return; }
+  }
   const feats = map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
   if (feats.length) {
     const f = feats[0], p = f.properties, ll = f.geometry.type === 'Point' ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
@@ -129,6 +140,7 @@ map.on('click', async e => {
 });
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
+for (const id of POI_LAYERS) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 // long-press ("what's here") for touch devices
 {
   let tm = null, sx = 0, sy = 0;
@@ -218,7 +230,7 @@ function showHome(keep) {
   };
 }
 function setSheetPeek() { import('./core.js').then(m => m.setSheet('peek')); }
-App.onSheetClosed = () => { if (sheetState() === 'hidden' && !App.navMode) setTimeout(() => { if (sheetState() === 'hidden') showHome(); }, 50); };
+App.onSheetClosed = () => { if (sheetState() === 'hidden' && !App.navMode) setTimeout(() => { if (sheetState() === 'hidden') { if (filterActive()) showFilterSheet(false); else showHome(); } }, 50); };
 
 // ---------- buttons ----------
 $('#btnMenu').onclick = openDrawer;
@@ -234,7 +246,7 @@ $('#btnLocate').onclick = () => {
   else { App.locMode = 1; map.easeTo({ bearing: 0, duration: 400 }); }
   renderLocBtn();
 };
-$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; if (c.classList.contains('on')) { c.classList.remove('on'); closeSheet(); return; } searchCategory(c.dataset.cat); };
+$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; toggleChip(c.dataset.cat); };
 
 // weather chip (map centre)
 const updWx = debounce(async () => {
