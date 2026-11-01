@@ -1,0 +1,473 @@
+// Directions (OSRM @ FOSSGIS with Valhalla @ FOSSGIS failover), alternatives, multi-stop,
+// turn-by-turn list, live GPS navigation with rerouting + voice guidance.
+import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, debounce, toast, settings, lsGet } from './util.js';
+import { t, getLang, SPEECH_LANG } from './i18n.js';
+import { ic } from './icons.js';
+import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
+import { track } from './analytics.js';
+
+const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
+export const routeState = R;
+
+// ---------------- instruction text ----------------
+function ord(n) { const o = t('ordinals'); return o[n - 1] || String(n); }
+export function instr(s) {
+  const n = s.name ? (s.ref && !s.name.includes(s.ref) ? `${s.name} (${s.ref})` : s.name) : (s.ref || '');
+  const mods = t('mods'), m = s.modifier || 'straight';
+  const side = /left/.test(m) ? t('sideL') : t('sideR');
+  switch (s.type) {
+    case 'depart': return n ? t('departOn', { dir: t('dirs')[compass8(s.bearing_after || 0)], n }) : t('depart', { dir: t('dirs')[compass8(s.bearing_after || 0)] });
+    case 'arrive': return s.last ? (s.modifier === 'left' ? t('arriveL') : s.modifier === 'right' ? t('arriveR') : t('arriveDest')) : t('arriveWp', { n: s.leg + 1 });
+    case 'roundabout': case 'rotary': case 'roundabout turn': case 'exit roundabout': case 'exit rotary':
+      if (s.exit) return n ? t('rbtOnto', { x: ord(s.exit), n }) : t('rbt', { x: ord(s.exit) });
+      return t('rbtEnter');
+    case 'merge': return n ? t('mergeOnto', { n }) : t('merge');
+    case 'on ramp': return n ? t('rampOnto', { n }) : t('ramp');
+    case 'off ramp': return n ? t('exitOnto', { n }) : t('exitRamp');
+    case 'fork': return n ? t('keepOnto', { side, n }) : t('keep', { side });
+    case 'end of road': return t('endRoad', { a: (n ? t('onto', { a: mods[m] || mods.straight, n }) : (mods[m] || mods.straight)).toLowerCase() });
+    case 'new name': case 'continue': if (m === 'straight' || !mods[m]) return n ? t('contOn', { n }) : t('cont'); // fallthrough
+    case 'notification': if (m === 'straight' || !mods[m]) return n ? t('contOn', { n }) : t('cont');
+    case 'ferry': if (s.type === 'ferry') return t('ferry');
+    default: { const a = mods[m] || mods.straight; return n ? t('onto', { a, n }) : a; }
+  }
+}
+export function stepIcon(s) {
+  if (s.type === 'arrive') return 'flag';
+  if (/roundabout|rotary/.test(s.type)) return 'roundabout';
+  if (s.type === 'ferry') return 'ferry';
+  if (s.type === 'merge') return 'merge';
+  if (s.type === 'fork') return /left/.test(s.modifier) ? 'slightLeft' : 'slightRight';
+  return { uturn: 'uturn', 'sharp right': 'turnRight', right: 'turnRight', 'slight right': 'slightRight', straight: 'straight', 'slight left': 'slightLeft', left: 'turnLeft', 'sharp left': 'turnLeft' }[s.modifier] || 'straight';
+}
+
+// ---------------- routing engines ----------------
+const OSRM = { car: 'routed-car', foot: 'routed-foot', bike: 'routed-bike' };
+async function osrm(stops, mode) {
+  const coords = stops.map(s => s.lon.toFixed(6) + ',' + s.lat.toFixed(6)).join(';');
+  const alt = stops.length === 2 ? '&alternatives=2' : '';
+  const j = await fetchJSON(`https://routing.openstreetmap.de/${OSRM[mode]}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alt}&continue_straight=default`, {}, 20000);
+  if (j.code !== 'Ok' || !j.routes?.length) throw new Error(j.code || 'noroute');
+  return j.routes.map(r => {
+    const steps = [];
+    r.legs.forEach((leg, li) => leg.steps.forEach(s => {
+      const m = s.maneuver;
+      if (m.type === 'arrive' && li < r.legs.length - 1) { /* waypoint */ }
+      steps.push({ type: m.type, modifier: m.modifier, exit: m.exit, name: s.name, ref: s.ref, distance: s.distance, duration: s.duration, loc: m.location, bearing_after: m.bearing_after, leg: li, last: li === r.legs.length - 1 && m.type === 'arrive', mode: s.mode, lanes: s.intersections?.[0]?.lanes || null });
+    }));
+    const names = {}; steps.forEach(s => { if (s.name || s.ref) names[s.ref || s.name] = (names[s.ref || s.name] || 0) + s.distance; });
+    const summary = Object.entries(names).sort((a, b) => b[1] - a[1]).slice(0, 1).map(x => x[0]).join(', ');
+    return { coords: r.geometry.coordinates, distance: r.distance, duration: r.duration, steps, summary, engine: 'OSRM' };
+  });
+}
+function decode6(str) {
+  let idx = 0, lat = 0, lon = 0; const out = [];
+  while (idx < str.length) {
+    for (const k of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(idx++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (k === 0) lat += d; else lon += d;
+    }
+    out.push([lon / 1e6, lat / 1e6]);
+  }
+  return out;
+}
+const VTYPE = { 1: ['depart'], 2: ['depart'], 3: ['depart'], 4: ['arrive'], 5: ['arrive', 'right'], 6: ['arrive', 'left'], 7: ['new name', 'straight'], 8: ['continue', 'straight'], 9: ['turn', 'slight right'], 10: ['turn', 'right'], 11: ['turn', 'sharp right'], 12: ['turn', 'uturn'], 13: ['turn', 'uturn'], 14: ['turn', 'sharp left'], 15: ['turn', 'left'], 16: ['turn', 'slight left'], 17: ['on ramp', 'straight'], 18: ['on ramp', 'slight right'], 19: ['on ramp', 'slight left'], 20: ['off ramp', 'slight right'], 21: ['off ramp', 'slight left'], 22: ['fork', 'straight'], 23: ['fork', 'slight right'], 24: ['fork', 'slight left'], 25: ['merge', 'straight'], 26: ['roundabout', 'straight'], 27: ['exit roundabout', 'straight'], 28: ['ferry'], 29: ['continue'], 36: ['turn', 'right'], 37: ['turn', 'left'], 38: ['merge', 'right'], 39: ['merge', 'left'] };
+async function valhalla(stops, mode) {
+  const costing = { car: 'auto', foot: 'pedestrian', bike: 'bicycle' }[mode];
+  const req = { locations: stops.map((s, i) => ({ lat: s.lat, lon: s.lon, type: i === 0 || i === stops.length - 1 ? 'break' : 'break' })), costing, directions_options: { units: 'kilometers', language: 'en-US' }, alternates: stops.length === 2 ? 2 : 0 };
+  const j = await fetchJSON('https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req)), {}, 20000);
+  const trips = [j.trip, ...(j.alternates || []).map(a => a.trip)].filter(Boolean);
+  return trips.map(trip => {
+    let coords = [], steps = [];
+    trip.legs.forEach((leg, li) => {
+      const shape = decode6(leg.shape); const off = coords.length; coords = coords.concat(shape);
+      leg.maneuvers.forEach(m => {
+        const [type, modifier] = VTYPE[m.type] || ['turn', 'straight'];
+        steps.push({ type, modifier, exit: m.roundabout_exit_count, name: (m.street_names || [])[0] || '', ref: '', distance: m.length * 1000, duration: m.time, loc: shape[m.begin_shape_index] || shape[0], bearing_after: m.bearing_after, leg: li, last: li === trip.legs.length - 1 && type === 'arrive' });
+      });
+    });
+    return { coords, distance: trip.summary.length * 1000, duration: trip.summary.time, steps, summary: steps.filter(s => s.name).sort((a, b) => b.distance - a.distance).slice(0, 1).map(s => s.name).join(', '), engine: 'Valhalla' };
+  });
+}
+export async function computeRoutes(stops, mode) {
+  try { return await osrm(stops, mode); }
+  catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); return await valhalla(stops, mode); }
+}
+
+// ---------------- map layers (route layers live in the style, source 'khareeta-route') ----------------
+const MODE = { car: 'drive', foot: 'walk', bike: 'bike', transit: 'walk' };
+export function ensureRouteLayers() {
+  const map = App.map; if (!map || !map.getStyle()) return;
+  if (!map.getSource('khareeta-route')) { // raster fallback style: add a minimal route rendering
+    map.addSource('khareeta-route', { type: 'geojson', data: fc(), lineMetrics: true });
+    map.addLayer({ id: 'route-alt', type: 'line', source: 'khareeta-route', filter: ['==', ['get', 'role'], 'alt'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#A6C3EA', 'line-width': 6 } });
+    map.addLayer({ id: 'route', type: 'line', source: 'khareeta-route', filter: ['==', ['get', 'role'], 'primary'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['case', ['==', ['get', 'traveled'], true], '#A3A9B3', '#1A73E8'], 'line-width': 7 } });
+  }
+  if (!map.getSource('measure')) map.addSource('measure', { type: 'geojson', data: fc([]) });
+  const add = (l) => { if (!map.getLayer(l.id)) map.addLayer(l); };
+  add({ id: 'measure-line', type: 'line', source: 'measure', paint: { 'line-color': '#1B1D21', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
+  add({ id: 'measure-pts', type: 'circle', source: 'measure', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#1B1D21', 'circle-stroke-width': 2.5 } });
+  drawRoutes();
+}
+const fc = (f = []) => ({ type: 'FeatureCollection', features: f });
+const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
+let bubbles = [];
+function drawRoutes(along = null) {
+  const src = App.map?.getSource('khareeta-route'); if (!src) return;
+  const mode = MODE[R.mode] || 'drive';
+  const feats = [];
+  if (!R.active) R.routes.forEach((r, i) => { if (i !== R.sel) feats.push(line(r.coords, { role: 'alt', mode, traveled: false, i })); });
+  const pr = R.routes[R.sel];
+  if (pr) {
+    if (along != null && N.cum) {
+      // split at the current position: traveled part greyed out
+      let k = N.cum.findIndex(c => c >= along); if (k < 1) k = 1;
+      const a = pr.coords[k - 1], b = pr.coords[k], f = (along - N.cum[k - 1]) / ((N.cum[k] - N.cum[k - 1]) || 1);
+      const p = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+      feats.push(line([...pr.coords.slice(0, k), p], { role: 'primary', mode, traveled: true, i: R.sel }));
+      feats.push(line([p, ...pr.coords.slice(k)], { role: 'primary', mode, traveled: false, i: R.sel }));
+    } else feats.push(line(pr.coords, { role: 'primary', mode, traveled: false, i: R.sel }));
+  }
+  src.setData(fc(feats));
+  if (along == null) drawBubbles();
+}
+function pointAt(coords, frac) {
+  const cum = cumulative(coords), d = cum[cum.length - 1] * frac;
+  let k = cum.findIndex(c => c >= d); if (k < 1) k = 1;
+  const a = coords[k - 1], b = coords[k], f = (d - cum[k - 1]) / ((cum[k] - cum[k - 1]) || 1);
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+function drawBubbles() {
+  bubbles.forEach(m => m.remove()); bubbles = [];
+  if (R.active || R.routes.length < 1 || !App.map) return;
+  let pts = R.routes.map(r => pointAt(r.coords, 0.5));
+  if (pts.length > 1) {
+    const px = pts.map(p => App.map.project(p));
+    const close = px.some((a, i) => px.some((b, j) => j > i && Math.hypot(a.x - b.x, a.y - b.y) < 80));
+    if (close) pts = R.routes.map((r, i) => pointAt(r.coords, [0.4, 0.6, 0.3][i] ?? 0.5));
+  }
+  R.routes.forEach((r, i) => {
+    const el = document.createElement('button');
+    el.className = 'rbubble' + (i === R.sel ? ' on' : '');
+    el.textContent = fmtDur(r.duration);
+    el.onclick = ev => { ev.stopPropagation(); selectRoute(i); };
+    bubbles.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat(pts[i]).addTo(App.map));
+  });
+}
+function selectRoute(i) { if (R.active || i === R.sel || !R.routes[i]) return; R.sel = i; drawRoutes(); renderPanel(); showRouteSheet(); }
+export function clearRoutes() { R.routes = []; drawRoutes(); R.markers.forEach(m => m.remove()); R.markers = []; }
+
+// ---------------- directions panel ----------------
+function meStop() { return App.me ? { name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true } : null; }
+export function openDirections({ from, to, autostart } = {}) {
+  import('./search.js').then(m => m.cancelCategory());
+  setSelMarker(null); clearMarkers();
+  R.stops = [from || meStop() || { name: '' }, to || { name: '' }];
+  R.autostart = autostart;
+  if (!R.mode || R.mode === 'transit') R.mode = 'car';
+  $('#dirPanel').classList.remove('hidden'); document.body.classList.add('dir-open');
+  $('#top').classList.add('hidden');
+  if (App.sheetKind === 'home') closeSheet();
+  renderPanel();
+  track('directions_open', {});
+  route();
+}
+export function closeDirections() {
+  if (R.active) return;
+  $('#dirPanel').classList.add('hidden'); document.body.classList.remove('dir-open'); $('#top').classList.remove('hidden');
+  clearRoutes(); closeSheet();
+}
+function renderPanel() {
+  const st = $('#dirStops');
+  $('#dirTitle').textContent = t('directions');
+  st.innerHTML = R.stops.map((s, i) => `<div class="stop ${i === 0 ? 'first' : ''} ${i === R.stops.length - 1 ? 'last' : ''}"><span class="dot">${i === R.stops.length - 1 ? ic('pin', 'sm') : ''}</span><input data-i="${i}" dir="auto" class="${s.isMe ? 'me' : ''}" value="${esc(s.name || '')}" placeholder="${i === 0 ? t('chooseStart') : i === R.stops.length - 1 ? t('chooseDest') : t('stop', { n: i })}">${R.stops.length > 2 ? `<button class="ib" data-rm="${i}">${ic('close', 'sm')}</button>` : ''}</div>`).join('') + (R.stops.length < 6 ? `<button class="addstop" id="addStop">+ ${t('addStop')}</button>` : '');
+  // No transit tab: there is no GTFS data for Syria (DESIGN §4.5)
+  const modes = [['car', 'car'], ['foot', 'walk'], ['bike', 'bike']];
+  $('#dirModes').innerHTML = modes.map(([m, icn]) => `<button class="mode ${R.mode === m ? 'on' : ''}" data-m="${m}" aria-label="${t(m)}" aria-pressed="${R.mode === m}">${ic(icn, 'sm')}<span>${R.routes.length && R.mode === m ? fmtDur(R.routes[R.sel]?.duration) : t(m)}</span></button>`).join('');
+  document.documentElement.style.setProperty('--dirh', $('#dirPanel').offsetHeight + 'px');
+}
+function initPanel() {
+  $('#dirBack').innerHTML = ic('back', 'flip-rtl'); $('#dirSwap').innerHTML = ic('swap');
+  $('#dirBack').onclick = closeDirections;
+  $('#dirSwap').onclick = () => { R.stops.reverse(); renderPanel(); route(); };
+  $('#dirModes').onclick = e => { const b = e.target.closest('.mode'); if (!b) return; R.mode = b.dataset.m; R.sel = 0; renderPanel(); route(); };
+  $('#dirStops').addEventListener('click', e => {
+    if (e.target.closest('#addStop')) { R.stops.splice(R.stops.length - 1, 0, { name: '' }); renderPanel(); $(`#dirStops input[data-i="${R.stops.length - 2}"]`).focus(); return; }
+    const rm = e.target.closest('[data-rm]'); if (rm) { R.stops.splice(+rm.dataset.rm, 1); renderPanel(); route(); }
+  });
+  let activeInput = null, sugg = [];
+  const box = $('#dirSuggest');
+  const search = debounce(async (inp) => {
+    const q = inp.value.trim(); const c = center();
+    let res = [];
+    if (App.me) res.push({ name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true, sub: '' });
+    lsGet('kh.saved', []).filter(s => !q || s.name.toLowerCase().includes(q.toLowerCase())).slice(0, 4).forEach(s => res.push({ ...s }));
+    if (q.length >= 2) {
+      try {
+        const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=${getLang() === 'ar' ? 'default' : getLang()}&lat=${c[1]}&lon=${c[0]}`, {}, 8000);
+        j.features.forEach(f => { const p = f.properties; res.push({ name: p.name || p.street, sub: [p.city, p.state, p.country].filter(Boolean).join(', '), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }); });
+      } catch {}
+    }
+    if (activeInput !== inp) return;
+    sugg = res;
+    box.innerHTML = res.map((r, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic(r.isMe ? 'locate' : 'pinOutline')}</div><div class="st"><div class="t1">${esc(r.name)}</div><div class="t2">${esc(r.sub || '')}</div></div></div>`).join('');
+    box.classList.toggle('hidden', !res.length);
+  }, 300);
+  $('#dirStops').addEventListener('focusin', e => { if (e.target.tagName === 'INPUT') { activeInput = e.target; e.target.select(); search(e.target); } });
+  $('#dirStops').addEventListener('input', e => { if (e.target.tagName === 'INPUT') search(e.target); });
+  $('#dirStops').addEventListener('focusout', () => setTimeout(() => { box.classList.add('hidden'); activeInput = null; }, 200));
+  box.addEventListener('pointerdown', e => e.preventDefault());
+  box.addEventListener('click', e => {
+    const r = e.target.closest('.srow'); if (!r || !activeInput) return;
+    const s = sugg[+r.dataset.i]; R.stops[+activeInput.dataset.i] = { name: s.name, lon: s.lon, lat: s.lat, isMe: s.isMe };
+    activeInput.blur(); box.classList.add('hidden'); renderPanel(); route();
+  });
+}
+
+let routeSeq = 0;
+async function route() {
+  const ok = R.stops.filter(s => s.lon != null);
+  const my = ++routeSeq;
+  R.markers.forEach(m => m.remove()); R.markers = [];
+  R.stops.forEach((s, i) => {
+    if (s.lon == null || s.isMe) return;
+    const last = i === R.stops.length - 1;
+    const el = last ? pinEl('#E5484D') : Object.assign(document.createElement('div'), { className: 'mpt' });
+    R.markers.push(new maplibregl.Marker({ element: el, anchor: last ? 'bottom' : 'center' }).setLngLat([s.lon, s.lat]).addTo(App.map));
+  });
+  if (ok.length < R.stops.length || ok.length < 2) { R.routes = []; drawRoutes(); if (!R.stops[0].lon && !App.me) toast(t('chooseStart')); return; }
+  const mode = R.mode === 'transit' ? 'foot' : R.mode;
+  openSheet(`<div style="padding:0 16px"><p class="psub">${t('routing')}</p><div class="skel-row"><div class="skel"></div></div><div class="skel" style="width:70%"></div></div>`, innerWidth < 900 ? 'half' : 'half');
+  try {
+    const routes = await computeRoutes(R.stops, mode);
+    if (my !== routeSeq) return;
+    R.routes = routes; R.sel = 0;
+    track('route', { mode: R.mode, stops: R.stops.length, km: Math.round(routes[0].distance / 1000) });
+    ensureRouteLayers(); drawRoutes(); renderPanel(); fitRoute(); showRouteSheet();
+    if (R.autostart) { R.autostart = false; startNav(); }
+  } catch (e) {
+    if (my !== routeSeq) return;
+    R.routes = []; drawRoutes(); renderPanel();
+    openSheet(`<div style="padding:0 16px"><p class="psub">${t('routeErr')}</p><div class="arow" style="margin-inline:0"><button class="abtn" id="rRetry">${ic('directions')}<span>${t('tryAgain')}</span></button></div></div>`, 'peek');
+    $('#rRetry').onclick = route;
+  }
+}
+function fitRoute() {
+  const r = R.routes[R.sel]; if (!r) return;
+  const b = new maplibregl.LngLatBounds(); R.routes.forEach(rt => rt.coords.forEach(c => b.extend(c)));
+  const pad = mapPadding(), desk = innerWidth >= 900;
+  const top = (desk ? 24 : $('#dirPanel').offsetHeight + 24) + 48; // + destination pin height
+  let bottom = (desk ? 0 : Math.max(pad.bottom, Math.max(360, innerHeight / 2))) + 24;
+  bottom = Math.max(24, Math.min(bottom, innerHeight - top - 140));
+  fitTo(b, { top, bottom, left: pad.left + 36, right: pad.right + 36 }, { duration: 800, maxZoom: 17 });
+}
+function showRouteSheet() {
+  const fastest = Math.min(...R.routes.map(r => r.duration)), shortest = Math.min(...R.routes.map(r => r.distance));
+  const arrive = d => fmtTime(new Date(Date.now() + d * 1000));
+  const r = R.routes[R.sel];
+  const tag = rt => rt.duration === fastest ? `<div class="fast">${t('fastestRoute')}</div>` : rt.distance === shortest ? `<div class="fast" style="color:var(--k-text-2)">${t('shortest')}</div>` : '';
+  const html = `
+    ${R.routes.map((rt, i) => `<div class="rcard ${i === R.sel ? 'on' : ''}" data-i="${i}" role="button" aria-pressed="${i === R.sel}"><div style="flex:1;min-width:0"><div class="rt">${fmtDur(rt.duration)}</div><div class="rd">${fmtDist(rt.distance)}${rt.summary ? ' · ' + t('via', { r: '<bdi>' + esc(rt.summary) + '</bdi>' }) : ''} · ${t('eta')} ${arrive(rt.duration)}</div>${tag(rt)}</div><button class="gobtn" data-go="${i}">${t('go')}</button></div>`).join('')}
+    <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
+    <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
+    <div class="steps list">${r.steps.map((s, i) => `<div class="srow" data-s="${i}"><div class="sic">${ic(stepIcon(s))}</div><div class="st"><div class="t1" style="white-space:normal" dir="auto">${esc(instr(s))}</div><div class="t2">${s.distance > 0 && s.type !== 'arrive' ? fmtDist(s.distance) : ''}</div></div></div>`).join('')}</div>
+    <div class="dfoot">${r.engine === 'OSRM' ? 'Routing: OSRM · FOSSGIS (routing.openstreetmap.de)' : 'Routing: Valhalla · FOSSGIS (valhalla1.openstreetmap.de)'} · © OpenStreetMap contributors</div>`;
+  const body = openSheet(html, 'half');
+  body.onclick = e => {
+    const go = e.target.closest('[data-go]'); if (go) { const i = +go.dataset.go; if (i !== R.sel) { R.sel = i; drawRoutes(); } return startNav(); }
+    const c = e.target.closest('.rcard'); if (c) { selectRoute(+c.dataset.i); return; }
+    if (e.target.closest('#rSim')) return startNav(true);
+    if (e.target.closest('#rShare')) return shareRoute();
+    if (e.target.closest('#rSteps')) { setSheet('full'); setTimeout(() => $('#stepsTitle')?.scrollIntoView({ behavior: 'smooth' }), 350); return; }
+    const s = e.target.closest('[data-s]'); if (s) { const st = r.steps[+s.dataset.s]; App.map.flyTo({ center: st.loc, zoom: 17, duration: 600, padding: mapPadding() }); }
+  };
+  App.onSheetDismiss = () => setSheet('peek');
+}
+async function shareRoute() {
+  const u = new URL(location.href.split('#')[0].split('?')[0]);
+  u.searchParams.set('r', R.stops.map(s => s.lat.toFixed(5) + ',' + s.lon.toFixed(5)).join(';'));
+  u.searchParams.set('m', R.mode);
+  const { share } = await import('./place.js');
+  share(t('route'), u.toString());
+}
+export function routeFromUrl(stops, mode) { R.mode = ['car', 'foot', 'bike'].includes(mode) ? mode : 'car'; openDirections({ from: stops[0], to: stops[stops.length - 1] }); R.stops = stops; renderPanel(); route(); }
+
+// map click on alternative route
+export function initRouteMapEvents() {
+  initPanel();
+  App.map.on('click', e => {
+    if (R.active || !R.routes.length) return;
+    const p = e.point, layers = ['route-alt', 'route-alt-casing'].filter(l => App.map.getLayer(l));
+    const f = App.map.queryRenderedFeatures([[p.x - 12, p.y - 12], [p.x + 12, p.y + 12]], { layers })[0];
+    if (f && f.properties.i != null) selectRoute(+f.properties.i);
+  });
+}
+
+// ---------------- live navigation ----------------
+const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 0, follow: true, spoken: {}, marker: null, pos: null, speed: 0, hdg: 0 };
+export function navActive() { return R.active; }
+let voiceWarned = false;
+function speak(text) {
+  if (!settings.voice || !('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text); u.lang = SPEECH_LANG[getLang()];
+    const vs = speechSynthesis.getVoices(), v = vs.find(v => v.lang?.toLowerCase().startsWith(getLang()));
+    if (v) u.voice = v;
+    else if (vs.length && !voiceWarned) { voiceWarned = true; toast(t('noVoice', { l: { ar: 'العربية', de: 'Deutsch', en: 'English' }[getLang()] }), 4000); }
+    u.rate = 1; speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch {}
+}
+function navArrowEl() {
+  const d = document.createElement('div');
+  d.innerHTML = `<svg class="navarrow" viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="21.5" fill="var(--k-puck)" stroke="#fff" stroke-width="3"/><path d="M24 11l9.5 23L24 29l-9.5 5z" fill="#fff"/></svg>`;
+  return d.firstChild;
+}
+const NAV_HIDE = ['poi', 'poi-dot', 'label-housenumber'];
+function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); }
+export function startNav(sim = false) {
+  const r = R.routes[R.sel]; if (!r) return;
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false;
+  track('nav_start', { mode: R.mode, sim });
+  $('#dirPanel').classList.add('hidden'); closeSheet();
+  $('#navHud').classList.remove('hidden');
+  App.meMarker?.getElement().classList.add('hidden');
+  R.markers.forEach(m => m.getElement().classList.add('hidden'));
+  drawRoutes(0); setNavLayers(true);
+  N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(r.coords[0]).addTo(App.map);
+  wake();
+  App.map.on('dragstart', onDrag);
+  speak(instr(r.steps[0]) + (r.steps[1] ? '. ' + t('then') + ' ' + instr(r.steps[1]) : ''));
+  if (sim || !('geolocation' in navigator)) simulate(r);
+  else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  App.map.easeTo({ center: r.coords[0], pitch: 58, zoom: 17, bearing: bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]), padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
+  renderHud(r.coords[0]);
+}
+function wake() { try { navigator.wakeLock?.request('screen').then(l => N.wake = l).catch(() => {}); } catch {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && R.active && (!N.wake || N.wake.released)) wake(); });
+let recT = null;
+function onDrag() { N.follow = false; renderHud(N.pos, N.lastDist, N.lastRemain); clearTimeout(recT); recT = setTimeout(() => { if (R.active && !N.follow) { N.follow = true; if (N.pos) onPos(N.pos, N.hdg, N.speed, 5); } }, 10000); }
+function simulate(r) {
+  let d = 0; const speed = R.mode === 'car' ? 22 : R.mode === 'bike' ? 6 : 1.6;
+  const total = N.cum[N.cum.length - 1];
+  const tick = () => {
+    if (!R.active) return;
+    d = Math.min(total, d + speed * (R.mode === 'car' ? 2 : 3));
+    let i = N.cum.findIndex(c => c >= d); if (i <= 0) i = 1;
+    const a = r.coords[i - 1], b = r.coords[i], f = (d - N.cum[i - 1]) / ((N.cum[i] - N.cum[i - 1]) || 1);
+    const p = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    onPos(p, bearing(a, b), speed, 5);
+    if (d < total) N.sim = setTimeout(tick, 1000);
+  };
+  N.sim = setTimeout(tick, 600);
+}
+function camZoom(speed) { if (R.mode !== 'car') return 18; const kmh = (speed || 0) * 3.6; return kmh > 80 ? 15 : kmh >= 50 ? 16 : 17; }
+// 1 s linear interpolation of the arrow (§3.7); jumps > 100 m snap
+let interp = 0;
+function moveArrow(to, hdg) {
+  const m = N.marker; if (!m) return;
+  const from = m.getLngLat().toArray();
+  cancelAnimationFrame(interp);
+  if (haversine(from, to) > 100 || matchMedia('(prefers-reduced-motion: reduce)').matches) { m.setLngLat(to).setRotation(hdg); return; }
+  const h0 = m.getRotation(), dh = ((hdg - h0 + 540) % 360) - 180, t0 = performance.now();
+  const step = now => { const f = Math.min(1, (now - t0) / 1000); m.setLngLat([from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f]).setRotation(h0 + dh * f); if (f < 1) interp = requestAnimationFrame(step); };
+  interp = requestAnimationFrame(step);
+}
+function onPos(p, heading, speed, acc) {
+  const r = R.routes[R.sel]; if (!r || !R.active) return;
+  N.pos = p; App.me = p; N.speed = speed;
+  const near = nearestOnLine(p, r.coords, N.cum);
+  const hdg = heading != null && !isNaN(heading) && speed > 1 ? heading : (near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : N.hdg);
+  N.hdg = hdg;
+  const shown = near.dist < 30 ? near.point : p;
+  moveArrow(shown, hdg);
+  // off-route: > 40 m for 3 fixes in a row (§4.6)
+  const lim = 40;
+  if (near.dist > Math.max(lim, (acc || 0) * 1.2)) N.off++; else N.off = 0;
+  if (N.off >= 3 && Date.now() - N.lastReroute > 10000) { N.lastReroute = Date.now(); N.off = 0; reroute(p); }
+  const along = near.along;
+  if (!r._stepAlong) r._stepAlong = r.steps.map(s => nearestOnLine(s.loc, r.coords, N.cum).along);
+  let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
+  N.stepIdx = idx;
+  const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
+  // voice at 500 m, 150 m and at the maneuver (car); shorter for walk/bike
+  const th = R.mode === 'car' ? [500, 150, 30] : [150, 40, 12];
+  for (let k = 2; k >= 0; k--) {
+    if (distTo > th[k]) continue;
+    if (!N.spoken[idx + ':' + k] && idx > 0) {
+      for (let j = 0; j <= k; j++) N.spoken[idx + ':' + j] = 1;
+      speak(k === 2 ? instr(step) : t('inDist', { d: fmtDist(distTo), i: instr(step) }));
+    }
+    break;
+  }
+  const remain = N.cum[N.cum.length - 1] - along;
+  drawRoutes(along);
+  if (remain < 25 && !N.arrived) { N.arrived = true; speak(t('arriveDest')); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
+  if (N.follow) App.map.easeTo({ center: shown, bearing: hdg, pitch: 58, zoom: camZoom(speed), duration: 1000, easing: x => x, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 } });
+  N.lastDist = distTo; N.lastRemain = remain;
+  renderHud(p, distTo, remain);
+}
+async function reroute(p) {
+  N.rerouting = true; renderHud(N.pos, N.lastDist, N.lastRemain);
+  speak(t('rerouting'));
+  track('reroute', {});
+  const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
+  try {
+    const routes = await computeRoutes([{ lon: p[0], lat: p[1] }, ...remainingStops], R.mode);
+    R.routes = [routes[0]]; R.sel = 0; N.cum = cumulative(routes[0].coords); N.spoken = {};
+    drawRoutes(0);
+  } catch { }
+  N.rerouting = false;
+}
+const LANE_IC = { left: 'turnLeft', 'sharp left': 'turnLeft', 'slight left': 'slightLeft', straight: 'straight', 'slight right': 'slightRight', right: 'turnRight', 'sharp right': 'turnRight', uturn: 'uturn', none: 'straight' };
+function renderHud(p, distTo, remain) {
+  const r = R.routes[R.sel]; if (!r) return;
+  const step = r.steps[N.stepIdx] || r.steps[0], next = r.steps[N.stepIdx + 1];
+  if (distTo == null) distTo = step.distance; if (remain == null) remain = r.distance;
+  const frac = remain / (r.distance || 1); const tleft = r.duration * frac;
+  const banner = $('#navBanner');
+  banner.classList.toggle('reroute', !!N.rerouting);
+  if (N.arrived) {
+    banner.innerHTML = `<div class="nav-main">${ic('flag')}<div style="flex:1;min-width:0"><div class="nt" dir="auto">${t('arrive')}</div><div class="nd" style="font-size:20px" dir="auto">${esc(R.stops[R.stops.length - 1]?.name || '')}</div></div></div>`;
+  } else if (N.rerouting) {
+    banner.innerHTML = `<div class="nav-main">${ic('directions')}<div style="flex:1"><div class="nt">${t('rerouting')}</div><div class="nprog"><i></i></div></div></div>`;
+  } else {
+    const lanes = step.lanes && step.lanes.length > 1 && distTo < 1000 ? `<div class="lanes" aria-hidden="true">${step.lanes.map(l => `<span class="lane ${l.valid ? 'v' : ''}">${ic(LANE_IC[(l.indications || ['straight'])[0]] || 'straight')}</span>`).join('')}</div>` : '';
+    banner.innerHTML = `<div class="nav-main">${ic(stepIcon(step))}<div style="flex:1;min-width:0"><div class="nd">${fmtDist(Math.max(0, distTo))}</div><div class="nt" dir="auto">${esc(instr(step))}</div></div></div>${lanes}`;
+  }
+  banner.setAttribute('aria-label', fmtDist(Math.max(0, distTo)) + ', ' + instr(step));
+  const thenEl = $('#navThen');
+  const showThen = next && !N.arrived && !N.rerouting && step.type !== 'arrive' && (r._stepAlong ? r._stepAlong[N.stepIdx + 1] - r._stepAlong[N.stepIdx] : next.distance) < 300;
+  thenEl.classList.toggle('hidden', !showThen);
+  if (showThen) { thenEl.innerHTML = `${t('then')} ${ic(stepIcon(next))}`; thenEl.style.top = (banner.offsetTop + banner.offsetHeight - 2) + 'px'; }
+  const arr = fmtTime(new Date(Date.now() + tleft * 1000));
+  const mins = Math.max(1, Math.round(tleft / 60));
+  if (N.arrived) $('#navBottom').innerHTML = `<button class="endbtn done" id="navStop" style="flex:1;background:var(--k-accent);color:var(--k-text-on-accent)">${t('done')}</button>`;
+  else $('#navBottom').innerHTML = `<button class="ib" id="navVoice" aria-label="${t('voice')}">${ic(settings.voice ? 'volume' : 'volumeOff')}</button>
+    <div class="m arr"><b>${arr}</b><small>${t('arrival')}</small></div>
+    <div class="m"><b>${mins >= 60 ? digits(Math.floor(mins / 60) + ':' + String(mins % 60).padStart(2, '0')) : nf(mins)}</b><small>${mins >= 60 ? t('h') : t('min')}</small></div>
+    <div class="m"><b>${nf(remain < 10000 ? Math.round(remain / 100) / 10 : Math.round(remain / 1000), { maximumFractionDigits: 1 })}</b><small>${t('km')}</small></div>
+    <button class="endbtn" id="navStop">${t('navEnd')}</button>`;
+  $('#navStop').onclick = stopNav;
+  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; renderHud(p, distTo, remain); });
+  const rc = $('#navRecenter');
+  rc.classList.toggle('hidden', N.follow);
+  rc.innerHTML = `${ic('navigation')}<span>${t('recenter')}</span>`;
+  rc.onclick = () => { N.follow = true; clearTimeout(recT); if (N.pos) onPos(N.pos, N.hdg, N.speed || 0, 5); else renderHud(); };
+}
+export function stopNav() {
+  R.active = false; App.navMode = false; document.body.classList.remove('nav');
+  if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);
+  N.marker?.remove(); N.marker = null; N.wake?.release?.(); N.wake = null; N.arrived = false;
+  try { speechSynthesis.cancel(); } catch {}
+  App.map.off('dragstart', onDrag);
+  App.meMarker?.getElement().classList.remove('hidden');
+  R.markers.forEach(m => m.getElement().classList.remove('hidden'));
+  setNavLayers(false);
+  $('#navHud').classList.add('hidden'); $('#navThen').classList.add('hidden'); $('#navRecenter').classList.add('hidden');
+  $('#dirPanel').classList.remove('hidden');
+  drawRoutes();
+  App.map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+  showRouteSheet(); setTimeout(fitRoute, 520);
+}

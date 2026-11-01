@@ -1,0 +1,223 @@
+/* =====================================================================
+   Khareeta design tokens  ·  v1.0  ·  see DESIGN.md §2
+   - Light is default. Dark applies via prefers-color-scheme (when theme = "system")
+     or explicitly via html[data-theme="dark"] / html.dark.
+   - html[data-theme="light"] forces light even if the OS is dark.
+   - All layout uses logical properties (inline-start/end) so RTL works by setting <html dir="rtl">.
+   ===================================================================== */
+
+/* ---------- Fonts (self-hosted, SIL OFL 1.1) ----------
+   Files already in /fonts: inter-latin(-ext)-{400,500,600,700}, noto-sans-arabic-arabic-{400,500,700}.
+   ADD: noto-sans-arabic-arabic-600-normal.woff2 (from @fontsource/noto-sans-arabic) so 600 does not synthesise.
+   Keep unicode-range so a German/English session never downloads Arabic files and vice versa. */
+@font-face { font-family: "Noto Sans Arabic"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url(../fonts/noto-sans-arabic-arabic-600-normal.woff2) format("woff2");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0898-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC; }
+
+:root {
+  color-scheme: light dark;
+
+  /* ---------- Typography ---------- */
+  --k-font-latin: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --k-font-arabic: "Noto Sans Arabic", "Inter", system-ui, sans-serif;
+  /* Latin-first stack: Inter has no Arabic glyphs, so Arabic runs fall through to Noto Sans Arabic automatically */
+  --k-font: "Inter", "Noto Sans Arabic", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --k-font-features: "cv11", "ss01", "tnum" 0;       /* Inter: single-storey a off, open digits */
+  --k-font-num: "tnum" 1;                            /* use on ETAs, distances, speeds */
+
+  /* Type scale (rem; 1rem = 16px; respects user font-size setting) */
+  --k-text-display: 1.75rem;   /* 28px  nav maneuver distance */
+  --k-text-title1:  1.375rem;  /* 22px  place name in detail sheet */
+  --k-text-title2:  1.125rem;  /* 18px  sheet section titles, ETA */
+  --k-text-body:    1rem;      /* 16px  inputs, list primary (>=16 prevents iOS zoom) */
+  --k-text-callout: 0.9375rem; /* 15px  buttons, list rows */
+  --k-text-sub:     0.8125rem; /* 13px  secondary lines */
+  --k-text-caption: 0.75rem;   /* 12px  captions, chip counts, section headers */
+  --k-text-micro:   0.6875rem; /* 11px  map attribution only */
+
+  --k-lh-tight: 1.2;  --k-lh-normal: 1.4;  --k-lh-relaxed: 1.5;
+  --k-weight-regular: 400; --k-weight-medium: 500; --k-weight-semibold: 600; --k-weight-bold: 700;
+  --k-tracking-title: -0.011em; /* Inter optical tightening at >=18px; NEVER apply to Arabic */
+
+  /* ---------- Spacing (4pt base) ---------- */
+  --k-space-0: 0; --k-space-1: 4px; --k-space-2: 8px; --k-space-3: 12px; --k-space-4: 16px;
+  --k-space-5: 20px; --k-space-6: 24px; --k-space-8: 32px; --k-space-10: 40px; --k-space-12: 48px; --k-space-16: 64px;
+  --k-gutter: 16px;          /* screen edge inset on phones */
+  --k-gutter-lg: 24px;       /* >= 600px */
+
+  /* ---------- Radii ---------- */
+  --k-radius-xs: 6px;    /* tags, shields */
+  --k-radius-sm: 10px;   /* list thumbnails, inputs inside sheets */
+  --k-radius-md: 14px;   /* cards, route alternative cards, toasts */
+  --k-radius-lg: 20px;   /* map control groups */
+  --k-radius-sheet: 24px;/* bottom sheet top corners, side panel */
+  --k-radius-pill: 999px;/* search bar, chips, primary buttons */
+
+  /* ---------- Sizes ---------- */
+  --k-tap: 44px;             /* minimum hit target (iOS); Android target 48px via padding */
+  --k-tap-lg: 48px;
+  --k-search-h: 52px;
+  --k-chip-h: 36px;
+  --k-control: 44px;         /* map control button */
+  --k-fab: 56px;
+  --k-icon: 24px; --k-icon-sm: 20px; --k-icon-xs: 16px;
+  --k-side-panel: 400px;     /* tablet/desktop */
+
+  /* ---------- Motion ---------- */
+  --k-dur-instant: 100ms;  --k-dur-fast: 160ms;  --k-dur-base: 240ms;  --k-dur-slow: 360ms;  --k-dur-map: 800ms;
+  --k-ease-standard: cubic-bezier(0.2, 0, 0, 1);      /* most UI */
+  --k-ease-decelerate: cubic-bezier(0, 0, 0, 1);      /* entering */
+  --k-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);    /* exiting */
+  --k-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);     /* iOS sheet feel, used for snap without JS spring */
+  --k-ease-spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1);
+
+  /* ---------- Blur ---------- */
+  --k-blur-glass: saturate(180%) blur(20px);
+  --k-blur-scrim: blur(2px);
+
+  /* ---------- Z-index layers ---------- */
+  --k-z-map: 0; --k-z-map-overlay: 5; --k-z-controls: 10; --k-z-search: 20; --k-z-sheet: 30;
+  --k-z-nav: 35; --k-z-scrim: 40; --k-z-modal: 50; --k-z-toast: 60; --k-z-tooltip: 70;
+
+  /* ---------- Safe areas ---------- */
+  --k-safe-top: env(safe-area-inset-top, 0px);
+  --k-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --k-safe-left: env(safe-area-inset-left, 0px);
+  --k-safe-right: env(safe-area-inset-right, 0px);
+
+  /* ======================= LIGHT PALETTE ======================= */
+  --k-bg: #F2F2F5;               /* grouped background inside sheets (settings lists) */
+  --k-surface: #FFFFFF;          /* sheets, cards, menus */
+  --k-surface-2: #F5F5F7;        /* inset fields, segmented control track, hover */
+  --k-surface-3: #EBEBEF;        /* pressed */
+  --k-glass: rgba(255, 255, 255, 0.78);          /* floating search, map controls (with blur) */
+  --k-glass-solid: #FFFFFF;      /* fallback when backdrop-filter unsupported or reduced transparency */
+  --k-glass-border: rgba(0, 0, 0, 0.06);
+  --k-scrim: rgba(0, 0, 0, 0.32);
+
+  --k-text: #1C1C1E;             /* 17.0:1 on surface */
+  --k-text-2: #5C5C63;           /* 6.6:1 on surface – secondary lines */
+  --k-text-3: #76767E;           /* 4.50:1 on surface – placeholders, captions (AA, at the limit: never lighten) */
+  --k-text-on-accent: #FFFFFF;
+  --k-separator: rgba(60, 60, 67, 0.14);
+  --k-separator-strong: rgba(60, 60, 67, 0.29);
+  --k-handle: rgba(60, 60, 67, 0.30);
+
+  --k-accent: #0A66D6;           /* interactive text/buttons; 5.4:1 on white */
+  --k-accent-hover: #0959BC;
+  --k-accent-pressed: #084C9F;
+  --k-accent-tint: #E8F1FD;      /* selected chip bg, accent-soft buttons */
+  --k-accent-tint-text: #0A4FA6; /* text on tint; 6.9:1 */
+  --k-focus: #0A66D6;
+
+  --k-success: #187436;  --k-success-tint: #E6F4EA;   /* "Open now", download complete */
+  --k-warning: #A05A00;  --k-warning-tint: #FFF3E0;   /* "Closes soon", offline banner */
+  --k-danger:  #C5221F;  --k-danger-tint:  #FDECEA;   /* "Closed", errors, delete */
+  --k-info:    var(--k-accent);
+
+  /* Shadows (layered: contact + ambient) */
+  --k-shadow-1: 0 0.5px 1px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.08);           /* chips */
+  --k-shadow-2: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.10);            /* search, controls */
+  --k-shadow-3: 0 2px 6px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.14);           /* menus, popovers */
+  --k-shadow-sheet: 0 -1px 0 rgba(0, 0, 0, 0.04), 0 -6px 24px rgba(0, 0, 0, 0.10);       /* bottom sheet */
+
+  /* Map overlay colours used by DOM layers (puck, pin, route chips). Map style colours live in map-style-*.json */
+  --k-route: #1A73E8;  --k-route-casing: #0D4FB0;  --k-route-alt: #A6C3EA;
+  --k-puck: #1A73E8;   --k-puck-ring: #FFFFFF;  --k-puck-halo: rgba(26, 115, 232, 0.16);  --k-puck-cone: rgba(26, 115, 232, 0.28);
+  --k-pin: #E5484D;
+  --k-nav-banner: #1F6E4A;       /* maneuver banner (Apple-like dark green); 6.2:1 with white */
+  --k-nav-banner-2: #185A3C;     /* next-step strip */
+
+  /* POI category colours (badge fills) – mirror scripts/palette.mjs */
+  --k-poi-food: #E8710A; --k-poi-shopping: #B4529A; --k-poi-lodging: #7B61D9; --k-poi-health: #E5484D; --k-poi-nature: #2E9E5B;
+  --k-poi-culture: #A8741A; --k-poi-worship: #138A82; --k-poi-transport: #4C6A9E; --k-poi-civic: #6E7781;
+}
+
+/* ======================= DARK PALETTE ======================= */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(.light) {
+    --k-bg: #000000; --k-surface: #1C1C1E; --k-surface-2: #2C2C2E; --k-surface-3: #3A3A3C;
+    --k-glass: rgba(30, 30, 32, 0.72); --k-glass-solid: #1C1C1E; --k-glass-border: rgba(255, 255, 255, 0.08); --k-scrim: rgba(0, 0, 0, 0.5);
+    --k-text: #F5F5F7; --k-text-2: #AEAEB5; --k-text-3: #8E8E96; --k-text-on-accent: #06182F;
+    --k-separator: rgba(235, 235, 245, 0.12); --k-separator-strong: rgba(235, 235, 245, 0.24); --k-handle: rgba(235, 235, 245, 0.30);
+    --k-accent: #5AA2FF; --k-accent-hover: #7AB4FF; --k-accent-pressed: #3D8EF5; --k-accent-tint: #13294A; --k-accent-tint-text: #A9CCFF; --k-focus: #7AB4FF;
+    --k-success: #4CC274; --k-success-tint: #12301C; --k-warning: #F2A33A; --k-warning-tint: #33240D; --k-danger: #FF6B61; --k-danger-tint: #3A1514;
+    --k-shadow-1: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.5);
+    --k-shadow-2: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.55);
+    --k-shadow-3: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.6);
+    --k-shadow-sheet: 0 -0.5px 0 rgba(255, 255, 255, 0.08), 0 -6px 24px rgba(0, 0, 0, 0.5);
+    --k-route: #4C9BFF; --k-route-casing: #0B3E85; --k-route-alt: #3E5A7E;
+    --k-puck: #4C9BFF; --k-puck-ring: #FFFFFF; --k-puck-halo: rgba(76, 155, 255, 0.20); --k-puck-cone: rgba(76, 155, 255, 0.34);
+    --k-pin: #EE6064; --k-nav-banner: #1D6446; --k-nav-banner-2: #16503A;
+    --k-poi-food: #D96E12; --k-poi-shopping: #C96BB0; --k-poi-lodging: #9580E6; --k-poi-health: #EE6064; --k-poi-nature: #2A9656;
+    --k-poi-culture: #A97A22; --k-poi-worship: #22A399; --k-poi-transport: #6A88BC; --k-poi-civic: #8A939D;
+  }
+}
+/* Explicit dark (identical values; keep both blocks in sync) */
+:root[data-theme="dark"], :root.dark {
+  color-scheme: dark;
+  --k-bg: #000000; --k-surface: #1C1C1E; --k-surface-2: #2C2C2E; --k-surface-3: #3A3A3C;
+  --k-glass: rgba(30, 30, 32, 0.72); --k-glass-solid: #1C1C1E; --k-glass-border: rgba(255, 255, 255, 0.08); --k-scrim: rgba(0, 0, 0, 0.5);
+  --k-text: #F5F5F7; --k-text-2: #AEAEB5; --k-text-3: #8E8E96; --k-text-on-accent: #06182F;
+  --k-separator: rgba(235, 235, 245, 0.12); --k-separator-strong: rgba(235, 235, 245, 0.24); --k-handle: rgba(235, 235, 245, 0.30);
+  --k-accent: #5AA2FF; --k-accent-hover: #7AB4FF; --k-accent-pressed: #3D8EF5; --k-accent-tint: #13294A; --k-accent-tint-text: #A9CCFF; --k-focus: #7AB4FF;
+  --k-success: #4CC274; --k-success-tint: #12301C; --k-warning: #F2A33A; --k-warning-tint: #33240D; --k-danger: #FF6B61; --k-danger-tint: #3A1514;
+  --k-shadow-1: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.5);
+  --k-shadow-2: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.55);
+  --k-shadow-3: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.6);
+  --k-shadow-sheet: 0 -0.5px 0 rgba(255, 255, 255, 0.08), 0 -6px 24px rgba(0, 0, 0, 0.5);
+  --k-route: #4C9BFF; --k-route-casing: #0B3E85; --k-route-alt: #3E5A7E;
+  --k-puck: #4C9BFF; --k-puck-ring: #FFFFFF; --k-puck-halo: rgba(76, 155, 255, 0.20); --k-puck-cone: rgba(76, 155, 255, 0.34);
+  --k-pin: #EE6064; --k-nav-banner: #1D6446; --k-nav-banner-2: #16503A;
+  --k-poi-food: #D96E12; --k-poi-shopping: #C96BB0; --k-poi-lodging: #9580E6; --k-poi-health: #EE6064; --k-poi-nature: #2A9656;
+  --k-poi-culture: #A97A22; --k-poi-worship: #22A399; --k-poi-transport: #6A88BC; --k-poi-civic: #8A939D;
+}
+:root[data-theme="light"], :root.light { color-scheme: light; }
+
+/* ---------- Arabic adjustments ---------- */
+:root:lang(ar) {
+  --k-font: "Noto Sans Arabic", "Inter", system-ui, sans-serif;   /* Arabic first so Latin digits/punctuation match weight */
+  --k-lh-tight: 1.35; --k-lh-normal: 1.6; --k-lh-relaxed: 1.7;   /* Arabic needs ~+0.15–0.2 for ascenders/dots */
+  --k-tracking-title: 0;                                          /* letter-spacing breaks cursive joining */
+  /* Arabic glyphs look ~1 step smaller than Latin at the same size: bump body sizes by ~1px */
+  --k-text-body: 1.0625rem; --k-text-callout: 1rem; --k-text-sub: 0.875rem; --k-text-caption: 0.8125rem;
+}
+
+/* ---------- Accessibility preferences ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root { --k-dur-fast: 1ms; --k-dur-base: 1ms; --k-dur-slow: 1ms; --k-dur-map: 0ms; --k-ease-spring: linear; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --k-glass: var(--k-glass-solid); --k-blur-glass: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --k-text-2: #3C3C43; --k-text-3: #55555C; --k-separator: rgba(60, 60, 67, 0.4); --k-glass: var(--k-glass-solid); --k-blur-glass: none; }
+  :root[data-theme="dark"], :root.dark { --k-text-2: #D1D1D6; --k-text-3: #B4B4BA; --k-separator: rgba(235, 235, 245, 0.35); }
+}
+@media (min-width: 600px) { :root { --k-gutter: var(--k-gutter-lg); } }
+
+/* ---------- Base primitives (opt-in helpers; safe to include globally) ---------- */
+.k-glass {
+  background: var(--k-glass);
+  -webkit-backdrop-filter: var(--k-blur-glass);
+  backdrop-filter: var(--k-blur-glass);
+  border: 0.5px solid var(--k-glass-border);
+  box-shadow: var(--k-shadow-2);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .k-glass { background: var(--k-glass-solid); } }
+.k-num { font-feature-settings: var(--k-font-num); font-variant-numeric: tabular-nums; }
+.k-focus-ring:focus-visible, :where(button, a, input, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--k-focus); outline-offset: 2px; border-radius: inherit;
+}
+.k-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+[dir="rtl"] .k-mirror { transform: scaleX(-1); }   /* directional glyphs only, see DESIGN.md §6 */
+
+/* ---------- Compatibility aliases for the current build (css/app.css variable names) ----------
+   Lets app.css adopt the palette immediately; migrate rules to --k-* names over time. */
+:root, :root.dark, :root[data-theme] {
+  --bg: var(--k-surface); --fg: var(--k-text); --fg2: var(--k-text-2); --line: var(--k-separator);
+  --card: var(--k-surface); --chip: var(--k-glass-solid); --chipfg: var(--k-text); --hover: var(--k-surface-2);
+  --accent: var(--k-accent); --red: var(--k-danger); --amber: var(--k-warning); --green: var(--k-success);
+  --shadow: var(--k-shadow-1); --shadow2: var(--k-shadow-2); --r: var(--k-radius-sheet);
+  --safe-t: var(--k-safe-top); --safe-b: var(--k-safe-bottom); --font: var(--k-font);
+}

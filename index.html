@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<script>(function(){try{var t=localStorage.getItem('k.theme')||'system';var d=document.documentElement;if(t!=='system')d.dataset.theme=t;var l=localStorage.getItem('kh.lang');if(l==='ar'){d.lang='ar';d.dir='rtl'}else if(l==='de'){d.lang='de'}}catch(e){}})();</script>
+<title>Khareeta · خريطة</title>
+<meta name="description" content="Khareeta – free OpenStreetMap navigation that works in Syria. Search, directions, offline maps.">
+<meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1B1D21" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Khareeta">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/inter-latin-400-normal.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/inter-latin-600-normal.woff2">
+<link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="map" aria-label="Map"></div>
+
+<!-- top search -->
+<div id="top">
+  <div id="searchbar" class="k-glass" role="search">
+    <svg class="sicon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
+    <input id="q" type="search" autocomplete="off" enterkeyhint="search" spellcheck="false" dir="auto">
+    <button id="btnClear" class="ib hidden" aria-label="Clear"></button>
+    <button id="btnMenu" class="ib" aria-label="Settings"></button>
+    <div id="searchProg" class="hidden"><i></i></div>
+  </div>
+  <div id="chips" class="chips"></div>
+  <div id="suggest" class="card hidden"></div>
+</div>
+
+<!-- right controls -->
+<div id="fabs">
+  <div class="cgroup k-glass">
+    <button id="btnLayers" aria-label="Layers"></button>
+    <button id="btn3d" aria-label="3D"></button>
+  </div>
+  <button id="btnCompass" class="fab k-glass hide" aria-label="North"></button>
+</div>
+<div id="fabsBottom">
+  <div id="weatherChip" class="pill hidden"></div>
+  <button id="btnLocate" class="fab k-glass" aria-label="My location"></button>
+  <div class="cgroup k-glass" id="zoomGrp"><button id="btnZin" aria-label="Zoom in"></button><button id="btnZout" aria-label="Zoom out"></button></div>
+</div>
+<div id="netState" class="pill warn hidden"></div>
+
+<!-- bottom sheet -->
+<section id="sheet" class="sheet" data-state="hidden" aria-live="polite">
+  <div class="grab" role="button" tabindex="0" aria-label="Sheet"><span></span></div>
+  <div id="sheetBody" class="sheet-body"></div>
+</section>
+
+<!-- directions panel -->
+<section id="dirPanel" class="dirpanel hidden">
+  <div class="dir-title"><button id="dirBack" class="ib" aria-label="Back"></button><h2 id="dirTitle">Directions</h2></div>
+  <div class="dir-head">
+    <div id="dirStops" class="dir-stops"></div>
+    <button id="dirSwap" class="ib" aria-label="Swap"></button>
+  </div>
+  <div id="dirModes" class="dir-modes"></div>
+  <div id="dirSuggest" class="card hidden"></div>
+</section>
+
+<!-- navigation HUD -->
+<section id="navHud" class="hidden">
+  <div id="navBanner" class="nav-banner"></div>
+  <div id="navThen" class="nthen hidden"></div>
+  <div id="navSpeed" class="speed hidden"></div>
+  <button id="navRecenter" class="recenter k-glass hidden"></button>
+  <div id="navBottom" class="nav-bottom"></div>
+</section>
+
+<!-- side menu -->
+<div id="scrim" class="scrim hidden"></div>
+<nav id="drawer" class="drawer"></nav>
+
+<!-- layers sheet -->
+<div id="layersPop" class="pop hidden"></div>
+
+<!-- measure -->
+<div id="measureBar" class="pill-bar hidden"></div>
+
+<div id="toast" class="toast hidden"></div>
+
+<noscript><p style="padding:2em">Khareeta needs JavaScript.</p></noscript>
+<script src="vendor/maplibre-gl/maplibre-gl.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

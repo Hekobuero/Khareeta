@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Khareeta · Admin</title>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css">
+<style>
+@font-face{font-family:Inter;font-weight:400;src:url(fonts/inter-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:Inter;font-weight:600;src:url(fonts/inter-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:Inter;font-weight:700;src:url(fonts/inter-latin-700-normal.woff2) format("woff2")}
+:root{--bg:#f4f6f8;--card:#fff;--fg:#1f1f1f;--fg2:#5f6368;--line:#e3e6ea;--brand:#1A73E8;--blue:#1a73e8}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+header{display:flex;align-items:center;gap:12px;padding:14px 22px;background:var(--brand);color:#fff;position:sticky;top:0;z-index:5}
+header img{width:34px;height:34px;border-radius:8px}header h1{font-size:18px;margin:0;flex:1}
+header select,header button{font:inherit;border:0;border-radius:8px;padding:7px 12px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer}
+header option{color:#000}
+main{max-width:1280px;margin:0 auto;padding:20px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.kpi{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.kpi b{display:block;font-size:28px;margin-top:4px}.kpi span{color:var(--fg2);font-size:13px}
+.card{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-top:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.cols{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+.cols .card{margin-top:0}
+.bar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 54px;gap:10px;align-items:center;font-size:13.5px;margin:6px 0}
+.bar .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .t{height:12px;border-radius:6px;background:#e8f0fe;overflow:hidden}.bar .t i{display:block;height:100%;background:var(--blue);border-radius:6px}
+.bar .n{text-align:right;color:var(--fg2);font-variant-numeric:tabular-nums}
+#map{height:420px;border-radius:12px;overflow:hidden}
+svg text{font-family:Inter,sans-serif}
+.login{max-width:380px;margin:12vh auto;background:var(--card);padding:28px;border-radius:16px;box-shadow:0 4px 18px rgba(0,0,0,.1)}
+.login h1{margin:0 0 6px;font-size:22px}.login p{color:var(--fg2);margin:0 0 18px;font-size:14px}
+.login input{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px}
+.login button{width:100%;font:inherit;font-weight:600;padding:12px;border:0;border-radius:10px;background:var(--brand);color:#fff;cursor:pointer}
+.err{color:#d93025;font-size:13.5px;min-height:18px;margin-top:8px}
+.muted{color:var(--fg2);font-size:12.5px}
+.legend{display:flex;gap:14px;font-size:12.5px;color:var(--fg2);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<section id="login" class="login hidden">
+  <h1>Khareeta Admin</h1>
+  <p>Usage analytics – admins only.</p>
+  <form id="lf">
+    <input id="em" type="email" placeholder="E-mail" autocomplete="username" required>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button>Sign in</button>
+    <div class="err" id="lerr"></div>
+  </form>
+  <p class="muted" style="margin-top:14px">Privacy: the app stores only an anonymous random install id, language, device class, app version, coarse country/city (≈11 km grid, only when users shared GPS), referrer domain and event counts. No IPs, no search texts.</p>
+</section>
+<div id="app" class="hidden">
+  <header><img src="icons/icon-192.png" alt=""><h1>Khareeta · Usage</h1>
+    <select id="range"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
+    <button id="reload">↻</button><button id="logout">Sign out</button></header>
+  <main>
+    <div class="grid" id="kpis"></div>
+    <div class="card"><h2>Users & visits per day</h2><div id="chart"></div><div class="legend"><span><i style="background:#1a73e8"></i>Active users</span><span><i style="background:#1A73E8"></i>New users</span><span><i style="background:#f9ab00"></i>Visits</span><span><i style="background:#d93025"></i>Searches</span><span><i style="background:#8e24aa"></i>Routes</span></div></div>
+    <div class="card"><h2>Coarse locations (users who shared GPS, rounded to 0.1°)</h2><div id="map"></div></div>
+    <div class="cols" style="margin-top:16px">
+      <div class="card"><h2>Top countries</h2><div id="countries"></div></div>
+      <div class="card"><h2>Top cities</h2><div id="cities"></div></div>
+      <div class="card"><h2>Top referrers</h2><div id="referrers"></div></div>
+      <div class="card"><h2>utm_source</h2><div id="utm"></div></div>
+      <div class="card"><h2>Languages</h2><div id="langs"></div></div>
+      <div class="card"><h2>Devices</h2><div id="devices"></div></div>
+      <div class="card"><h2>Top categories</h2><div id="categories"></div></div>
+      <div class="card"><h2>Route modes</h2><div id="route_modes"></div></div>
+      <div class="card"><h2>Events</h2><div id="types"></div></div>
+      <div class="card"><h2>App versions</h2><div id="versions"></div></div>
+    </div>
+    <p class="muted" id="foot"></p>
+  </main>
+</div>
+<script src="vendor/maplibre-gl/maplibre-gl.js"></script>
+<script>
+const SB_URL = 'https://ihqcgjndnjxxgeqheoei.supabase.co';
+const SB_KEY = 'sb_publishable_0YKvFqXx8JX_xGH6ZcloRg_1Lrb_Ngz';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf = n => new Intl.NumberFormat('en-GB').format(n || 0);
+let sess = JSON.parse(sessionStorage.getItem('kh.admin') || 'null');
+let map;
+
+async function auth(grant, body) {
+  const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=${grant}`, { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error_description || j.msg || j.message || 'Login failed');
+  sess = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in - 60) * 1000, email: j.user?.email };
+  sessionStorage.setItem('kh.admin', JSON.stringify(sess));
+}
+async function token() {
+  if (!sess) throw new Error('no session');
+  if (Date.now() > sess.expires_at) await auth('refresh_token', { refresh_token: sess.refresh_token });
+  return sess.access_token;
+}
+async function rpc(name, args) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/${name}`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status));
+  return j;
+}
+function showLogin(msg) { $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); $('#lerr').textContent = msg || ''; }
+$('#lf').onsubmit = async e => {
+  e.preventDefault(); $('#lerr').textContent = '';
+  try { await auth('password', { email: $('#em').value.trim(), password: $('#pw').value }); $('#pw').value = ''; load(); }
+  catch (err) { $('#lerr').textContent = err.message; }
+};
+$('#logout').onclick = async () => {
+  try { await fetch(`${SB_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + sess.access_token } }); } catch {}
+  sess = null; sessionStorage.removeItem('kh.admin'); showLogin();
+};
+$('#reload').onclick = () => load(); $('#range').onchange = () => load();
+
+function bars(id, rows, fmt = k => k) {
+  const max = Math.max(1, ...rows.map(r => r.n));
+  $('#' + id).innerHTML = rows.length ? rows.map(r => `<div class="bar"><span class="l" title="${esc(fmt(r.k))}">${esc(fmt(r.k))}</span><span class="t"><i style="width:${r.n / max * 100}%"></i></span><span class="n">${nf(r.n)}</span></div>`).join('') : '<p class="muted">No data yet</p>';
+}
+const FLAG = cc => cc && cc.length === 2 && cc !== '?' ? String.fromCodePoint(...[...cc.toUpperCase()].map(c => 127397 + c.charCodeAt(0))) + ' ' + cc : cc;
+const LANG = { en: 'English', ar: 'العربية (Arabic)', de: 'Deutsch' };
+
+function chart(daily, days) {
+  const W = $('#chart').clientWidth || 900, H = 260, P = { l: 40, r: 10, t: 10, b: 28 };
+  const byDay = new Map(daily.map(d => [d.day, d]));
+  const pts = []; const now = new Date(); now.setUTCHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i--) { const d = new Date(now - i * 864e5).toISOString().slice(0, 10); pts.push({ day: d, ...(byDay.get(d) || {}) }); }
+  const series = [['users', '#1a73e8'], ['new_users', '#1A73E8'], ['visits', '#f9ab00'], ['searches', '#d93025'], ['routes', '#8e24aa']];
+  const max = Math.max(4, ...pts.flatMap(p => series.map(([k]) => p[k] || 0)));
+  const x = i => P.l + (W - P.l - P.r) * (pts.length === 1 ? 0.5 : i / (pts.length - 1)), y = v => H - P.b - (H - P.t - P.b) * v / max;
+  let s = `<svg width="100%" viewBox="0 0 ${W} ${H}">`;
+  for (let g = 0; g <= 4; g++) { const v = Math.round(max * g / 4); s += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}" stroke="#eee"/><text x="${P.l - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="#888">${v}</text>`; }
+  const step = Math.ceil(pts.length / 8);
+  pts.forEach((p, i) => { if (i % step === 0 || i === pts.length - 1) s += `<text x="${x(i)}" y="${H - 8}" font-size="11" text-anchor="middle" fill="#888">${p.day.slice(5)}</text>`; });
+  pts.forEach((p, i) => { const bw = Math.max(2, (W - P.l - P.r) / pts.length * 0.5); s += `<rect x="${x(i) - bw / 2}" y="${y(p.users || 0)}" width="${bw}" height="${H - P.b - y(p.users || 0)}" fill="#1a73e8" opacity=".18"/>`; });
+  series.forEach(([k, c]) => { s += `<polyline fill="none" stroke="${c}" stroke-width="2.2" stroke-linejoin="round" points="${pts.map((p, i) => x(i) + ',' + y(p[k] || 0)).join(' ')}"/>`; });
+  $('#chart').innerHTML = s + '</svg>';
+}
+
+function heat(geo) {
+  const fc = { type: 'FeatureCollection', features: geo.map(g => ({ type: 'Feature', properties: { users: g.users, events: g.events, city: g.city || '' }, geometry: { type: 'Point', coordinates: [+g.lon_r, +g.lat_r] } })) };
+  const apply = () => {
+    if (map.getSource('g')) { map.getSource('g').setData(fc); }
+    else {
+      map.addSource('g', { type: 'geojson', data: fc });
+      map.addLayer({ id: 'heat', type: 'heatmap', source: 'g', paint: { 'heatmap-weight': ['interpolate', ['linear'], ['get', 'users'], 0, 0, 20, 1], 'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 1, 9, 3], 'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 3, 14, 9, 40], 'heatmap-opacity': 0.8 } });
+      map.addLayer({ id: 'pts', type: 'circle', source: 'g', minzoom: 6, paint: { 'circle-radius': ['interpolate', ['linear'], ['get', 'users'], 1, 5, 50, 18], 'circle-color': '#d93025', 'circle-opacity': 0.55, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+      map.on('click', 'pts', e => { const p = e.features[0].properties; new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>${esc(p.city)}</b><br>${p.users} users · ${p.events} events`).addTo(map); });
+    }
+    if (geo.length) { const b = new maplibregl.LngLatBounds(); geo.forEach(g => b.extend([+g.lon_r, +g.lat_r])); map.fitBounds(b, { padding: 60, maxZoom: 8, duration: 0 }); }
+  };
+  if (!map) {
+    map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', center: [38.5, 35], zoom: 5, attributionControl: { compact: true } });
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+    map.on('load', apply);
+  } else if (map.loaded()) apply(); else map.once('load', apply);
+}
+
+async function load() {
+  if (!sess) return showLogin();
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  const days = +$('#range').value;
+  let d;
+  try { d = await rpc('kh_dashboard', { p_days: days }); }
+  catch (e) {
+    if (/not authorized|JWT|42501|refresh/i.test(e.message)) { sess = null; sessionStorage.removeItem('kh.admin'); return showLogin(/not authorized/.test(e.message) ? 'This account is not an admin (add it to public.kh_admins).' : 'Session expired – please sign in again.'); }
+    $('#kpis').innerHTML = `<div class="kpi" style="grid-column:1/-1"><span>Error</span><b style="font-size:16px">${esc(e.message)}</b><span>Did you run supabase.sql?</span></div>`; return;
+  }
+  const T = d.totals || {};
+  const k = [['DAU (24 h)', d.dau], ['WAU (7 d)', d.wau], ['MAU (30 d)', d.mau], ['DAU / MAU', d.mau ? Math.round(d.dau / d.mau * 100) + ' %' : '–'], [`Users (${days} d)`, T.users], ['Visits', T.visits], ['Searches', T.searches], ['Routes', T.routes], ['Navigations', T.navigations], ['Place views', T.place_views], ['Offline downloads', T.offline_downloads], ['PWA installs', T.installs]];
+  $('#kpis').innerHTML = k.map(([l, v]) => `<div class="kpi"><span>${l}</span><b>${typeof v === 'number' ? nf(v) : esc(v ?? '–')}</b></div>`).join('');
+  chart(d.daily || [], days);
+  bars('countries', d.countries || [], FLAG); bars('cities', d.cities || []); bars('referrers', d.referrers || []); bars('utm', d.utm || []);
+  bars('langs', d.langs || [], l => LANG[l] || l); bars('devices', d.devices || []); bars('categories', d.categories || []);
+  bars('route_modes', d.route_modes || []); bars('types', d.types || []); bars('versions', d.versions || []);
+  heat(d.geo || []);
+  $('#foot').textContent = `Signed in as ${sess.email || ''} · data since ${new Date(d.since).toLocaleString()} · counts of users = distinct anonymous installs`;
+}
+sess ? load() : showLogin();
+</script>
+</body>
+</html>
