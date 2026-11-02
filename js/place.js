@@ -6,6 +6,7 @@ import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, setSheet, closeSheet, setSelMarker, pickName, catLabel, catIcon, refPoint, sheetState, mapPadding, fitTo } from './core.js';
 import { ohStatus, ohTable } from './hours.js';
+import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
 
@@ -66,17 +67,6 @@ export async function share(title, url) {
   try { await navigator.clipboard.writeText(url); toast(t('copied')); } catch { prompt(t('share'), url); }
 }
 
-function phoneLinks(tags) {
-  const raw = tags.phone || tags['contact:phone'] || tags['phone:mobile'] || tags['contact:mobile'] || '';
-  return raw.split(/;\s*/).filter(Boolean);
-}
-function waLink(tags) {
-  const w = tags['contact:whatsapp'] || tags.whatsapp || tags['contact:WhatsApp'];
-  if (!w) return null;
-  if (/^https?:/.test(w)) return w;
-  return 'https://wa.me/' + w.replace(/[^\d]/g, '');
-}
-function webLink(tags) { let w = tags.website || tags['contact:website'] || tags.url; if (!w) return null; if (!/^https?:/.test(w)) w = 'https://' + w; return w; }
 function addrFromTags(tg) {
   const st = tg['addr:street'] ? tg['addr:street'] + (tg['addr:housenumber'] ? ' ' + tg['addr:housenumber'] : '') : tg['addr:place'];
   return [st, tg['addr:suburb'] || tg['addr:district'], tg['addr:city']].filter(Boolean).join(', ');
@@ -132,22 +122,24 @@ function render(item, tg, loading) {
   const cat = item.coord ? t('droppedPin') : catLabel(tg);
   const st = ohStatus(tg.opening_hours);
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
-  const phones = phoneLinks(tg), wa = waLink(tg), web = webLink(tg);
+  const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
   const saved = isSaved(item.id);
   const addr = addrFromTags(tg) || item.sub || '';
   const loc = locality(item, tg);
   const rows = [];
   rows.push(irow(t('address'), `<span id="pAddr">${addr ? `<bdi>${esc(addr)}</bdi>` : `<span class="muted">${t('loading')}</span>`}</span>`));
   if (tg.opening_hours) {
+    // Parsed → today's line + expandable week (today highlighted). Not parseable → raw OSM text, no status line.
     const tbl = ohTable(tg.opening_hours);
-    rows.push(`<div class="irow click" id="pHours"><div class="iv"><label>${t('hours')}</label><div class="val">${tbl ? esc(digits((tbl.find(r => r.today) || tbl[0]).day + ' ' + (tbl.find(r => r.today) || tbl[0]).txt)) : esc(tg.opening_hours)}${tbl ? `<table class="hours hidden">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td>${esc(digits(r.txt))}</td></tr>`).join('')}</table>` : ''}</div></div>${tbl ? `<span class="chev">${ic('chevronDown', 'sm')}</span>` : ''}</div>`);
+    const td = tbl && (tbl.find(r => r.today) || tbl[0]);
+    rows.push(tbl
+      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl" aria-label="${esc(t('showWeek'))}"><div class="iv"><label>${t('hours')}</label><div class="val"><bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
+      : irow(t('hours'), `<bdi class="oh-raw">${esc(String(tg.opening_hours).slice(0, 300))}</bdi>`));
   }
-  phones.forEach(p => rows.push(irow(t('phone'), `<a href="tel:${esc(p.replace(/[^\d+]/g, ''))}" dir="ltr">${esc(p)}</a>`)));
-  if (wa) rows.push(irow('WhatsApp', `<a href="${esc(wa)}" target="_blank" rel="noopener">${t('whatsapp')}</a>`));
-  if (web) rows.push(irow(t('website'), `<a href="${esc(web)}" target="_blank" rel="noopener" dir="ltr" class="ell">${esc(web.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))}</a>`));
+  phones.forEach(p => rows.push(irow(t('phone'), `<a href="tel:${esc(p.tel)}" dir="ltr">${esc(digits(p.display))}</a>`)));
+  if (web) rows.push(irow(t('website'), `<a href="${esc(web.href)}" target="_blank" rel="noopener noreferrer" dir="ltr" class="ell">${esc(web.domain)}</a>`));
   const email = tg.email || tg['contact:email'];
-  if (email) rows.push(irow('Email', `<a href="mailto:${esc(email)}">${esc(email)}</a>`));
-  for (const k of ['contact:facebook', 'contact:instagram']) if (tg[k]) rows.push(irow(k.split(':')[1].replace(/^./, c => c.toUpperCase()), `<a href="${esc(/^https?:/.test(tg[k]) ? tg[k] : 'https://' + tg[k])}" target="_blank" rel="noopener" dir="ltr">${esc(tg[k].replace(/^https?:\/\/(www\.)?/, ''))}</a>`));
+  if (email && /^[^\s@<>"']+@[^\s@<>"']+\.[a-z]{2,}$/i.test(email)) rows.push(irow(t('email'), `<a href="mailto:${esc(email)}" dir="ltr">${esc(email)}</a>`));
   rows.push(`<div id="pWikiRow" class="hidden"></div>`);
   rows.push(irow(t('coordinates'), `<span dir="ltr">${esc(plusEncode(item.lat, item.lon))}</span><small dir="ltr">${fmtCoord(item.lat, item.lon)}</small>`, `<button class="ib" id="pCopy" aria-label="${t('copy')}">${ic('copy', 'sm')}</button>`, 'click'));
   const osmEdit = item.osm_type && item.osm_id ? `https://www.openstreetmap.org/edit?${item.osm_type}=${item.osm_id}` : `https://www.openstreetmap.org/note/new#map=19/${item.lat}/${item.lon}`;
@@ -172,9 +164,17 @@ function render(item, tg, loading) {
 
   // 4th action: Call → Website → More
   let fourth;
-  if (phones[0]) fourth = `<a class="abtn" href="tel:${esc(phones[0].replace(/[^\d+]/g, ''))}">${ic('phone')}<span>${t('call')}</span></a>`;
-  else if (web) fourth = `<a class="abtn" href="${esc(web)}" target="_blank" rel="noopener">${ic('web')}<span>${t('website')}</span></a>`;
+  if (phones[0]) fourth = `<a class="abtn" href="tel:${esc(phones[0].tel)}">${ic('phone')}<span>${t('call')}</span></a>`;
+  else if (web) fourth = `<a class="abtn" href="${esc(web.href)}" target="_blank" rel="noopener noreferrer">${ic('web')}<span>${t('website')}</span></a>`;
   else fourth = `<button class="abtn" id="pMore">${ic('dots')}<span>${t('more')}</span></button>`;
+  // Round contact buttons (call, website, WhatsApp, Telegram, Facebook, Instagram) – only when the place has social links,
+  // so a plain phone/website is not shown twice (it is already the 4th main action). URLs come from links.js (validated).
+  const contacts = soc.length ? [
+    phones[0] && { href: 'tel:' + phones[0].tel, icon: 'phone', label: t('call'), ext: false },
+    web && { href: web.href, icon: 'web', label: t('website'), ext: true },
+    ...soc.map(s => ({ href: s.href, icon: s.kind, label: t(s.kind), ext: true })),
+  ].filter(Boolean) : [];
+  const contactRow = contacts.length ? `<div class="crow" role="group" aria-label="${esc(t('contactRow'))}">${contacts.map(c => `<a class="cbtn" href="${esc(c.href)}"${c.ext ? ' target="_blank" rel="noopener noreferrer"' : ''} aria-label="${esc(c.label)}"><span class="cc">${ic(c.icon)}</span><span class="cl">${esc(c.label)}</span></a>`).join('')}</div>` : '';
   const eta = item._eta;
   const statusHtml = st ? `<p class="pstatus"><span class="${st.cls}">${esc(st.text.split(' · ')[0])}</span>${st.text.includes(' · ') ? ' · ' + esc(st.text.split(' · ').slice(1).join(' · ')) : ''}</p>` : '';
   const html = `
@@ -191,6 +191,7 @@ function render(item, tg, loading) {
     <button class="abtn" id="pShare">${ic('share')}<span>${t('share')}</span></button>
     ${fourth}
   </div>
+  ${contactRow}
   <div class="photos" id="pPhotos"></div>
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
@@ -213,7 +214,12 @@ function render(item, tg, loading) {
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };
   body.querySelector('#pShare').onclick = () => share(title, shareUrl(it));
   body.querySelector('#pMore')?.addEventListener('click', () => { const g = body.querySelector('.igroup'); setSheet('full'); g?.scrollIntoView({ behavior: 'smooth' }); });
-  body.querySelector('#pHours')?.addEventListener('click', e => { const tb = e.currentTarget.querySelector('table'); tb?.classList.toggle('hidden'); });
+  const hr = body.querySelector('#pHours');
+  if (hr) {
+    const tog = () => { const open = hr.getAttribute('aria-expanded') !== 'true'; hr.setAttribute('aria-expanded', String(open)); hr.classList.toggle('open', open); hr.querySelectorAll('table, .hours-tz').forEach(el => el.classList.toggle('hidden', !open)); };
+    hr.addEventListener('click', e => { if (!e.target.closest('a')) tog(); });
+    hr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tog(); } });
+  }
   body.querySelector('#pCopy').onclick = async () => { try { await navigator.clipboard.writeText(plusEncode(item.lat, item.lon) + ' ' + item.lat.toFixed(6) + ',' + item.lon.toFixed(6)); toast(t('copied')); } catch {} };
   body.querySelector('#pHome').onclick = () => { toggleSave({ ...it, name: title }, 'home'); toast(t('savedOk')); };
   body.querySelector('#pWork').onclick = () => { toggleSave({ ...it, name: title }, 'work'); toast(t('savedOk')); };

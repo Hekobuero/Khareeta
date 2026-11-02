@@ -22,6 +22,8 @@ const SHELL_FILES = [
   'js/core.js',
   'js/fmt.js',
   'js/hours.js',
+  'js/oh.js',
+  'js/links.js',
   'js/i18n.js',
   'js/icons.js',
   'js/map-i18n.js',
