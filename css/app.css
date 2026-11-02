@@ -395,3 +395,19 @@ button,a,[role=button],summary{touch-action:manipulation}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]):not(.light){--k-on-route:var(--k-text-on-accent)}}
 :root[data-theme="dark"],:root.dark{--k-on-route:var(--k-text-on-accent)}
 .fav .b.acc{color:var(--k-text-on-accent)}
+/* voice guidance rows in settings (js/voice.js) */
+.vsel-row{cursor:pointer}
+.vsel-l{flex:none}
+.vsel{margin-inline-start:auto;min-width:0;max-width:62%;flex:0 1 auto;font:inherit;font-size:var(--k-text-sub);color:var(--k-text-2);background:transparent;border:0;padding:12px 0;text-align:end;text-overflow:ellipsis;cursor:pointer}
+.vsel:focus-visible{outline:2px solid var(--k-focus);outline-offset:2px;border-radius:6px}
+.ditem.vblock{display:block;padding:8px 0}
+.vsub{padding:0 16px 2px;font-size:13px;color:var(--k-text-2)}
+.vhint{padding:2px 16px 4px;font-size:12px;color:var(--k-text-2)}
+#dVoiceTest>span{display:flex;flex-direction:column;gap:2px;padding:8px 0;min-width:0}
+.vsample{font-size:12px;color:var(--k-text-2);font-weight:400}
+#dVoiceTest[disabled]{opacity:.45;cursor:default}
+.ditem.vnote{align-items:flex-start;padding:12px 16px;min-height:0}
+.ditem.vnote .ic{color:var(--k-accent);flex:none;margin-top:1px}
+.vnote b{display:block;font-weight:600}
+.vnote p{margin:4px 0 0;font-size:13px;color:var(--k-text-2);line-height:1.4}
+.vnote .vtip{background:var(--k-surface-2);color:var(--k-text);border-radius:8px;padding:8px 10px;margin-top:8px}

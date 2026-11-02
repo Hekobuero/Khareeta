@@ -1,6 +1,6 @@
 import { t, getLang } from './i18n.js';
 
-export const VERSION = '20261102-2102';
+export const VERSION = '20261102-2150';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
