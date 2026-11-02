@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261102-1135';
+const VERSION = '20261102-2150';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -31,6 +31,7 @@ const SHELL_FILES = [
   'js/ui.js',
   'js/update.js',
   'js/util.js',
+  'js/voice.js',
   'fonts/inter-latin-400-normal.woff2',
   'fonts/inter-latin-500-normal.woff2',
   'fonts/inter-latin-600-normal.woff2',

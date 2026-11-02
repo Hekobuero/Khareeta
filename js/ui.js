@@ -7,6 +7,7 @@ import { getTheme, setTheme } from './mapstyle.js';
 import { openOfflinePanel } from './offline.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
+import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
 export const hooks = { restyle: null, relabel: null, rerenderUI: null, set3d: null };
 
@@ -34,6 +35,7 @@ export function openDrawer() {
     <div class="dlabel">${t('navHdr').toUpperCase()}</div>
     <div class="dgroup">
       <button class="ditem" data-a="voice">${ic('volume')}${t('voice')}${sw(settings.voice)}</button>
+      ${voiceRowsHtml(ic)}
     </div>
     <div class="dlabel">${t('more').toUpperCase()}</div>
     <div class="dgroup">
@@ -47,6 +49,7 @@ export function openDrawer() {
     </div>
     <div class="dfoot">Khareeta v${VERSION}<br><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('osmAttr')}</a> · OpenFreeMap · OpenMapTiles</div>`;
   d.setAttribute('aria-label', t('settings'));
+  bindVoiceRows(d, () => { const y = d.scrollTop; openDrawer(); d.scrollTop = y; });
   d.classList.add('open'); $('#scrim').classList.remove('hidden');
   if (!App.installPrompt && !/iphone|ipad/i.test(navigator.userAgent)) $('#dInstall').classList.add('hidden');
   if (matchMedia('(display-mode: standalone)').matches) $('#dInstall').classList.add('hidden');
@@ -58,7 +61,7 @@ export function initDrawer() {
   $('#drawer').addEventListener('click', e => {
     if (e.target.closest('#dClose')) { closeDrawer(); return; }
     const l = e.target.closest('#dLang [data-l]');
-    if (l) { const from = getLang(); if (from === l.dataset.l) return; setLang(l.dataset.l); track('lang_change', { from, to: l.dataset.l }); hooks.rerenderUI(); hooks.relabel(); openDrawer(); return; }
+    if (l) { const from = getLang(); if (from === l.dataset.l) return; setLang(l.dataset.l); stopSpeaking(); track('lang_change', { from, to: l.dataset.l }); hooks.rerenderUI(); hooks.relabel(); openDrawer(); return; }
     const th = e.target.closest('#dTheme [data-v]');
     if (th) { applyTheme(th.dataset.v); openDrawer(); return; }
     const ml = e.target.closest('#dMapLang [data-v]');
@@ -69,6 +72,7 @@ export function initDrawer() {
     if (['lowData', 'voice', 'arabicDigits'].includes(a)) {
       settings[a] = !settings[a]; saveSettings();
       if (a === 'lowData') hooks.restyle();
+      if (a === 'voice' && !settings.voice) stopSpeaking();
       if (a === 'arabicDigits') hooks.rerenderUI();
       openDrawer(); return;
     }

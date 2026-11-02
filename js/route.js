@@ -6,6 +6,7 @@ import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
+import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking } from './voice.js';
 import { photonSearch, rank, dedupe, combobox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -375,17 +376,8 @@ const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 
 // accuracy worse than ACC_OK m only move the puck – they never advance steps, speak or count as off-route.
 export const NAV_ACC_OK = 30, NAV_MOVE_M = 25;
 export function navActive() { return R.active; }
-let voiceWarned = false;
-function speak(text) {
-  if (!settings.voice || !('speechSynthesis' in window)) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text); u.lang = SPEECH_LANG[getLang()];
-    const vs = speechSynthesis.getVoices(), v = vs.find(v => v.lang?.toLowerCase().startsWith(getLang()));
-    if (v) u.voice = v;
-    else if (vs.length && !voiceWarned) { voiceWarned = true; toast(t('noVoice', { l: { ar: 'العربية', de: 'Deutsch', en: 'English' }[getLang()] }), 4000); }
-    u.rate = 1; speechSynthesis.cancel(); speechSynthesis.speak(u);
-  } catch {}
-}
+// voice output lives in js/voice.js (on-device voices only, voice choice, dedupe, no-voice toast)
+function speak(text) { if (settings.voice) voiceSpeak(text); }
 function navArrowEl() {
   const d = document.createElement('div');
   d.innerHTML = `<svg class="navarrow" viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="21.5" fill="var(--k-puck)" stroke="#fff" stroke-width="3"/><path d="M24 11l9.5 23L24 29l-9.5 5z" fill="#fff"/></svg>`;
@@ -405,7 +397,7 @@ export function startNav(sim = false) {
   N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(r.coords[0]).addTo(App.map);
   wake();
   App.map.on('dragstart', onDrag);
-  speak(instr(r.steps[0])); // always start with the depart step ("Head east on …"), never with the first turn
+  navVoiceStart(); // the single start prompt comes from navPrompt() on the first fix, in the chosen spoken variant
   if (sim || !('geolocation' in navigator)) simulate(r);
   else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   App.map.easeTo({ center: r.coords[0], pitch: 58, zoom: 17, bearing: bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]), padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
@@ -467,26 +459,18 @@ function onPos(p, heading, speed, acc) {
   let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
   N.stepIdx = idx;
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
-  // voice at 500 m, 150 m and at the maneuver (car); shorter for walk/bike
-  const th = R.mode === 'car' ? [500, 150, 30] : [150, 40, 12];
-  for (let k = 2; k >= 0; k--) {
-    if (distTo > th[k]) continue;
-    if (!N.spoken[idx + ':' + k] && idx > 0) {
-      for (let j = 0; j <= k; j++) N.spoken[idx + ':' + j] = 1;
-      speak(k === 2 ? instr(step) : t('inDist', { d: fmtDist(distTo), i: instr(step) }));
-    }
-    break;
-  }
+  // voice: start prompt, early prompt (car ≈ 13 s ahead = 300–700 m; walk 30 m), "now", close maneuvers chained – see voice.js
+  navPrompt(r, idx, distTo, R.mode, speed, instr, N.spoken);
   const remain = N.cum[N.cum.length - 1] - along;
   drawRoutes(along);
-  if (remain < 25 && !N.arrived) { N.arrived = true; speak(t('arriveDest')); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
+  if (remain < 25 && !N.arrived) { N.arrived = true; speak(arriveText(r.steps[r.steps.length - 1])); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
   if (N.follow) App.map.easeTo({ center: shown, bearing: hdg, pitch: 58, zoom: camZoom(speed), duration: 1000, easing: x => x, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 } });
   N.lastDist = distTo; N.lastRemain = remain;
   renderHud(p, distTo, remain);
 }
 async function reroute(p) {
   N.rerouting = true; renderHud(N.pos, N.lastDist, N.lastRemain);
-  speak(t('rerouting'));
+  if (settings.voice) voiceSpeak(reroutingText(), { interrupt: true });
   track('reroute', {});
   const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
   try {
@@ -526,7 +510,7 @@ function renderHud(p, distTo, remain) {
     <div class="m"><b>${nf(remain < 10000 ? Math.round(remain / 100) / 10 : Math.round(remain / 1000), { maximumFractionDigits: 1 })}</b><small>${t('km')}</small></div>
     <button class="endbtn" id="navStop">${t('navEnd')}</button>`;
   $('#navStop').onclick = stopNav;
-  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; renderHud(p, distTo, remain); });
+  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; if (!settings.voice) stopSpeaking(); renderHud(p, distTo, remain); });
   const rc = $('#navRecenter');
   rc.classList.toggle('hidden', N.follow);
   rc.innerHTML = `${ic('navigation')}<span>${t('recenter')}</span>`;
@@ -536,7 +520,7 @@ export function stopNav() {
   R.active = false; App.navMode = false; document.body.classList.remove('nav');
   if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);
   N.marker?.remove(); N.marker = null; N.wake?.release?.(); N.wake = null; N.arrived = false;
-  try { speechSynthesis.cancel(); } catch {}
+  stopSpeaking({ reset: true });
   App.map.off('dragstart', onDrag);
   App.meMarker?.getElement().classList.remove('hidden');
   R.markers.forEach(m => m.getElement().classList.remove('hidden'));
