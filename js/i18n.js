@@ -131,7 +131,10 @@ de: {
 }};
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];
-let lang = 'en';
+// Start language: a manual choice (localStorage kh.lang) always wins; otherwise Arabic browsers (ar, ar-SY, …) start in AR,
+// everything else in EN. DE is never auto-selected. Same rule as the pre-paint script in index.html (no LTR flash).
+export function autoLang() { try { const n = (navigator.languages && navigator.languages[0]) || navigator.language || ''; return /^ar(-|_|$)/i.test(n) ? 'ar' : 'en'; } catch { return 'en'; } }
+let lang = autoLang();
 try { const s = localStorage.getItem('kh.lang'); if (s && S[s]) lang = s; } catch {}
 export function getLang() { return lang; }
 export function setLang(l) { if (!S[l]) return; lang = l; try { localStorage.setItem('kh.lang', l); } catch {} applyDir(); }

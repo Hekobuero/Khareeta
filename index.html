@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<script>(function(){try{var t=localStorage.getItem('k.theme')||'system';var d=document.documentElement;if(t!=='system')d.dataset.theme=t;var l=localStorage.getItem('kh.lang');if(l==='ar'){d.lang='ar';d.dir='rtl'}else if(l==='de'){d.lang='de'}}catch(e){}})();</script>
+<script>(function(){var d=document.documentElement,l=null;try{var t=localStorage.getItem('k.theme')||'system';if(t!=='system')d.dataset.theme=t;l=localStorage.getItem('kh.lang')}catch(e){}try{if(l!=='en'&&l!=='ar'&&l!=='de'){var n=(navigator.languages&&navigator.languages[0])||navigator.language||'';l=/^ar(-|_|$)/i.test(n)?'ar':'en'}}catch(e){l='en'}d.lang=l;d.dir=l==='ar'?'rtl':'ltr'})();</script>
 <title>Khareeta · خريطة</title>
 <meta name="description" content="Khareeta – free OpenStreetMap navigation that works in Syria. Search, directions, offline maps.">
 <meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">

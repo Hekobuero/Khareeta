@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261102-1032';
+const VERSION = '20261102-1135';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -43,6 +43,7 @@ const SHELL_FILES = [
   'fonts/noto-sans-arabic-arabic-500-normal.woff2',
   'fonts/noto-sans-arabic-arabic-600-normal.woff2',
   'fonts/noto-sans-arabic-arabic-700-normal.woff2',
+  'fonts/glyphs-empty.pbf',
   'sprites/khareeta-dark.json',
   'sprites/khareeta-dark.png',
   'sprites/khareeta-dark@2x.json',

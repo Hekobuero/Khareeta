@@ -69,6 +69,10 @@ const map = App.map = new maplibregl.Map({
   pixelRatio: settings.lowData ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 3),
   fadeDuration: 200, dragRotate: true, touchPitch: true, cooperativeGestures: false,
   maxTileCacheZoomLevels: 5, refreshExpiredTiles: false,
+  // OpenFreeMap serves glyph ranges only up to U+FFFF. Emoji in OSM names (e.g. "Pizza 🍕") make MapLibre ask for
+  // ranges ≥ 65536 (127744-127999.pbf …) → 404 in the console. Answer those with a local empty glyph set instead;
+  // the emoji simply isn't drawn (same result as before, without the failed request).
+  transformRequest: (url, type) => type === 'Glyphs' && +(/\/(\d+)-\d+\.pbf/.exec(url)?.[1]) >= 65536 ? { url: new URL('fonts/glyphs-empty.pbf', document.baseURI).href } : undefined,
 });
 map.touchZoomRotate.enableRotation();
 map.getCanvas().setAttribute('aria-label', t('mapAria'));
@@ -259,7 +263,7 @@ function showHome(keep) {
   const home = saved.find(s => s.kind === 'home'), work = saved.find(s => s.kind === 'work');
   const favs = saved.filter(s => s.kind === 'fav').slice(0, 6);
   const dist = s => App.me && s ? fmtDist(haversine(App.me, [s.lon, s.lat])) : '';
-  const fav = (k, icn, col, label, s) => `<button class="fav" data-k="${k}"><span class="b" style="background:${col}">${ic(icn)}</span><span dir="auto">${esc(label)}</span><small>${s ? (App.me ? dist(s) : t('saved')) : t('add')}</small></button>`;
+  const fav = (k, icn, col, label, s) => `<button class="fav" data-k="${k}"><span class="b${k === 'home' ? ' acc' : ''}" style="background:${col}">${ic(icn)}</span><span dir="auto">${esc(label)}</span><small>${s ? (App.me ? dist(s) : t('saved')) : t('add')}</small></button>`;
   const html = `<div class="hhead"><h3>${t('saved')}</h3><button id="hAll">${t('seeAll')}</button></div>
   <div class="favs">
     ${fav('home', 'home', 'var(--k-accent)', t('home'), home)}

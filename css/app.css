@@ -34,7 +34,7 @@ a{color:var(--k-accent);text-decoration:none}
 #searchbar:active{transform:scale(.98)}
 #searchbar .sicon{color:var(--k-text-2);width:20px;height:20px;flex:none}
 #q{flex:1;min-width:0;border:0;outline:0;background:none;font-size:var(--k-text-body);height:48px;padding:0;color:var(--k-text)}
-#q::placeholder{color:var(--k-text-3)}
+#q::placeholder,.stop input::placeholder{color:var(--k-text-2);opacity:1} /* P2: AA ≥4.5:1 on glass/surface-2 in light + dark (text-3 was 4.40 / 3.02) */
 #q::-webkit-search-cancel-button{display:none}
 #btnMenu{width:40px;height:40px;background:var(--k-surface-2);color:var(--k-text-2)}
 #btnMenu .ic{width:20px;height:20px}
@@ -179,7 +179,7 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
 .stop.first .dot{background:var(--k-puck)}
 .stop.last .dot{background:none;border:0;box-shadow:none;color:var(--k-pin);width:20px;height:20px}
 .stop.last .dot .ic{width:20px;height:20px}
-.stop input{min-width:0;height:44px;border-radius:12px;border:0;background:var(--k-surface-2);padding:0 14px;font-size:var(--k-text-body);outline:0}
+.stop input{min-width:0;height:44px;border-radius:12px;border:0;background:var(--k-surface-2);color:var(--k-text);padding:0 14px;font-size:var(--k-text-body);outline:0}
 .stop input.me{color:var(--k-accent)}
 .stop input:focus{box-shadow:0 0 0 2px var(--k-accent)}
 .stop .ib{width:34px;height:34px}
@@ -202,7 +202,7 @@ body.sugg-open .dirpanel,body.sugg-open #top{z-index:34}
 .steps .srow+.srow{border-top:.5px solid var(--k-separator)}
 .steps .sic{background:none;color:var(--k-text)}
 .rbubble{background:var(--k-surface);color:var(--k-text);font-weight:600;font-size:var(--k-text-sub);padding:5px 9px;border-radius:9px;box-shadow:var(--k-shadow-2);white-space:nowrap;cursor:pointer;font-variant-numeric:tabular-nums;position:relative}
-.rbubble.on{background:var(--k-route);color:#fff}
+.rbubble.on{background:var(--k-route);color:var(--k-on-route,#fff)}
 .rbubble::after{content:"";position:absolute;left:50%;bottom:-5px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top-color:inherit}
 .rbubble::after{border-top-color:var(--k-surface)}.rbubble.on::after{border-top-color:var(--k-route)}
 
@@ -260,6 +260,7 @@ body.nav .sheet,body.nav #top,body.nav #dirPanel,body.nav #fabs,body.nav #fabsBo
 .seg button.on{background:var(--k-surface);color:var(--k-text);box-shadow:var(--k-shadow-1)}
 .sw{margin-inline-start:auto;width:51px;height:31px;border-radius:16px;background:var(--k-surface-3);position:relative;flex:none;transition:background .2s}
 .sw::after{content:"";position:absolute;top:2px;inset-inline-start:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:inset-inline-start .2s}
+.sw:not(.on){box-shadow:inset 0 0 0 1.5px var(--k-text-3)} /* P2: off-state outline ≥3:1 (WCAG 1.4.11) */
 .sw.on{background:var(--k-success)}.sw.on::after{inset-inline-start:22px}
 
 /* ---- §4.8 layers ---- */
@@ -360,8 +361,9 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
 .fchips .ochip.on .ic{color:#fff}
 .fchips .ochip[data-open].on{background:#2E9E5B}
 .psub.small{font-size:12px;opacity:.75;margin-top:8px}
-.srow .t1[dir=auto]{unicode-bidi:plaintext;text-align:left}
-[dir=rtl] .srow .t1[dir=auto]{text-align:right}
+/* title + subtitle: own bidi paragraph, but both lines always flush to the UI side (QA P2: AR subtitle was shifted) */
+.srow .t1[dir=auto],.srow .t2{unicode-bidi:plaintext;text-align:left}
+[dir=rtl] .srow .t1[dir=auto],[dir=rtl] .srow .t2{text-align:right}
 
 /* ---------- Map attribution (DESIGN.md §4.7): OSM credit always visible, ⓘ reveals the other sources ---------- */
 .maplibregl-ctrl.kattr{margin:0 0 8px;margin-inline-start:8px;display:flex;flex-direction:column;gap:4px;max-width:min(320px,calc(100vw - 96px));padding:0 4px;padding-inline-start:10px;border-radius:12px;font:500 var(--k-text-micro)/1.35 var(--k-font,inherit);color:var(--k-text-2);clear:both;float:none}
@@ -388,3 +390,8 @@ button,a,[role=button],summary{touch-action:manipulation}
 .act::before{content:"";position:absolute;inset:-2px 0}
 .addstop{min-height:44px;margin-block:-11px}
 .hhead button,#hAll{min-height:44px;min-width:44px;margin-block:-10px;padding-inline:8px;margin-inline-end:-8px}
+
+/* ---------- P2 dark-mode contrast: text on the route colour (#4C9BFF) uses the dark on-accent ink (6.2:1 instead of white 2.8:1) ---------- */
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]):not(.light){--k-on-route:var(--k-text-on-accent)}}
+:root[data-theme="dark"],:root.dark{--k-on-route:var(--k-text-on-accent)}
+.fav .b.acc{color:var(--k-text-on-accent)}
