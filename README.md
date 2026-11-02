@@ -72,6 +72,33 @@ coverage of opening hours/phones depends on OpenStreetMap contributors (everyone
 ## Development
 Static site, no build step. Serve the folder with any static web server (`python3 -m http.server`).
 Deep links: `?ll=lat,lon&p=n123&n=Name` (place), `?r=lat,lon;lat,lon&m=car|foot|bike` (route), `?q=text` (search), `#map=z/lat/lon`, `?debug`.
+Use relative paths only – the site must also work under a sub-path (e.g. `/khareeta/`).
+
+### Releasing: bump `VERSION`
+`VERSION` (cache-busting + service-worker cache name) lives in **both** `js/util.js` and `sw.js` and must be identical.
+Run this right before every release commit – it stamps the current Berlin time (`YYYYMMDD-HHMM`, Europe/Berlin):
+
+```sh
+scripts/bump-version.sh              # TZ=Europe/Berlin date +%Y%m%d-%H%M
+scripts/bump-version.sh 20261102-1530   # or an explicit value
+```
+
+### SEO & sharing files
+`robots.txt` (blocks `/admin.html`, points to the sitemap), `sitemap.xml`, Open Graph/Twitter tags and a JSON-LD
+`WebApplication` block in `index.html`. The share image is `icons/og-image.png` (1200×630, logo A) – keep its
+path stable so link previews are not re-cached. The service worker never caches robots.txt, sitemap.xml or the
+OG image (and the OG image is not in the precache).
+
+### Map attribution & OSM tile fallback
+"© OpenStreetMap contributors" (linked to openstreetmap.org/copyright, localized EN/AR/DE) is always visible on the map;
+the ⓘ next to it reveals the other source credits. If the vector style cannot be built, `js/app.js` falls back to the
+raster tiles of `tile.openstreetmap.org`. Checked against the [OSMF Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/):
+correct HTTPS URL, browser User-Agent and default Referer (no restrictive Referrer-Policy), visible attribution,
+caching only via the browser HTTP cache (the SW ignores these tiles) and **no** prefetch/offline download of OSM tiles
+(the offline feature only uses OpenFreeMap vector tiles). Open/recommended items: the tile URL is hard-coded,
+there is no "Report a map issue" link to openstreetmap.org/fixthemap and no published contact address; OSMF gives no
+SLA and may block heavy use without notice – if OpenFreeMap were down for a long time, all users would land on
+tile.openstreetmap.org at once.
 
 ## Places (POI) data
 

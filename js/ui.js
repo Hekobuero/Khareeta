@@ -45,7 +45,7 @@ export function openDrawer() {
       <button class="ditem" data-a="stats">${ic('info')}${t('stats')}${sw(localStorage.getItem('kh.noTrack') !== '1')}</button>
       <button class="ditem" data-a="about">${ic('info')}${t('about')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
     </div>
-    <div class="dfoot">Khareeta v${VERSION}<br>© OpenStreetMap contributors · OpenFreeMap · OpenMapTiles</div>`;
+    <div class="dfoot">Khareeta v${VERSION}<br><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('osmAttr')}</a> · OpenFreeMap · OpenMapTiles</div>`;
   d.setAttribute('aria-label', t('settings'));
   d.classList.add('open'); $('#scrim').classList.remove('hidden');
   if (!App.installPrompt && !/iphone|ipad/i.test(navigator.userAgent)) $('#dInstall').classList.add('hidden');
@@ -97,18 +97,18 @@ export function showSaved() {
 
 function showAbout() {
   openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
-  <div class="prow">${ic('info')}<div class="pv wiki">${getLang() === 'ar' ? 'خريطة تطبيق ملاحة مجاني ومفتوح المصدر مبني على بيانات OpenStreetMap ويستخدم فقط خدمات مجتمعية لا تتطلب مفاتيح ولا تحجب سوريا.' : getLang() === 'de' ? 'Khareeta ist eine freie Navigations-App auf Basis von OpenStreetMap. Sie nutzt nur schlüsselfreie Community-Dienste, die Syrien nicht sperren.' : 'Khareeta is a free navigation app built on OpenStreetMap. It only uses key-free community services that do not block Syria.'}</div></div>
+  <div class="prow">${ic('info')}<div class="pv wiki">${t('aboutText')}</div></div>
   <div class="prow">${ic('map')}<div class="pv"><b>${t('sources')}</b><small>
-  Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap contributors</a> (ODbL)<br>Places (hotels, ATMs, restaurants …): bundled OpenStreetMap extract for Syria via <a href="https://download.geofabrik.de/asia/syria.html" target="_blank">Geofabrik</a>, data from 2026-10-31 (ODbL)<br>
-  Vector tiles & styles: <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank">© OpenMapTiles</a><br>
-  Map renderer: <a href="https://maplibre.org" target="_blank">MapLibre GL JS</a> (BSD-3) · RTL: mapbox-gl-rtl-text (BSD-2)<br>
-  Search: <a href="https://photon.komoot.io" target="_blank">Photon by komoot</a> · <a href="https://nominatim.org" target="_blank">Nominatim</a> (OSMF)<br>
-  Routing: <a href="https://routing.openstreetmap.de" target="_blank">FOSSGIS OSRM</a> · <a href="https://valhalla1.openstreetmap.de" target="_blank">FOSSGIS Valhalla</a><br>
-  POI details: Overpass API (overpass-api.de, private.coffee, VK Maps)<br>
-  Photos & articles: Wikimedia Commons, Wikipedia, Wikidata (CC BY-SA) · <a href="https://panoramax.fr" target="_blank">Panoramax</a><br>
-  Weather: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> (CC BY 4.0)<br>
-  Terrain: <a href="https://mapterhorn.com" target="_blank">Mapterhorn</a> · Map style &amp; sprites: Khareeta design<br>
-  Icons: Material Design Icons (Apache 2.0) · Maki sprites (CC0) · Fonts: Inter, Noto Sans Arabic (OFL)</small></div></div>
+  ${t('cMapData')} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('cOsm')}</a> (ODbL)<br>${t('cPlaces', { g: '<a href="https://download.geofabrik.de/asia/syria.html" target="_blank" rel="noopener">Geofabrik</a>', d: '<bdi>2026-10-31</bdi>' })} (ODbL)<br>
+  ${t('cTiles')}: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank" rel="noopener">© OpenMapTiles</a><br>
+  ${t('cRenderer')}: <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3) · RTL: mapbox-gl-rtl-text (BSD-2)<br>
+  ${t('cSearch')}: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon by komoot</a> · <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a> (OSMF)<br>
+  ${t('cRouting')}: <a href="https://routing.openstreetmap.de" target="_blank" rel="noopener">FOSSGIS OSRM</a> · <a href="https://valhalla1.openstreetmap.de" target="_blank" rel="noopener">FOSSGIS Valhalla</a><br>
+  ${t('cPoi')}: Overpass API (overpass-api.de, private.coffee, VK Maps)<br>
+  ${t('cPhotos')}: Wikimedia Commons, Wikipedia, Wikidata (CC BY-SA) · <a href="https://panoramax.fr" target="_blank" rel="noopener">Panoramax</a><br>
+  ${t('cWeather')}: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0)<br>
+  ${t('cTerrain')}: <a href="https://mapterhorn.com" target="_blank" rel="noopener">Mapterhorn</a> · ${t('cStyle')}<br>
+  ${t('cIcons')}: Material Design Icons (Apache 2.0) · Maki sprites (CC0) · ${t('cFonts')}: Inter, Noto Sans Arabic (OFL)</small></div></div>
   <div class="prow">${ic('info')}<div class="pv"><b>${t('privacy')}</b><small>${t('privacyText')}</small></div></div>`, 'half');
 }
 
