@@ -139,7 +139,8 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
     m.routeState.routes = [rt]; m.routeState.sel = 0; m.routeState.mode = mode; m.startNav(true);
   }, { rt, mode });
   const total = route.distance / (mode === 'car' ? 44 : 4.8);
-  await page.waitForFunction(() => document.querySelector('#navHud') && (window.__ended || []).some(s => /destination|Ziel|وجهت|وصل/i.test(s) && !/^In |بعد|Follow|Dem|تابع|كمّل|, then |, dann |، ثم |، وبعدين /.test(s)), null, { timeout: (total + 25) * 1000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('#navHud') && (window.__ended || []).some(s => /destination|Ziel|وجهت|وصل/i.test(s) && !/^In |بعد|Follow|Dem|تابع|كمّل|, then |, dann |، ثم |، وبعدين /.test(s)), null, { timeout: (total * 2 + 30) * 1000 }).catch(() => {}); // generous: CI runners are slower than real time
+  await page.waitForFunction(() => !speechSynthesis.speaking && !speechSynthesis.pending, null, { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(800);
   const log = await page.evaluate(() => ({ spoken: window.__spoken.filter(s => s.vol !== 0 && s.text.trim()), all: window.__spoken.length, cancels: window.__cancels, overlap: window.__overlap, ended: window.__ended }));
   const out = log.spoken.map(s => {

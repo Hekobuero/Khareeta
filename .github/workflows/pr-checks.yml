@@ -1,0 +1,83 @@
+# PR checks: voice tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+name: pr-checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  BASE_REF: origin/${{ github.base_ref || 'main' }}
+
+jobs:
+  voice-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: tests/voice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # LTS line 24 (same as local test runs). lts/* resolves to Node 26, where the
+          # Playwright 1.56 browser install hangs after the download (zip extraction).
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tests/voice/package-lock.json
+      - run: npm ci
+      - name: Playwright version
+        id: pw
+        run: echo "v=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pwcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.v }}
+      - name: Install Chromium (+ system deps)
+        if: steps.pwcache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        # The Playwright CDN download occasionally stalls after 100 % → per-attempt timeout + retry
+        run: |
+          for i in 1 2 3; do
+            timeout 240 npx playwright install --with-deps chromium && exit 0
+            echo "::warning::playwright install attempt $i failed/stalled, retrying"
+            rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
+          done
+          exit 1
+      - name: Install system deps only (browser from cache)
+        if: steps.pwcache.outputs.cache-hit == 'true'
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium
+      - run: npm test
+        timeout-minutes: 20
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-tests-out
+          path: tests/voice/out/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: scripts/ci/check-version.sh "$BASE_REF"
+
+  cname:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: scripts/ci/check-cname.sh "$BASE_REF"

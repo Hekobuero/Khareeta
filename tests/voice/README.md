@@ -5,7 +5,7 @@ They use Playwright with Chromium, and `speechSynthesis` is mocked. The site its
 
 ```sh
 cd tests/voice
-npm install
+npm ci                            # exact versions from package-lock.json
 npx playwright install chromium   # once
 npm test                          # ≈ 8 min, exit code 0 = all passed
 ```
@@ -26,3 +26,5 @@ What the tests cover:
 - switching voice off in the settings or the HUD;
 - language change, and a failing prompt in the queue;
 - text rules (km agreement, no bracketed road numbers, Syrian texts).
+
+CI: `.github/workflows/pr-checks.yml` runs this suite on every pull request to `main` (job `voice-tests`), together with `scripts/ci/check-version.sh` (`version`) and `scripts/ci/check-cname.sh` (`cname`). Both scripts also run locally, e.g. `scripts/ci/check-version.sh origin/main`.
