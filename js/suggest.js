@@ -13,7 +13,12 @@ export function biasPoint(c, z = 7) { return c && inSyria(c[0], c[1]) ? { lon: c
 
 const norm = s => (s || '').toLowerCase().normalize('NFKD').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[\u0300-\u036f]/g, '').replace(/^(al|el|ال)[- ]?/, '').trim();
 const arabic = s => /[\u0600-\u06FF]/.test(s || '');
-export function countryTier(cc) { cc = (cc || '').toLowerCase(); return !cc || cc === 'sy' ? 0 : LAST.includes(cc) ? 2 : 1; }
+// 0 = Syria (country code, or no code but inside the Syria bbox), 1 = other countries, 2 = SA/JO/TR (never excluded)
+export function countryTier(cc, lon, lat) {
+  cc = (cc || '').toLowerCase();
+  if (!cc) return lon == null || inSyria(lon, lat) ? 0 : 1;
+  return cc === 'sy' ? 0 : LAST.includes(cc) ? 2 : 1;
+}
 // 0 = name starts with the query, 1 = city/town hit across scripts (حمص → Homs), -1 = no settlement match
 function settleRank(it, q) {
   const place = it.tags?.place; if (!SETTLE.includes(place)) return -1;
@@ -26,7 +31,7 @@ function settleRank(it, q) {
 // Settlements that match the query first (city > town > village), then everything else by country tier, stable.
 export function rank(list, q) {
   const pr = { city: 0, town: 1, village: 2 };
-  const a = list.map((it, i) => ({ it, i, s: settleRank(it, q), c: countryTier(it.cc) }));
+  const a = list.map((it, i) => ({ it, i, s: settleRank(it, q), c: countryTier(it.cc, it.lon, it.lat) }));
   const set = a.filter(x => x.s >= 0).sort((x, y) => x.s - y.s || pr[x.it.tags.place] - pr[y.it.tags.place] || x.i - y.i);
   const rest = a.filter(x => x.s < 0).sort((x, y) => x.c - y.c || x.i - y.i);
   return { settlements: set.map(x => x.it), rest: rest.map(x => x.it) };
@@ -54,18 +59,21 @@ export function dedupe(list) {
   }
   return out;
 }
-// Photon: one biased general query + one Syria-only settlement query, in parallel.
+// Photon: one biased general query + two Syria-bbox queries (settlements, any hit), in parallel. The bbox
+// queries make sure Syrian hits are always fetched even if a same-named place abroad ranks higher worldwide
+// (QA: "دمشق" → Iran/Tunisia before Syrian streets); other countries stay in the list, rank() puts them after Syria.
 export async function photonSearch(q, { lang = 'default', center, zoom, limit = 8, signal } = {}) {
   const b = biasPoint(center, zoom);
   const base = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=${lang}`;
   const general = fetchJSON(`${base}&limit=${limit}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}&zoom=${b.zoom}&location_bias_scale=0.4`, { signal }, 8000);
   const places = fetchJSON(`${base}&limit=4&bbox=${SY_BBOX.join(',')}&osm_tag=place:city&osm_tag=place:town&osm_tag=place:village`, { signal }, 8000);
-  const [g, p] = await Promise.allSettled([general, places]);
+  const syria = fetchJSON(`${base}&limit=${Math.min(limit, 8)}&bbox=${SY_BBOX.join(',')}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}`, { signal }, 8000);
+  const [g, p, sy] = await Promise.allSettled([general, places, syria]);
   if (signal?.aborted) throw Object.assign(new Error('abort'), { name: 'AbortError' });
-  if (g.status === 'rejected' && p.status === 'rejected') throw g.reason;
+  if (g.status === 'rejected' && p.status === 'rejected' && sy.status === 'rejected') throw g.reason;
   const pf = (p.value?.features || []).map(f => (f.properties.placeHit = true, f));
   const seen = new Set(), out = [];
-  for (const f of [...pf, ...(g.value?.features || [])]) {
+  for (const f of [...pf, ...(g.value?.features || []), ...(sy.value?.features || [])]) {
     const k = (f.properties.osm_type || '') + f.properties.osm_id;
     if (seen.has(k)) continue; seen.add(k); out.push(f);
   }

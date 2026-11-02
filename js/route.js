@@ -97,15 +97,66 @@ async function valhalla(stops, mode, opts = {}) {
     return { coords, distance: trip.summary.length * 1000, duration: trip.summary.time, steps, summary: steps.filter(s => s.name).sort((a, b) => b.distance - a.distance).slice(0, 1).map(s => s.name).join(', '), engine: 'Valhalla' };
   });
 }
+// ---------------- step clean-up (one list for the step list, the HUD and the voice) ----------------
+// OSRM models squares like Bab Touma as short named segments: right after the start it emits "Turn right 30 m",
+// "U-turn 75 m" and a roundabout that is announced twice (roundabout + "exit roundabout"). Rules:
+//  1. start: within START_ZONE_M of the origin, a run of tiny steps (< TINY_M to the next maneuver) ending in a U-turn
+//     (or steps that begin within TINY_M of the origin) is folded into the depart step (distance/duration added).
+//     A tiny turn without a U-turn after it stays. If the depart segment itself was tiny, the depart takes the
+//     direction and street of the folded steps (where you really drive off).
+//     Roundabouts, ramps, forks, merges, ferries and arrivals are never folded.
+//  2. everywhere: an 'exit roundabout'/'exit rotary' step directly after its roundabout is folded into it.
+// U-turns and short steps later on the route stay untouched (they can be real).
+export const TINY_M = 50, START_ZONE_M = 600;
+const KEEP = /^(arrive|roundabout|rotary|roundabout turn|exit roundabout|exit rotary|on ramp|off ramp|fork|merge|ferry)$/;
+const RBT = /^(roundabout|rotary)$/;
+export function smoothSteps(steps) {
+  if (!steps?.length) return steps;
+  const out = [];
+  let pos = 0; // distance from the origin to the start of the current step
+  const depart = steps[0].type === 'depart' ? { ...steps[0] } : null, depart0 = depart?.distance ?? 0;
+  let i = 0, folded = null;
+  if (depart) {
+    out.push(depart); pos = depart.distance; i = 1;
+    // candidate run: tiny steps / U-turns right after the start; fold up to the last U-turn in it, or the steps that
+    // begin within TINY_M of the origin (GPS-snap noise). A tiny turn that is NOT followed by a U-turn stays (real turn).
+    let k = 0;
+    for (let j = 1, p = pos; j < steps.length; j++) {
+      const s = steps[j];
+      if (KEEP.test(s.type) || s.leg !== depart.leg || p > START_ZONE_M) break;
+      if (!(s.distance < TINY_M || s.modifier === 'uturn')) break;
+      if (s.modifier === 'uturn' || p < TINY_M) k = j;
+      p += s.distance;
+    }
+    for (; i <= k; i++) {
+      const s = steps[i];
+      depart.distance += s.distance; depart.duration = (depart.duration || 0) + (s.duration || 0); folded = s;
+    }
+    if (folded && depart0 < TINY_M) { depart.bearing_after = folded.bearing_after; depart.name = folded.name; depart.ref = folded.ref; }
+  }
+  for (; i < steps.length; i++) {
+    const s = steps[i], prev = out[out.length - 1];
+    if (/^exit (roundabout|rotary)$/.test(s.type) && prev && RBT.test(prev.type) && prev.leg === s.leg && (!s.exit || !prev.exit || s.exit === prev.exit)) {
+      prev.distance += s.distance; prev.duration = (prev.duration || 0) + (s.duration || 0); if (!prev.exit) prev.exit = s.exit;
+      if (!prev.name && s.name) { prev.name = s.name; prev.ref = s.ref; }
+      continue;
+    }
+    out.push({ ...s });
+  }
+  return out;
+}
 export async function computeRoutes(stops, mode, opts) {
-  try { return await osrm(stops, mode, opts); }
-  catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); return await valhalla(stops, mode, opts); }
+  let routes;
+  try { routes = await osrm(stops, mode, opts); }
+  catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); routes = await valhalla(stops, mode, opts); }
+  routes.forEach(r => { r.steps = smoothSteps(r.steps); });
+  return routes;
 }
 
 // ---------------- map layers (route layers live in the style, source 'khareeta-route') ----------------
 const MODE = { car: 'drive', foot: 'walk', bike: 'bike', transit: 'walk' };
 export function ensureRouteLayers() {
-  const map = App.map; if (!map || !map.getStyle()) return;
+  const map = App.map; if (!map || !map.style) return;
   if (!map.getSource('khareeta-route')) { // raster fallback style: add a minimal route rendering
     map.addSource('khareeta-route', { type: 'geojson', data: fc(), lineMetrics: true });
     map.addLayer({ id: 'route-alt', type: 'line', source: 'khareeta-route', filter: ['==', ['get', 'role'], 'alt'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#A6C3EA', 'line-width': 6 } });

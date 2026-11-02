@@ -15,6 +15,7 @@ import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClic
 import { initAnalytics, track } from './analytics.js';
 
 applyDir();
+try { performance.setResourceTimingBufferSize(1000); } catch {} // warmSW() reads the page's resource list
 const syncDarkClass = () => document.documentElement.classList.toggle('dark', isDark());
 syncDarkClass();
 window.KH = { App, VERSION, setSheet: s => import('./core.js').then(m => m.setSheet(s)) };
@@ -33,7 +34,7 @@ function renderUI() {
   App.map?.getCanvas().setAttribute('aria-label', t('mapAria'));
   attrib?.render();
   renderChips();
-  document.title = getLang() === 'ar' ? 'خريطة · Khareeta' : 'Khareeta · خريطة';
+  document.title = t('docTitle'); // tab title follows the UI language (static <title> in index.html stays EN for SEO)
 }
 
 // ---------- locate button: off → follow → follow + heading (§4.7) ----------
@@ -67,13 +68,17 @@ const map = App.map = new maplibregl.Map({
   center: view?.c || DEFAULT.center, zoom: view?.z ?? DEFAULT.zoom, bearing: 0, pitch: 0,
   hash: 'map', attributionControl: false, maxPitch: 75,
   pixelRatio: settings.lowData ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 3),
-  fadeDuration: 200, dragRotate: true, touchPitch: true, cooperativeGestures: false,
+  fadeDuration: 0, dragRotate: true, touchPitch: true, cooperativeGestures: false,
   maxTileCacheZoomLevels: 5, refreshExpiredTiles: false,
   // OpenFreeMap serves glyph ranges only up to U+FFFF. Emoji in OSM names (e.g. "Pizza 🍕") make MapLibre ask for
   // ranges ≥ 65536 (127744-127999.pbf …) → 404 in the console. Answer those with a local empty glyph set instead;
   // the emoji simply isn't drawn (same result as before, without the failed request).
   transformRequest: (url, type) => type === 'Glyphs' && +(/\/(\d+)-\d+\.pbf/.exec(url)?.[1]) >= 65536 ? { url: new URL('fonts/glyphs-empty.pbf', document.baseURI).href } : undefined,
 });
+// Labels pop in without fading while the first view and the POI layer load (each fade frame is a full repaint
+// on slow phones); afterwards the normal 200 ms label fade is restored. _fadeDuration is internal → guarded.
+const restoreFade = () => { if (typeof map._fadeDuration === 'number') map._fadeDuration = 200; };
+setTimeout(restoreFade, 15000);
 map.touchZoomRotate.enableRotation();
 map.getCanvas().setAttribute('aria-label', t('mapAria'));
 // Attribution (OSMF attribution guidelines): "© OpenStreetMap contributors" stays visible at all times,
@@ -119,8 +124,16 @@ attrib = new KAttribution();
 map.addControl(attrib, 'bottom-left');
 const scale = new maplibregl.ScaleControl({ maxWidth: 90, unit: 'metric' });
 map.addControl(scale, 'bottom-left');
-function poiLayers() { if (!POIS.geo || map.getSource('kh-poi')) return; addPoiLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }
-loadPois().then(function tryAdd() { if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250); }).catch(e => console.warn('poi data', e));
+function poiLayers() { if (!POIS.geo || map.getSource('kh-poi')) return; addPoiLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); map.once('idle', restoreFade); App.warmSW?.(); }
+// POIs are not needed for the first paint: start after the first map idle (or 5 s at the latest) when the browser is idle.
+let poiStarted = false;
+function startPois() {
+  if (poiStarted) return; poiStarted = true;
+  const go = () => loadPois().then(function tryAdd() { if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250); }).catch(e => { poiStarted = false; console.warn('poi data', e); });
+  'requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 2000 }) : setTimeout(go, 200);
+}
+map.once('idle', startPois); setTimeout(startPois, 5000);
+addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
   if (navActive()) setPoiVisible(map, false);
@@ -323,7 +336,7 @@ addEventListener('resize', syncFabs);
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); App.installPrompt = e; });
 
 initSheetDrag(); initSearch(); initDrawer(); initRouteMapEvents(); initAnalytics();
-prefetchStyles();
+map.once('idle', () => setTimeout(prefetchStyles, 3000)); // the other theme's style is only needed for a theme switch
 
 // ---------- deep links ----------
 map.once('load', () => {
@@ -347,9 +360,25 @@ map.once('load', () => {
 try { navigator.permissions?.query({ name: 'geolocation' }).then(s => { if (s.state === 'granted') locate(false); }); } catch {}
 
 // ---------- service worker ----------
+// Hand the worker the same-origin files this page loaded (fonts, sprites, POI data …): on the first visit they were
+// fetched before the worker controlled the page, and sw.js copies them from the HTTP cache for offline use.
+// extra: more same-origin files to keep (an offline area download also keeps every UI font weight, ~450 KB)
+const FONT_FILES = ['inter-latin', 'inter-latin-ext', 'noto-sans-arabic-arabic'].flatMap(f => [400, 500, 600, 700].map(w => `fonts/${f}-${w}-normal.woff2`));
+function warmSW(extra = []) {
+  const sw = navigator.serviceWorker; if (!sw) return;
+  const urls = performance.getEntriesByType('resource').map(e => e.name).filter(u => u.startsWith(location.origin))
+    .concat(extra.map(u => new URL(u, document.baseURI).href));
+  // resolves when the worker has stored them (or after 60 s / without an active worker)
+  return sw.ready.then(r => r.active && new Promise(res => {
+    const ch = new MessageChannel(), to = setTimeout(res, 60000); ch.port1.onmessage = () => { clearTimeout(to); res(); };
+    r.active.postMessage({ type: 'warm', urls: [...new Set(urls)] }, [ch.port2]);
+  })).catch(() => {});
+}
+App.warmSW = warmSW;
+App.warmFonts = () => warmSW(FONT_FILES);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // app.js awaits the style at top level, so the window 'load' event may already have fired here
-  const regSW = () => import('./update.js').then(m => m.registerSW('sw.js')).catch(e => console.warn('sw', e));
+  const regSW = () => import('./update.js').then(m => m.registerSW('sw.js')).then(() => warmSW()).catch(e => console.warn('sw', e));
   if (document.readyState === 'complete') regSW(); else addEventListener('load', regSW);
 }
 track('visit', {});

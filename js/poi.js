@@ -5,7 +5,9 @@
 import { haversine } from './util.js';
 import { ohStatus } from './hours.js';
 
-export const DATA_URL = './data/poi-syria.json';
+// data/poi-syria.json split by tools/poi/split.py into ~50 KB parts (data/poi/index.json + pN.json), so no single
+// JSON.parse blocks the main thread for long.
+export const DATA_DIR = './data/poi/';
 // data category -> colour group (DESIGN §3.5), importance (3 = from z12.5, 2 = z14, 1 = z15.5, 0 = z16.5 unnamed)
 export const CAT = {
   hotel: ['lodging', 3], money: ['civic', 3], hospital: ['health', 3], sight: ['culture', 3], fuel: ['transport', 3], transport: ['transport', 3],
@@ -80,28 +82,61 @@ for (const [k, v] of Object.entries(WORDS)) for (const w of v.split(' ')) for (c
 
 // ---------- data ----------
 export const P = { all: [], geo: null, meta: null, ready: null, byOsm: new Map() };
+// Loaded lazily (after the first map idle or on first search use) and processed in small slices that yield to the
+// main thread, so the 22k rows never produce a long task during start-up (Lighthouse TBT).
+const yieldNow = () => (globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise(r => setTimeout(r, 0)));
 export function loadPois() {
   if (P.ready) return P.ready;
-  P.ready = fetch(DATA_URL).then(r => r.json()).then(j => {
+  const getJson = u => fetch(DATA_DIR + u).then(r => { if (!r.ok) throw new Error('poi ' + r.status); return r.json(); });
+  P.ready = getJson('index.json').then(async j => {
     P.meta = { date: j.date, source: j.source, counts: j.counts };
-    const feats = [];
-    for (const r of j.f) {
-      const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = r;
-      const c = j.cats[ci], s = j.subs[si], [grp, imp0] = CAT[c] || ['civic', 1];
-      const named = !!(name || ar || en);
-      const rec = { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
-      rec.tok = [...new Set([...tokens(name), ...tokens(ar), ...tokens(en)])];
-      rec.i = P.all.length; P.all.push(rec); P.byOsm.set(osm, rec.i);
-      const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
-      if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
-      if (!name && (ar || en)) props.name = ar || en;
-      feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
+    const feats = [], all = [], byOsm = new Map();
+    // ~40 parts of ≈50 KB: at most 4 downloads in flight (no competition with map tiles), each JSON.parse stays a
+    // few ms, and the parts carry the index's data version (dv) so a set is never mixed from two deployments.
+    const q = j.dv ? `?dv=${j.dv}` : '', parts = [], W = 4;
+    const get = n => { const pr = fetch(DATA_DIR + `p${n}.json${q}`); pr.catch(() => {}); return pr; };
+    for (let n = 0; n < Math.min(W, j.parts); n++) parts[n] = get(n);
+    let t0 = performance.now();
+    for (let n = 0; n < j.parts; n++) {
+      const res = await parts[n]; if (n + W < j.parts) parts[n + W] = get(n + W);
+      if (!res.ok) throw new Error('poi ' + res.status);
+      const pj = await res.json(); parts[n] = null;
+      if (j.dv && pj.dv && pj.dv !== j.dv) throw new Error('poi data version mismatch');
+      const rows = pj.f;
+      await yieldNow(); t0 = performance.now();
+      for (let k = 0; k < rows.length; k++) {
+        if ((k & 63) === 0 && performance.now() - t0 > 8) { await yieldNow(); t0 = performance.now(); }
+        const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = rows[k];
+        const c = j.cats[ci], s = j.subs[si], [grp, imp0] = CAT[c] || ['civic', 1];
+        const named = !!(name || ar || en);
+        const rec = { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
+        rec.tok = null; // search tokens: built later in idle slices (buildTokens) or on the first search
+        rec.i = all.length; all.push(rec); byOsm.set(osm, rec.i);
+        const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
+        if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
+        if (!name && (ar || en)) props.name = ar || en;
+        feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
+      }
     }
+    P.all = all; P.byOsm = byOsm;
+    // one FeatureCollection, added once (addSource, no setData per part). Measured: passing it as a blob: URL for the
+    // worker to fetch was slower overall (more main-thread work after the add), so the object is handed over directly.
     P.geo = { type: 'FeatureCollection', features: feats };
+    buildTokens();
     return P;
   });
+  P.ready.catch(() => { P.ready = null; }); // allow a retry (e.g. first attempt while offline)
   return P.ready;
 }
+// search tokens for all rows: in ≤8 ms idle slices after loading; searchLocal finishes synchronously if needed
+let tokAt = 0;
+const tokOf = r => [...new Set([...tokens(r.name), ...tokens(r.ar), ...tokens(r.en)])];
+function buildTokens() {
+  const step = () => { const t0 = performance.now(); while (tokAt < P.all.length && performance.now() - t0 < 8) { for (let k = 0; k < 32 && tokAt < P.all.length; k++) { const r = P.all[tokAt++]; r.tok = tokOf(r); } } if (tokAt < P.all.length) next(); };
+  const next = () => ('requestIdleCallback' in window ? requestIdleCallback(step, { timeout: 3000 }) : setTimeout(step, 50));
+  next();
+}
+function ensureTokens() { while (tokAt < P.all.length) { const r = P.all[tokAt++]; r.tok = tokOf(r); } }
 export function toItem(rec) {
   const tags = Object.assign({}, (TAGS[rec.c] || (() => ({})))(rec.s));
   if (rec.name) tags.name = rec.name; if (rec.ar) tags['name:ar'] = rec.ar; if (rec.en) tags['name:en'] = rec.en;
@@ -201,6 +236,7 @@ function lev1(a, b) { // edit distance <= 1 ?
 /** Returns { chip, items } – chip: matched category key (e.g. 'hotel' for 'فنادق'), items: best local POIs. */
 export function searchLocal(text, ref, limit = 6) {
   if (!P.all.length) return { chip: null, items: [] };
+  ensureTokens();
   let q = tokens(text).filter((w, i, a) => !(w.length > 3 && a.includes('ال' + w)));
   if (!q.length) return { chip: null, items: [] };
   let chip = null;
