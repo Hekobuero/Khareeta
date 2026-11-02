@@ -11,13 +11,32 @@ export const MAX_TILES = 3000;
 export const tileKey = u => u.replace(/^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+\//, '$1/_/');
 
 function lon2x(lon, z) { return Math.floor((lon + 180) / 360 * 2 ** z); }
-function lat2y(lat, z) { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); }
+function lat2y(lat, z) { const r = Math.max(-85.0511, Math.min(85.0511, lat)) * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); }
 export function tilesFor(b, zmin = 0, zmax = 14) {
   const out = [];
   for (let z = zmin; z <= zmax; z++) {
-    const x0 = lon2x(b.getWest(), z), x1 = lon2x(b.getEast(), z), y0 = lat2y(b.getNorth(), z), y1 = lat2y(b.getSouth(), z);
+    // clamp to the tile grid: tiles outside coverage (beyond the antimeridian or ±85°) would only 404
+    const n = 2 ** z - 1, cl = v => Math.max(0, Math.min(n, v));
+    const x0 = cl(lon2x(b.getWest(), z)), x1 = cl(lon2x(b.getEast(), z)), y0 = cl(lat2y(b.getNorth(), z)), y1 = cl(lat2y(b.getSouth(), z));
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) out.push([z, x, y]);
   }
+  return out;
+}
+
+// Typical OpenFreeMap vector tile size per zoom (KB, decoded, measured 2026-11 over Syria: Damascus, Aleppo, Homs,
+// Latakia, desert). Low zooms are planet-wide tiles and large; the estimate is "approx." by design.
+const TILE_KB = [80, 220, 1500, 1200, 900, 450, 250, 170, 130, 100, 70, 50, 50, 45, 110];
+const EXTRAS_KB = 2100; // glyph ranges (Noto Sans Regular + Bold, Latin + Arabic) + sprites, once per download
+export const estimateBytes = tiles => (tiles.reduce((s, [z]) => s + (TILE_KB[z] ?? 60), 0) + EXTRAS_KB) * 1024;
+// font stacks used by the style; text-font may be an expression (["step", ["zoom"], ["literal", [...]], …])
+export function fontStacks(layers) {
+  const out = new Set(['Noto Sans Regular', 'Noto Sans Bold']);
+  const walk = f => {
+    if (!Array.isArray(f)) return;
+    if (f.length && f.every(x => typeof x === 'string')) { if (!['step', 'match', 'case', 'coalesce', 'interpolate', 'literal', 'get', 'zoom'].includes(f[0])) out.add(f.join(',')); return; }
+    f.forEach(walk);
+  };
+  layers.forEach(l => walk(l.layout?.['text-font']));
   return out;
 }
 
@@ -47,7 +66,7 @@ export async function openOfflinePanel() {
     if (busy) return;
     tiles = tilesFor(App.map.getBounds(), 0, 14);
     const tooBig = tiles.length > MAX_TILES;
-    est.textContent = t('estimate', { n: nf(tiles.length), s: fmtBytes(tiles.length * 28 * 1024) });
+    est.textContent = t('estimate', { n: nf(tiles.length), s: fmtBytes(estimateBytes(tiles)) });
     btn.disabled = tooBig; btn.style.opacity = tooBig ? '.5' : '';
     big.classList.toggle('hidden', !tooBig); big.firstElementChild.textContent = tooBig ? t('tooBig', { n: nf(tiles.length), m: nf(MAX_TILES) }) : '';
   };
@@ -65,7 +84,7 @@ async function download(tiles, body) {
   const urls = tiles.map(([z, x, y]) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y));
   // glyph ranges for Latin + Arabic + sprites
   const style = App.map.getStyle();
-  const fonts = new Set(['Noto Sans Regular', 'Noto Sans Bold']); style.layers.forEach(l => { const f = l.layout?.['text-font']; if (Array.isArray(f) && typeof f[0] === 'string') fonts.add(f.join(',')); });
+  const fonts = fontStacks(style.layers);
   const ranges = ['0-255', '256-511', '1536-1791', '1792-2047', '64256-64511', '64512-64767', '64768-65023', '65024-65279', '8192-8447'];
   const extras = [];
   fonts.forEach(f => ranges.forEach(r => extras.push(style.glyphs.replace('{fontstack}', encodeURIComponent(f)).replace('{range}', r))));
@@ -74,7 +93,7 @@ async function download(tiles, body) {
   const all = [...urls, ...extras];
   const prog = body.querySelector('#oProg'); prog.classList.remove('hidden');
   const bar = prog.querySelector('i'), txt = prog.querySelector('#oTxt');
-  let done = 0, bytes = 0, fail = 0, i = 0;
+  let done = 0, bytes = 0, fail = 0, empty = 0, i = 0;
   const worker = async () => {
     while (i < all.length) {
       const u = all[i++];
@@ -83,6 +102,7 @@ async function download(tiles, body) {
         if (await cache.match(key)) { done++; continue; }
         const r = await fetch(u, { mode: 'cors', credentials: 'omit' });
         if (r.ok) { const blob = await r.blob(); bytes += blob.size; await cache.put(key, new Response(blob, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'application/octet-stream', 'x-kh-date': String(Date.now()) } })); }
+        else if (r.status === 404 || r.status === 204) empty++; // no data there (outside coverage / empty sea): skip quietly, no retry
         else fail++;
       } catch { fail++; await sleep(300); }
       done++;
@@ -98,7 +118,7 @@ async function download(tiles, body) {
   let name = `${c.lat.toFixed(3)}, ${c.lng.toFixed(3)}`;
   try { const { nominatim } = await import('./util.js'); const j = await nominatim(`reverse?lat=${c.lat}&lon=${c.lng}&format=jsonv2&zoom=12&accept-language=${document.documentElement.lang}`); if (j.name || j.display_name) name = j.name || j.display_name.split(',')[0]; } catch {}
   const areas = lsGet('kh.areas', []); areas.unshift({ name, bbox: [[b.getWest(), b.getSouth()], [b.getEast(), b.getNorth()]], n: urls.length, bytes, date: Date.now() }); lsSet('kh.areas', areas.slice(0, 30));
-  track('offline_download', { tiles: urls.length, kb: Math.round(bytes / 1024) });
+  track('offline_download', { tiles: urls.length, kb: Math.round(bytes / 1024), ...(empty ? { empty } : {}), ...(fail ? { fail } : {}) });
   toast(t('downloaded', { n: nf(urls.length), s: fmtBytes(bytes) }), 4000);
   openOfflinePanel();
 }

@@ -85,7 +85,7 @@ export function initDrawer() {
   });
 }
 async function install() {
-  if (App.installPrompt) { App.installPrompt.prompt(); const r = await App.installPrompt.userChoice; if (r.outcome === 'accepted') track('install', {}); App.installPrompt = null; return; }
+  if (App.installPrompt) { track('install', { stage: 'prompt_shown' }); App.installPrompt.prompt(); const r = await App.installPrompt.userChoice; track('install', { stage: r.outcome === 'accepted' ? 'accepted' : 'dismissed' }); App.installPrompt = null; return; }
   toast(getLang() === 'ar' ? 'في Safari: مشاركة ← إضافة إلى الشاشة الرئيسية' : getLang() === 'de' ? 'In Safari: Teilen → Zum Home-Bildschirm' : 'In Safari: Share → Add to Home Screen', 5000);
 }
 

@@ -58,7 +58,7 @@ svg text{font-family:Inter,sans-serif}
     <button>Sign in</button>
     <div class="err" id="lerr"></div>
   </form>
-  <p class="muted" style="margin-top:14px">Privacy: the app stores only an anonymous random install id, language, device class, app version, coarse country/city (≈11 km grid, only when users shared GPS), referrer domain and event counts. No IPs, no search texts.</p>
+  <p class="muted" style="margin-top:14px">Privacy: the app stores only an anonymous random install id, language, device class, app version, coarse country/city (≈11 km grid, only when users shared GPS), referrer domain, link source / campaign (UTM, channel_language) and event counts. No IPs, no search texts.</p>
 </section>
 <div id="app" class="hidden">
   <header><img src="icons/logo-lockup-dark.svg" alt="Khareeta · خريطة" width="158" height="34"><h1><span class="hsep" aria-hidden="true"></span>Usage</h1>
@@ -69,6 +69,10 @@ svg text{font-family:Inter,sans-serif}
     <div class="card"><h2>Users & visits per day</h2><div id="chart"></div><div class="legend"><span><i style="background:#1a73e8"></i>Active users</span><span><i style="background:#1A73E8"></i>New users</span><span><i style="background:#f9ab00"></i>Visits</span><span><i style="background:#d93025"></i>Searches</span><span><i style="background:#8e24aa"></i>Routes</span></div></div>
     <div class="card"><h2>Coarse locations (users who shared GPS, rounded to 0.1°)</h2><div id="map"></div></div>
     <div class="cols" style="margin-top:16px">
+      <div class="card trk hidden"><h2>Funnel (sessions)</h2><div id="funnel"></div></div>
+      <div class="card trk hidden"><h2>channel_language (sessions)</h2><div id="chl"></div></div>
+      <div class="card trk hidden"><h2>Campaigns (source / medium / campaign)</h2><div id="campaigns"></div></div>
+      <div class="card trk hidden"><h2>Install</h2><p class="muted" id="install_total"></p><div id="install_stages"></div><h2 style="margin-top:14px">Display mode at visit</h2><div id="display_modes"></div></div>
       <div class="card"><h2>Top countries</h2><div id="countries"></div></div>
       <div class="card"><h2>Top cities</h2><div id="cities"></div></div>
       <div class="card"><h2>Top referrers</h2><div id="referrers"></div></div>
@@ -184,6 +188,15 @@ async function load() {
   bars('langs', d.langs || [], l => LANG[l] || l); bars('devices', d.devices || []); bars('categories', d.categories || []);
   bars('route_modes', d.route_modes || []); bars('types', d.types || []); bars('versions', d.versions || []);
   heat(d.geo || []);
+  // tracking cards: need supabase/migrations/20261102_tracking.sql – hidden while the RPC does not exist
+  rpc('kh_tracking', { p_days: days }).then(t => {
+    const v = t.funnel?.[0]?.n || 0;
+    bars('funnel', (t.funnel || []).map(f => ({ k: f.k + (v ? ` (${Math.round(f.n / v * 100)} %)` : ''), n: f.n })));
+    bars('chl', t.channel_language || []); bars('campaigns', t.campaigns || []);
+    $('#install_total').textContent = t.installs != null ? `Installs (once per device): ${nf(t.installs)} · stages = distinct devices` : '';
+    bars('install_stages', t.install_stages || []); bars('display_modes', t.display_modes || []);
+    document.querySelectorAll('.trk').forEach(c => c.classList.remove('hidden'));
+  }).catch(() => document.querySelectorAll('.trk').forEach(c => c.classList.add('hidden')));
   $('#foot').textContent = `Signed in as ${sess.email || ''} · data since ${new Date(d.since).toLocaleString()} · counts of users = distinct anonymous installs`;
 }
 sess ? load() : showLogin();
