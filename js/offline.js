@@ -5,6 +5,7 @@ import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet } from './core.js';
 import { track } from './analytics.js';
+import { loadPois } from './poi.js';
 
 export const MAX_TILES = 3000;
 export const tileKey = u => u.replace(/^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+\//, '$1/_/');
@@ -26,22 +27,33 @@ function vectorTemplate() {
 }
 
 export async function openOfflinePanel() {
-  const b = App.map.getBounds(), z = App.map.getZoom();
-  const tiles = tilesFor(b, 0, 14);
-  const est = tiles.length * 28 * 1024;
+  let tiles = tilesFor(App.map.getBounds(), 0, 14), busy = false;
   const areas = lsGet('kh.areas', []);
   let usage = '';
   try { const e = await navigator.storage.estimate(); usage = `${fmtBytes(e.usage || 0)} / ${fmtBytes(e.quota || 0)}`; } catch {}
   const body = openSheet(`
-    <div class="sec"><h2 class="ptitle" style="font-size:20px">${t('offlineMaps')}</h2><p class="psub">${t('estimate', { n: nf(tiles.length), s: fmtBytes(est) })}</p></div>
-    <div class="actions"><button class="act primary" id="oDl" ${tiles.length > MAX_TILES ? 'disabled style="opacity:.5"' : ''}>${ic('download')}${t('downloadArea')}</button></div>
-    ${tiles.length > MAX_TILES ? `<div class="sec"><p class="psub" style="color:var(--red)">${t('tooBig', { n: nf(tiles.length), m: nf(MAX_TILES) })}</p></div>` : ''}
+    <div class="sec"><h2 class="ptitle" style="font-size:20px">${t('offlineMaps')}</h2><p class="psub" id="oEst"></p></div>
+    <div class="actions"><button class="act primary" id="oDl">${ic('download')}${t('downloadArea')}</button></div>
+    <div class="sec hidden" id="oBig"><p class="psub" style="color:var(--red)"></p></div>
     <div class="sec hidden" id="oProg"><div class="prog"><i></i></div><p class="psub" id="oTxt"></p></div>
     <div class="shead">${t('offlineAreas')}</div>
     <div class="list">${areas.map((a, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic('map')}</div><div class="st"><div class="t1">${esc(a.name)}</div><div class="t2">${nf(a.n)} · ${fmtBytes(a.bytes)} · ${new Date(a.date).toLocaleDateString()}</div></div></div>`).join('') || `<div class="srow muted">—</div>`}</div>
     <div class="prow">${ic('info')}<div class="pv"><small>${t('storage')}: ${usage}</small><small>OpenFreeMap: ≤ ${nf(MAX_TILES)} tiles / download, 4 parallel.</small></div></div>
     <div class="actions"><button class="act" id="oClear">${ic('trash')}${t('clearCache')}</button></div>`, 'half');
-  body.querySelector('#oDl').onclick = () => tiles.length <= MAX_TILES && download(tiles, body);
+  // estimate, button and size warning follow the map while the sheet is open (pan/zoom to pick the area)
+  const est = body.querySelector('#oEst'), btn = body.querySelector('#oDl'), big = body.querySelector('#oBig');
+  const refresh = () => {
+    if (!body.isConnected) { App.map.off('moveend', onMove); return; }
+    if (busy) return;
+    tiles = tilesFor(App.map.getBounds(), 0, 14);
+    const tooBig = tiles.length > MAX_TILES;
+    est.textContent = t('estimate', { n: nf(tiles.length), s: fmtBytes(tiles.length * 28 * 1024) });
+    btn.disabled = tooBig; btn.style.opacity = tooBig ? '.5' : '';
+    big.classList.toggle('hidden', !tooBig); big.firstElementChild.textContent = tooBig ? t('tooBig', { n: nf(tiles.length), m: nf(MAX_TILES) }) : '';
+  };
+  const onMove = () => refresh();
+  refresh(); App.map.on('moveend', onMove);
+  btn.onclick = async () => { if (busy || tiles.length > MAX_TILES) return; busy = true; btn.disabled = true; try { await download(tiles, body); } finally { busy = false; App.map.off('moveend', onMove); } };
   body.querySelector('#oClear').onclick = async () => { await caches.delete('kh-offline'); await caches.delete('kh-tiles'); lsSet('kh.areas', []); toast('OK'); openOfflinePanel(); };
   body.querySelector('.list').onclick = e => { const r = e.target.closest('[data-i]'); if (r) { const a = areas[+r.dataset.i]; App.map.fitBounds(a.bbox, { duration: 600 }); } };
 }
@@ -78,6 +90,9 @@ async function download(tiles, body) {
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
+  // POI data, fonts and sprites live in the service worker's runtime cache: make sure they are loaded and stored too
+  // (the success message waits until the worker has stored them)
+  try { await loadPois(); await App.warmFonts?.(); } catch {}
   const b = App.map.getBounds();
   const c = App.map.getCenter();
   let name = `${c.lat.toFixed(3)}, ${c.lng.toFixed(3)}`;

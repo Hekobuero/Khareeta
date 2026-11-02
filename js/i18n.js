@@ -35,13 +35,13 @@ en: {
   mods: {uturn:'Make a U-turn', 'sharp right':'Turn sharp right', right:'Turn right', 'slight right':'Bear right', straight:'Continue straight', 'slight left':'Bear left', left:'Turn left', 'sharp left':'Turn sharp left'},
   onto: '{a} onto {n}', keep: 'Keep {side}', keepOnto: 'Keep {side} onto {n}', sideL: 'left', sideR: 'right',
   ramp: 'Take the ramp', rampOnto: 'Take the ramp onto {n}', exitRamp: 'Take the exit', exitOnto: 'Take the exit onto {n}', merge: 'Merge', mergeOnto: 'Merge onto {n}',
-  rbt: 'At the roundabout, take exit {x}', rbtOnto: 'At the roundabout, take exit {x} onto {n}', rbtEnter: 'Enter the roundabout', endRoad: 'At the end of the road, {a}', cont: 'Continue', contOn: 'Continue on {n}',
+  rbt: 'At the roundabout, take the {x} exit', rbtOnto: 'At the roundabout, take the {x} exit onto {n}', rbtEnter: 'Enter the roundabout', endRoad: 'At the end of the road, {a}', cont: 'Continue', contOn: 'Continue on {n}',
   arriveDest: 'You have arrived at your destination', arriveL: 'Your destination is on the left', arriveR: 'Your destination is on the right', arriveWp: 'You have reached stop {n}',
   ferry: 'Take the ferry', inDist: 'In {d}, {i}', ordinals: ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'],
   sources: 'Data', reportIssue: 'Data from OpenStreetMap – anyone can improve it.', share_route: 'Share route',
   tryAgain: 'Try again', netErr: 'Network problem – retrying with another server…', serviceDown: 'Service unreachable. Check your connection.',
   osmLink: 'View on OpenStreetMap', moreInfo: 'More info', seeAll: 'See all', opennow: 'Open now', distance: 'Distance', duration: 'Time', simulate: 'Simulate drive', stats: 'Anonymous usage statistics', privacy: 'Privacy', privacyText: 'No account, no tracking cookies. If enabled, Khareeta sends anonymous counts (random install id, language, device type, app version, country/city at ~10 km precision only if you shared your location). Never your exact position, IP address or search texts. Saved places stay on your device.',
-  updateAvail: 'New version available', reloadNow: 'Reload',
+  updateAvail: 'New version available', reloadNow: 'Reload', docTitle: 'Khareeta – Free maps for Syria',
   // voice guidance (js/voice.js) – UI
   vLang: 'English', vVoice: 'Voice', vAuto: 'Automatic', vAutoPick: 'Automatic · {n}', vMale: 'male', vFemale: 'female', vTest: 'Test announcement', vDialect: 'Arabic announcements', vDialAuto: 'Automatic', vDialSyr: 'Syrian', vDialMsa: 'Standard Arabic',
   vNoneT: 'No voice for {l} on this device', vNoneB: 'Khareeta only uses voices installed on your device – nothing is sent to the internet. Directions still appear on screen.',
@@ -102,7 +102,7 @@ ar: {
   sources: 'البيانات', reportIssue: 'البيانات من OpenStreetMap – يمكن لأي شخص تحسينها.', share_route: 'مشاركة المسار',
   tryAgain: 'إعادة المحاولة', netErr: 'مشكلة في الشبكة – إعادة المحاولة بخادم آخر…', serviceDown: 'تعذّر الوصول إلى الخدمة. تحقق من اتصالك.',
   osmLink: 'عرض على OpenStreetMap', moreInfo: 'معلومات إضافية', seeAll: 'عرض الكل', opennow: 'مفتوح الآن', distance: 'المسافة', duration: 'الوقت', simulate: 'محاكاة القيادة', stats: 'إحصاءات استخدام مجهولة', privacy: 'الخصوصية', privacyText: 'لا حساب ولا ملفات تعريف تتبع. عند التفعيل يرسل التطبيق أعدادًا مجهولة فقط (معرّف عشوائي، اللغة، نوع الجهاز، الإصدار، الدولة/المدينة بدقة ~١٠ كم فقط إذا شاركت موقعك). لا يُرسل موقعك الدقيق أو عنوان IP أو نصوص البحث أبدًا. الأماكن المحفوظة تبقى على جهازك.',
-  updateAvail: 'يتوفر إصدار جديد', reloadNow: 'إعادة التحميل',
+  updateAvail: 'يتوفر إصدار جديد', reloadNow: 'إعادة التحميل', docTitle: 'خريطة – خرائط مجانية لسوريا',
   // voice guidance (js/voice.js) – UI
   vLang: 'العربية', vVoice: 'الصوت', vAuto: 'تلقائي', vAutoPick: 'تلقائي · {n}', vMale: 'ذكر', vFemale: 'أنثى', vTest: 'تجربة الصوت', vDialect: 'التنبيهات بالعربية', vDialAuto: 'تلقائي', vDialSyr: 'سوري', vDialMsa: 'فصحى',
   vNoneT: 'لا يوجد صوت ب{l} على هذا الجهاز', vNoneB: 'تستخدم خريطة الأصوات المثبتة على جهازك فقط، ولا يُرسَل أي شيء إلى الإنترنت. تبقى الإرشادات ظاهرة على الشاشة.',
@@ -177,7 +177,7 @@ de: {
   sources: 'Daten', reportIssue: 'Daten von OpenStreetMap – jeder kann sie verbessern.', share_route: 'Route teilen',
   tryAgain: 'Erneut versuchen', netErr: 'Netzwerkproblem – versuche anderen Server…', serviceDown: 'Dienst nicht erreichbar. Verbindung prüfen.',
   osmLink: 'Auf OpenStreetMap ansehen', moreInfo: 'Mehr Infos', seeAll: 'Alle anzeigen', opennow: 'Jetzt geöffnet', distance: 'Entfernung', duration: 'Dauer', simulate: 'Fahrt simulieren', stats: 'Anonyme Nutzungsstatistik', privacy: 'Datenschutz', privacyText: 'Kein Konto, keine Tracking-Cookies. Wenn aktiviert, sendet Khareeta nur anonyme Zählwerte (zufällige Installations-ID, Sprache, Gerätetyp, App-Version, Land/Stadt auf ~10 km genau nur wenn du deinen Standort geteilt hast). Niemals genaue Position, IP-Adresse oder Suchtexte. Gespeicherte Orte bleiben auf deinem Gerät.',
-  updateAvail: 'Neue Version verfügbar', reloadNow: 'Neu laden',
+  updateAvail: 'Neue Version verfügbar', reloadNow: 'Neu laden', docTitle: 'Khareeta – Kostenlose Karten für Syrien',
   // voice guidance (js/voice.js) – UI
   vLang: 'Deutsch', vVoice: 'Stimme', vAuto: 'Automatisch', vAutoPick: 'Automatisch · {n}', vMale: 'männlich', vFemale: 'weiblich', vTest: 'Testansage', vDialect: 'Arabische Ansagen', vDialAuto: 'Automatisch', vDialSyr: 'Syrisch', vDialMsa: 'Hocharabisch',
   vNoneT: 'Keine Stimme für {l} auf diesem Gerät', vNoneB: 'Khareeta nutzt nur Stimmen, die auf deinem Gerät installiert sind – nichts geht ins Internet. Die Hinweise bleiben auf dem Bildschirm sichtbar.',

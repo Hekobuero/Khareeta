@@ -37,8 +37,10 @@ function bilingual(primary) {
  */
 export function applyMapLanguage(map, lang, { bilingualPlaces = true } = {}) {
   const expr = labelExpression(lang);
-  for (const layer of map.getStyle().layers) {
-    if (layer.type !== 'symbol' || layer.metadata?.['khareeta:label'] !== true) continue;
+  // getLayersOrder()/getLayer() avoid map.getStyle(), which deep-copies the whole style on every call
+  const layers = map.getLayersOrder ? map.getLayersOrder().map(id => map.getLayer(id)) : map.getStyle().layers;
+  for (const layer of layers) {
+    if (!layer || layer.type !== 'symbol' || layer.metadata?.['khareeta:label'] !== true) continue;
     const current = map.getLayoutProperty(layer.id, 'text-field');
     if (current === undefined) continue;
     let next = expr;
