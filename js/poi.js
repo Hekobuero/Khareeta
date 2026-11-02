@@ -5,7 +5,9 @@
 import { haversine } from './util.js';
 import { ohStatus } from './hours.js';
 
-export const DATA_URL = './data/poi-syria.json';
+// data/poi-syria.json split by tools/poi/split.py into ~150 KB parts (data/poi/index.json + pN.json), so no single
+// JSON.parse blocks the main thread for long.
+export const DATA_DIR = './data/poi/';
 // data category -> colour group (DESIGN §3.5), importance (3 = from z12.5, 2 = z14, 1 = z15.5, 0 = z16.5 unnamed)
 export const CAT = {
   hotel: ['lodging', 3], money: ['civic', 3], hospital: ['health', 3], sight: ['culture', 3], fuel: ['transport', 3], transport: ['transport', 3],
@@ -80,26 +82,41 @@ for (const [k, v] of Object.entries(WORDS)) for (const w of v.split(' ')) for (c
 
 // ---------- data ----------
 export const P = { all: [], geo: null, meta: null, ready: null, byOsm: new Map() };
+// Loaded lazily (after the first map idle or on first search use) and processed in small slices that yield to the
+// main thread, so the 22k rows never produce a long task during start-up (Lighthouse TBT).
+const yieldNow = () => (globalThis.scheduler && scheduler.yield ? scheduler.yield() : new Promise(r => setTimeout(r, 0)));
 export function loadPois() {
   if (P.ready) return P.ready;
-  P.ready = fetch(DATA_URL).then(r => r.json()).then(j => {
+  const getJson = u => fetch(DATA_DIR + u).then(r => { if (!r.ok) throw new Error('poi ' + r.status); return r.json(); });
+  P.ready = getJson('index.json').then(async j => {
     P.meta = { date: j.date, source: j.source, counts: j.counts };
-    const feats = [];
-    for (const r of j.f) {
-      const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = r;
-      const c = j.cats[ci], s = j.subs[si], [grp, imp0] = CAT[c] || ['civic', 1];
-      const named = !!(name || ar || en);
-      const rec = { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
-      rec.tok = [...new Set([...tokens(name), ...tokens(ar), ...tokens(en)])];
-      rec.i = P.all.length; P.all.push(rec); P.byOsm.set(osm, rec.i);
-      const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
-      if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
-      if (!name && (ar || en)) props.name = ar || en;
-      feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
+    const feats = [], all = [], byOsm = new Map();
+    const parts = Array.from({ length: j.parts }, (_, n) => fetch(DATA_DIR + `p${n}.json`)); // download in parallel …
+    parts.forEach(pr => pr.catch(() => {})); // a failed part is reported once, below
+    let t0 = performance.now();
+    for (const pr of parts) {                                                                // … parse one by one
+      const res = await pr; if (!res.ok) throw new Error('poi ' + res.status);
+      const rows = (await res.json()).f;
+      await yieldNow(); t0 = performance.now();
+      for (let k = 0; k < rows.length; k++) {
+        if ((k & 63) === 0 && performance.now() - t0 > 8) { await yieldNow(); t0 = performance.now(); }
+        const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = rows[k];
+        const c = j.cats[ci], s = j.subs[si], [grp, imp0] = CAT[c] || ['civic', 1];
+        const named = !!(name || ar || en);
+        const rec = { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
+        rec.tok = [...new Set([...tokens(name), ...tokens(ar), ...tokens(en)])];
+        rec.i = all.length; all.push(rec); byOsm.set(osm, rec.i);
+        const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
+        if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
+        if (!name && (ar || en)) props.name = ar || en;
+        feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
+      }
     }
+    P.all = all; P.byOsm = byOsm;
     P.geo = { type: 'FeatureCollection', features: feats };
     return P;
   });
+  P.ready.catch(() => { P.ready = null; }); // allow a retry (e.g. first attempt while offline)
   return P.ready;
 }
 export function toItem(rec) {

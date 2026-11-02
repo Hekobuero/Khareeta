@@ -24,7 +24,8 @@ Live: https://khareeta.app/ (custom domain via the root `CNAME` file; the old ht
 - "What's here?" via long-press (touch) or right-click
 - My location (puck with accuracy halo + heading cone; locate button cycles off → follow → follow + heading),
   measure distance, map types (Standard, Terrain/hillshade, Dark), appearance System/Light/Dark, 3D buildings, 3D terrain
-- Offline: installable PWA, service worker caches app shell + visited map tiles; download the visible area for offline use
+- Offline: installable PWA; the service worker precaches only a small app shell, everything else (fonts, sprites, POI
+  parts, icons) is cached at runtime (stale-while-revalidate, warmed after the first idle) plus visited map tiles; download the visible area for offline use
   (≤ 3000 tiles per download, as allowed by OpenFreeMap), saved places/recents stored locally
 - Low-data mode (no 3D buildings/photos/weather chip, lower pixel ratio), dark mode, Arabic-Indic digits option
 - Apple-Maps-style design (`css/tokens.css`, `map-style-light/dark.json`, `sprites/`): glass search pill, category chips,
@@ -38,7 +39,7 @@ Live: https://khareeta.app/ (custom domain via the root `CNAME` file; the old ht
 |---|---|---|
 | Vector tiles, styles, fonts, sprites | [OpenFreeMap](https://openfreemap.org) (Hungary, via Cloudflare) | free, no key, no limits; offline downloads allowed ≤3000 tiles/50 MB, ≤4 parallel |
 | Map data | © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL | OSMF, open data |
-| Places (POIs) | `data/poi-syria.json` – bundled OSM extract for all of Syria (Geofabrik `syria-261031`, data 2026-10-31), ODbL | self-hosted, works offline |
+| Places (POIs) | `data/poi/` (split from `data/poi-syria.json`) – bundled OSM extract for all of Syria (Geofabrik `syria-261031`, data 2026-10-31), ODbL | self-hosted, works offline |
 | Autocomplete | [Photon](https://photon.komoot.io) by komoot | key-free public instance (fair use) |
 | Search, reverse geocoding, place lookup | [Nominatim](https://nominatim.org) (OSMF) | key-free; app limits to 1 request/s, no autocomplete use (policy) |
 | Routing | [FOSSGIS OSRM](https://routing.openstreetmap.de) car/bike/foot, failover [FOSSGIS Valhalla](https://valhalla1.openstreetmap.de) | German non-profit, key-free, planet-wide |
@@ -64,7 +65,10 @@ coverage of opening hours/phones depends on OpenStreetMap contributors (everyone
   lang_change, …), time, UI language, device class/OS, app version, coarse country/city, referrer **domain** and `utm_source`
   (visit only), and a location rounded to 0.1° **only** if the user already granted location. No IP address, no raw search text.
 - Opt-out: Settings → "Usage statistics"; Do-Not-Track / Global-Privacy-Control are honoured. Events are queued offline
-  and sent in batches; failures never block the UI.
+  and sent in batches; failures never block the UI. One `visit` per browser session (sessionStorage); a batch is removed
+  from the queue *before* it is sent (`fetch` with `keepalive`), so reloads, SW updates and second tabs cannot resend
+  it (no duplicates). Nothing is sent from `localhost`/`127.*`/`file:` unless `localStorage['kh.trackDev']='1'` –
+  tests must never write to the production project.
 - Setup: run `supabase.sql` in the Supabase SQL editor → create the admin user (Authentication → Users → Add user,
   "Auto Confirm") → `insert into public.kh_admins (user_id, email) select id, email from auth.users where email = 'you@example.com';`
   → optionally disable public sign-ups → open `/admin.html` and sign in.
@@ -109,4 +113,7 @@ Only name (local/ar/en), category, opening hours, phone, website, stars and cuis
 Licence: © OpenStreetMap contributors, ODbL 1.0 – keep the attribution. The app renders it as its own GeoJSON
 source (`kh-poi`), uses it for category filters and the local search, and refreshes details live from
 Nominatim/Overpass when a place is opened. To refresh: download a new extract and run the extractor
-(`extract.py` + `pack.py`, pyosmium) – see the deploy notes.
+(`extract.py` + `pack.py`, pyosmium) – see the deploy notes – and then **`python3 tools/poi/split.py`**: the app does
+not load `data/poi-syria.json` itself but `data/poi/index.json` + `data/poi/p0…pN.json` (2000 places / ~150 KB each).
+The parts are fetched in parallel after the first map paint and parsed one by one with yields to the main thread, so
+startup stays fast on phones; they are cached by the service worker for offline search.

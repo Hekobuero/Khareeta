@@ -121,7 +121,7 @@ export function initSearch() {
   q.addEventListener('keydown', e => cb.keydown(e));
   box.addEventListener('pointerdown', e => e.preventDefault());
   box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) choose(items[+r.dataset.i]); });
-  loadPois().catch(() => {});
+  q.addEventListener('focus', () => { loadPois().catch(() => {}); }); // warm the local index as soon as search is used
   q.addEventListener('blur', () => setTimeout(() => { box.innerHTML = ''; show(); }, 150));
   $('#btnClear').addEventListener('click', () => { q.value = ''; $('#btnClear').classList.add('hidden'); clearMarkers(); closeSheet(); q.focus(); renderIdle(); });
 }
@@ -178,6 +178,8 @@ export async function fullSearch(text) {
   if (navigator.onLine) try {
     const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=1&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
+    // Nominatim's viewbox is only a bias: if it found (almost) nothing in Syria, add Photon's Syria-bbox hits
+    if (res.filter(r => (r.cc || '').toLowerCase() === 'sy').length < 3) try { res = res.concat((await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 8 })).map(fromPhoton)); } catch {}
   } catch {
     try { res = (await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 12 })).map(fromPhoton); } catch {}
   }

@@ -5,6 +5,7 @@ import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet } from './core.js';
 import { track } from './analytics.js';
+import { loadPois } from './poi.js';
 
 export const MAX_TILES = 3000;
 export const tileKey = u => u.replace(/^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+\//, '$1/_/');
@@ -78,6 +79,8 @@ async function download(tiles, body) {
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
+  // POI data, fonts and sprites live in the service worker's runtime cache: make sure they are loaded and stored too
+  try { await loadPois(); App.warmFonts?.(); } catch {}
   const b = App.map.getBounds();
   const c = App.map.getCenter();
   let name = `${c.lat.toFixed(3)}, ${c.lng.toFixed(3)}`;

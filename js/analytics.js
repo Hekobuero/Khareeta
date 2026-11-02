@@ -8,11 +8,15 @@ import { getLang } from './i18n.js';
 const SB_URL = 'https://ihqcgjndnjxxgeqheoei.supabase.co';
 const SB_KEY = 'sb_publishable_0YKvFqXx8JX_xGH6ZcloRg_1Lrb_Ngz'; // public (publishable) key – RLS allows INSERT only
 const QKEY = 'kh.aq', MAXQ = 300;
-const OFF = (() => { try { return localStorage.getItem('kh.noTrack') === '1' || navigator.doNotTrack === '1' || navigator.globalPrivacyControl === true; } catch { return false; } })();
+// Local/dev copies (localhost, 127.x, file:) never send: test runs must not land in the production table.
+// A test can opt in with localStorage kh.trackDev = '1' (and then has to intercept the requests itself).
+const DEV_HOST = location.protocol === 'file:' || /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(location.hostname);
+const OFF = (() => { try { return localStorage.getItem('kh.noTrack') === '1' || navigator.doNotTrack === '1' || navigator.globalPrivacyControl === true || (DEV_HOST && localStorage.getItem('kh.trackDev') !== '1'); } catch { return true; } })();
 
 const rid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 let installId = (() => { try { let v = localStorage.getItem('kh.iid'); if (!v) { v = rid(); localStorage.setItem('kh.iid', v); } return v; } catch { return 'nostorage'; } })();
-const sessionId = rid().slice(0, 18);
+// One session per tab: survives reloads and the service-worker update reload, so these do not count as new visits.
+const sessionId = (() => { try { let v = sessionStorage.getItem('kh.sid'); if (!v) { v = rid().slice(0, 18); sessionStorage.setItem('kh.sid', v); } return v; } catch { return rid().slice(0, 18); } })();
 
 function deviceInfo() {
   const ua = navigator.userAgent;
@@ -33,7 +37,7 @@ function tzGeo() {
   return { country: cc, city, geo_src: 'tz' };
 }
 let geo = lsGet('kh.ageo', null);
-if (!geo || Date.now() - (geo.t || 0) > 7 * 864e5) geo = { ...tzGeo(), t: Date.now() };
+if (!geo || Date.now() - (geo.t || 0) > 7 * 864e5) { geo = { ...tzGeo(), t: Date.now() }; lsSet('kh.ageo', geo); }
 async function edgeCountry() {
   // Cloudflare edge country of the tile host we already use (OpenFreeMap) – only the 2-letter code is kept
   if (geo.geo_src === 'gps' || geo.edge) return;
@@ -67,6 +71,7 @@ let q = lsGet(QKEY, []);
 const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
 export function track(type, props = {}) {
   if (OFF || !ALLOWED.has(type)) return;
+  if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sessionId) return; sessionStorage.setItem('kh.visit', sessionId); } catch {} }
   try {
     const pr = { ...props };
     if (type === 'locate' && pr.lat != null) { gpsGeo(pr.lat, pr.lon); delete pr.lat; delete pr.lon; }
@@ -82,28 +87,43 @@ export function track(type, props = {}) {
     lsSet(QKEY, q); schedule();
   } catch {}
 }
-let timer = null, sending = false;
+let timer = null, sending = false, leaving = false;
 function schedule(ms = 8000) { if (!timer) timer = setTimeout(() => { timer = null; flush(); }, ms); }
-export async function flush(beacon = false) {
-  if (sending || !q.length || !navigator.onLine) return;
+// Delivery is at-most-once: a batch is removed from the stored queue BEFORE it is sent (so a reload, the SW update
+// reload or a second tab can never send it again) and only put back when the request demonstrably failed.
+// Every request uses keepalive, so it is not cancelled when the page unloads (keepalive bodies are capped at 64 KB).
+export async function flush() {
+  if (sending || !navigator.onLine) return;
+  q = lsGet(QKEY, q);
+  if (!q.length) return;
   sending = true;
-  const batch = q.slice(0, 50);
+  const batch = [];
+  let bytes = 2;
+  for (const ev of q) { const n = JSON.stringify(ev).length + 1; if (batch.length >= 50 || (batch.length && bytes + n > 48000)) break; batch.push(ev); bytes += n; }
+  q = q.slice(batch.length); lsSet(QKEY, q);
+  let keep = false;
   try {
-    const opts = { method: 'POST', keepalive: beacon, headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(batch) };
-    const r = await fetch(SB_URL + '/rest/v1/kh_events', opts);
-    if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429)) {
-      // success, or permanently rejected (e.g. table missing) -> drop batch to avoid endless growth
-      q = lsGet(QKEY, q).slice(batch.length); lsSet(QKEY, q);
-    }
-  } catch {}
+    const r = await fetch(SB_URL + '/rest/v1/kh_events', { method: 'POST', keepalive: true, headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(batch) });
+    // success, or permanently rejected (4xx) -> done; 401/429/5xx -> retry later
+    keep = !(r.ok || (r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429));
+    // read the (empty) body: an unread response is cancelled by Chrome and shows up as net::ERR_ABORTED in DevTools
+    r.text().catch(() => {});
+  } catch {
+    // A keepalive request outlives the page: when the tab is being hidden/unloaded (reload, SW-update reload, close),
+    // the promise rejects although the browser still delivers the body. Re-queueing it then = duplicate rows, so only
+    // a failure while the page is visible counts as "not sent".
+    keep = !leaving && document.visibilityState === 'visible';
+  }
+  if (keep) { q = [...batch, ...lsGet(QKEY, [])].slice(-MAXQ); lsSet(QKEY, q); }
   sending = false;
-  if (q.length) schedule(30000);
+  if (q.length) schedule(keep ? 30000 : 1000);
 }
 export function initAnalytics() {
   if (OFF) return;
   setTimeout(edgeCountry, 4000);
   addEventListener('online', () => schedule(2000));
-  addEventListener('pagehide', () => flush(true));
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(true); });
+  addEventListener('pagehide', () => { leaving = true; flush(); });
+  addEventListener('pageshow', () => { leaving = false; });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
   if (q.length) schedule(5000);
 }

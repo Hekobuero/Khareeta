@@ -91,7 +91,7 @@ export function closeSheet() {
 }
 export function initSheetDrag() {
   const s = sheet(), body = $('#sheetBody');
-  s.style.transform = 'translateY(100%)'; curY = 0;
+  s.style.transform = 'translateY(100%)'; curY = null; // first sheet appears without a spring: no per-frame map repaints during startup
   let y0 = null, v0 = 0, samples = [], mode = null, startState;
   const order = ['peek', 'half', 'full'];
   const down = e => {
