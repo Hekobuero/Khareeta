@@ -23,7 +23,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          # LTS line 24 (same as local test runs). lts/* resolves to Node 26, where the
+          # Playwright 1.56 browser install hangs after the download (zip extraction).
+          node-version: 24
           cache: npm
           cache-dependency-path: tests/voice/package-lock.json
       - run: npm ci
