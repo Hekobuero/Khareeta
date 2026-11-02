@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <script>(function(){try{var t=localStorage.getItem('k.theme')||'system';var d=document.documentElement;if(t!=='system')d.dataset.theme=t;var l=localStorage.getItem('kh.lang');if(l==='ar'){d.lang='ar';d.dir='rtl'}else if(l==='de'){d.lang='de'}}catch(e){}})();</script>
 <title>Khareeta · خريطة</title>
 <meta name="description" content="Khareeta – free OpenStreetMap navigation that works in Syria. Search, directions, offline maps.">
@@ -29,6 +29,9 @@
 <meta name="twitter:description" content="Free OpenStreetMap navigation that works in Syria. Search, directions, offline maps.">
 <meta name="twitter:image" content="https://khareeta.app/icons/og-image.png">
 <meta name="twitter:image:alt" content="Khareeta · خريطة – free OpenStreetMap maps for Syria">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"Khareeta · خريطة","alternateName":["Khareeta","خريطة"],"url":"https://khareeta.app/","description":"Free OpenStreetMap navigation that works in Syria. Search, directions, offline maps.","applicationCategory":"TravelApplication","applicationSubCategory":"Maps & Navigation","operatingSystem":"Any (web browser, installable PWA)","browserRequirements":"Requires JavaScript","inLanguage":["ar","de","en"],"isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"image":"https://khareeta.app/icons/og-image.png","screenshot":"https://khareeta.app/icons/og-image.png","areaServed":{"@type":"Country","name":"Syria"}}
+</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
@@ -41,7 +44,7 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<div id="map" aria-label="Map"></div>
+<div id="map" role="region" aria-label="Map"></div>
 
 <!-- top search -->
 <div id="top">

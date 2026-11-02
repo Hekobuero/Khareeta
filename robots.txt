@@ -1,0 +1,6 @@
+# Khareeta · خريطة
+User-agent: *
+Allow: /
+Disallow: /admin.html
+
+Sitemap: https://khareeta.app/sitemap.xml

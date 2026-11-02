@@ -20,13 +20,18 @@ syncDarkClass();
 window.KH = { App, VERSION, setSheet: s => import('./core.js').then(m => m.setSheet(s)) };
 
 // ---------- static UI ----------
+let attrib = null; // map attribution control (created with the map below)
 function renderUI() {
   $('#btnMenu').innerHTML = ic('settings'); $('#btnClear').innerHTML = ic('close');
   $('#btnLayers').innerHTML = ic('layers'); $('#btn3d').innerHTML = ic('cube');
   $('#btnCompass').innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2l4 10h-8z" fill="#E5484D"/><path d="M12 22l-4-10h8z" fill="currentColor" opacity=".55"/></svg>`;
   renderLocBtn();
   $('#q').placeholder = navigator.onLine ? t('search') : t('searchOffline');
-  ['btnMenu:settings', 'btnLayers:layers', 'btn3d:threeD', 'btnLocate:myLoc', 'btnCompass:north'].forEach(s => { const [id, k] = s.split(':'); $('#' + id).setAttribute('aria-label', t(k)); $('#' + id).title = t(k); });
+  ['btnMenu:settings', 'btnLayers:layers', 'btn3d:threeD', 'btnLocate:myLoc', 'btnCompass:north', 'btnClear:clear', 'btnZin:zoomIn', 'btnZout:zoomOut', 'dirBack:back', 'dirSwap:swap'].forEach(s => { const [id, k] = s.split(':'); $('#' + id).setAttribute('aria-label', t(k)); $('#' + id).title = t(k); });
+  $('.grab')?.setAttribute('aria-label', t('sheet'));
+  $('#map').setAttribute('aria-label', t('mapAria'));
+  App.map?.getCanvas().setAttribute('aria-label', t('mapAria'));
+  attrib?.render();
   renderChips();
   document.title = getLang() === 'ar' ? 'خريطة · Khareeta' : 'Khareeta · خريطة';
 }
@@ -49,6 +54,10 @@ async function initialStyle() {
   try { return await buildStyle(settings.style); }
   catch (e) {
     console.warn('style failed, raster fallback', e);
+    // OSMF tile usage policy (operations.osmfoundation.org/policies/tiles): this emergency fallback only serves tiles the user
+    // is viewing. Compliant: exact https URL, browser UA + default Referer (no restrictive Referrer-Policy), visible
+    // attribution (KAttribution), browser HTTP cache only (sw.js does not touch these tiles), no prefetch/offline download
+    // (offline.js only works with the 'openmaptiles' vector source). Open points: README › "OSM tile fallback".
     return { version: 8, sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors' } }, layers: [{ id: 'osm', type: 'raster', source: 'osm' }] };
   }
 }
@@ -62,8 +71,48 @@ const map = App.map = new maplibregl.Map({
   maxTileCacheZoomLevels: 5, refreshExpiredTiles: false,
 });
 map.touchZoomRotate.enableRotation();
-map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
-map.once('load', () => document.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'));
+map.getCanvas().setAttribute('aria-label', t('mapAria'));
+// Attribution (OSMF attribution guidelines): "© OpenStreetMap contributors" stays visible at all times,
+// linked to the copyright page and localized; the ⓘ button reveals the remaining source credits.
+class KAttribution {
+  onAdd(m) {
+    this.m = m;
+    const el = this.el = document.createElement('div');
+    el.className = 'maplibregl-ctrl kattr k-glass';
+    el.innerHTML = `<div class="kattr-row"><a class="kattr-osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"></a><button type="button" class="kattr-more" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11.1 10.4h1.8V17h-1.8zM12 6.6a1.15 1.15 0 1 1 0 2.3 1.15 1.15 0 0 1 0-2.3z" fill="currentColor"/></svg></button></div><div class="kattr-extra" hidden></div>`;
+    el.querySelector('.kattr-more').addEventListener('click', () => this.toggle());
+    this.upd = () => this.renderExtra();
+    m.on('styledata', this.upd); m.on('sourcedata', this.upd);
+    this.render();
+    return el;
+  }
+  onRemove() { this.m.off('styledata', this.upd); this.m.off('sourcedata', this.upd); this.el.remove(); }
+  toggle(force) {
+    const open = force ?? this.el.querySelector('.kattr-extra').hidden;
+    this.el.querySelector('.kattr-extra').hidden = !open;
+    this.el.querySelector('.kattr-more').setAttribute('aria-expanded', String(open));
+    this.el.classList.toggle('open', open);
+  }
+  render() {
+    if (!this.el) return;
+    const a = this.el.querySelector('.kattr-osm'); a.textContent = t('osmAttr'); a.lang = getLang();
+    const b = this.el.querySelector('.kattr-more'); b.setAttribute('aria-label', t('mapCredits')); b.title = t('mapCredits');
+    this.renderExtra();
+  }
+  renderExtra() {
+    const srcs = this.m?.getStyle?.()?.sources || {}, seen = new Set(), out = [];
+    for (const s of Object.values(srcs)) {
+      // the OSM credit is already shown permanently; drop its duplicates from the source strings
+      const h = String(s.attribution || '').replace(/(Data from\s*)?<a[^>]*openstreetmap\.org[^>]*>[^<]*<\/a>/gi, '').replace(/©?\s*OpenStreetMap contributors/gi, '').trim();
+      if (h && !seen.has(h)) { seen.add(h); out.push(h); }
+    }
+    const x = this.el.querySelector('.kattr-extra'), html = out.join(' · ');
+    if (x.innerHTML !== html) x.innerHTML = html;
+    this.el.querySelector('.kattr-more').classList.toggle('hidden', !out.length);
+  }
+}
+attrib = new KAttribution();
+map.addControl(attrib, 'bottom-left');
 const scale = new maplibregl.ScaleControl({ maxWidth: 90, unit: 'metric' });
 map.addControl(scale, 'bottom-left');
 function poiLayers() { if (!POIS.geo || map.getSource('kh-poi')) return; addPoiLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }

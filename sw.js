@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261101-2152';
+const VERSION = '20261102-0941';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -126,6 +126,8 @@ self.addEventListener('fetch', e => {
   if (isStyle(u)) return e.respondWith(networkFirst(req, RT, 6000));
   const url = new URL(u);
   if (url.origin === location.origin) {
+    // SEO / sharing files: always straight from the network, never cached by the SW (no offline fallback to index.html)
+    if (/\/(robots\.txt|sitemap\.xml)$/.test(url.pathname) || url.pathname.endsWith('/icons/og-image.png')) return;
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
     return e.respondWith(caches.match(req, { ignoreSearch: true }).then(h => h || fetch(req).then(r => { if (r.ok) { const cl = r.clone(); caches.open(SHELL).then(c => c.put(req, cl)); } return r; })));
