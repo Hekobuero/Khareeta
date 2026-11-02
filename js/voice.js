@@ -225,7 +225,7 @@ export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
       const next = steps[idx + 1], gap = next && along[idx + 1] != null ? along[idx + 1] - along[idx] : Infinity;
       const chain = next && gap < (THEN_GAP[mode] || 60) && step.type !== 'arrive' && !(next.type === 'arrive' && !next.last) ? next : null;
       if (chain) { spoken[(idx + 1) + ':0'] = 1; markSaid(chain, 'pre'); } // the chained maneuver gets only its "now"
-      speak(announce(step, stage, distTo, fallback, chain));
+      speak(announce(step, stage, distTo, fallback, chain), { ttl: stage === 'now' ? 3000 : MAX_WAIT }); // a late "now" is worse than none
     }
     break;
   }
@@ -234,7 +234,7 @@ export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
 // ---------- speaking (own queue: a running prompt is never cut by the next one) ----------
 let last = '', lastT = 0, warned = {}, cur = null, guard = null, queue = [];
 const MAX_WAIT = 8000; // queued prompts older than this are dropped (stale distance)
-function finish(u) { if (cur !== u) return; cur = null; clearTimeout(guard); const now = Date.now(); while (queue.length) { const q = queue.shift(); if (now - q.t < MAX_WAIT) { play(q.text); return; } } }
+function finish(u) { if (cur !== u) return; cur = null; clearTimeout(guard); const now = Date.now(); while (queue.length) { const q = queue.shift(); if (now - q.t < q.ttl) { play(q.text); return; } } }
 function play(text) {
   const s = SYN(), lang = getLang(), v = chosenVoice(lang);
   if (!s || !v) return false;
@@ -252,9 +252,9 @@ function play(text) {
 /**
  * Speak with an on-device voice only. Never sets just u.lang (that could pick a cloud voice) – without a known
  * local voice nothing is spoken. Default: queue behind a running prompt. interrupt: cut the running prompt
- * (recalculating, test button). force: ignore the on/off switch (test button).
+ * (recalculating, test button). force: ignore the on/off switch (test button). ttl: max. time a prompt may wait in the queue.
  */
-export function speak(text, { force = false, interrupt = false } = {}) {
+export function speak(text, { force = false, interrupt = false, ttl = MAX_WAIT } = {}) {
   const s = SYN(); text = String(text || '').trim();
   if (!s || !text || (!force && settings.voice === false)) return false;
   if (!force && ((text === last && Date.now() - lastT < 8000) || queue.some(q => q.text === text))) return false; // no duplicates
@@ -265,7 +265,7 @@ export function speak(text, { force = false, interrupt = false } = {}) {
     return false; // never a cloud voice, a wrong-language voice or an unknown engine default
   }
   if (interrupt || force) { queue = []; const c = cur; cur = null; clearTimeout(guard); if (c || s.speaking || s.pending) try { s.cancel(); } catch {} return play(text); }
-  if (cur) { queue.push({ text, t: Date.now() }); if (queue.length > 2) queue.shift(); return true; }
+  if (cur) { queue.push({ text, t: Date.now(), ttl }); if (queue.length > 2) queue.shift(); return true; }
   return play(text);
 }
 /** Stop immediately (navigation ended / voice switched off): clears the queue, the repeat guard and the per-route memory. */
