@@ -16,11 +16,11 @@ create index if not exists kh_events_session_idx on public.kh_events (session_id
 create or replace function public.kh_tracking(p_days int default 30)
 returns jsonb language plpgsql stable security invoker set search_path = public as
 $$
-declare since timestamptz := now() - make_interval(days => greatest(1, least(p_days, 365)));
-        r jsonb;
+declare v_since timestamptz := now() - make_interval(days => greatest(1, least(p_days, 365)));
+        v_res jsonb;
 begin
   if not public.kh_is_admin() then raise exception 'not authorized' using errcode = '42501'; end if;
-  with ev as (select * from public.kh_events where created_at >= since and session_id is not null),
+  with ev as (select * from public.kh_events where created_at >= v_since and session_id is not null),
   -- a session counts for a step if it has that event (props.f marks the first one; older rows have no flag)
   st as (
     select session_id,
@@ -29,7 +29,7 @@ begin
            coalesce(max(props->>'ch') filter (where type = 'visit'), max(props->>'ch')) ch
     from ev group by session_id)
   select jsonb_build_object(
-    'since', since,
+    'since', v_since,
     'funnel', (select jsonb_build_array(
         jsonb_build_object('k', 'visit', 'n', count(*) filter (where v)),
         jsonb_build_object('k', 'search', 'n', count(*) filter (where v and s)),
@@ -49,8 +49,8 @@ begin
     'display_modes', (select coalesce(jsonb_agg(x order by x.n desc), '[]') from (
         select coalesce(props->>'dm', case when standalone then 'standalone' else 'browser' end) k, count(*) n
         from ev where type = 'visit' group by 1) x)
-  ) into r;
-  return r;
+  ) into v_res;
+  return v_res;
 end $$;
 revoke all on function public.kh_tracking(int) from public, anon;
 grant execute on function public.kh_tracking(int) to authenticated;
