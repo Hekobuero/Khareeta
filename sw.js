@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261102-0943';
+const VERSION = '20261102-1032';
 const SHELL = 'kh-shell-' + VERSION;
 const SHELL_FILES = [
   './',
@@ -27,7 +27,9 @@ const SHELL_FILES = [
   'data/poi-syria.json',
   'js/route.js',
   'js/search.js',
+  'js/suggest.js',
   'js/ui.js',
+  'js/update.js',
   'js/util.js',
   'fonts/inter-latin-400-normal.woff2',
   'fonts/inter-latin-500-normal.woff2',
@@ -65,8 +67,16 @@ const SHELL_FILES = [
 const TILES = 'kh-tiles', OFFLINE = 'kh-offline', RT = 'kh-rt';
 const MAX_TILES = 6000, MAX_AGE = 21 * 864e5;
 
+async function hasBanner() {
+  for (const k of await caches.keys()) if (k.startsWith('kh-shell-') && k !== SHELL && await (await caches.open(k)).match('js/update.js')) return true;
+  return false;
+}
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  // Updates wait for the page's "Reload" banner (js/update.js), so an open tab never mixes old and new modules.
+  // Skip waiting only on the first install, or when the running version has no banner yet (older build).
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES.map(f => new Request(f, { cache: 'reload' })))).then(async () => {
+    if (!self.registration.active || !(await hasBanner())) return self.skipWaiting();
+  }));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('kh-shell-') && k !== SHELL).map(k => caches.delete(k)))).then(() => self.clients.claim()));
