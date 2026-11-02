@@ -368,7 +368,11 @@ function warmSW(extra = []) {
   const sw = navigator.serviceWorker; if (!sw) return;
   const urls = performance.getEntriesByType('resource').map(e => e.name).filter(u => u.startsWith(location.origin))
     .concat(extra.map(u => new URL(u, document.baseURI).href));
-  sw.ready.then(r => r.active && r.active.postMessage({ type: 'warm', urls: [...new Set(urls)] })).catch(() => {});
+  // resolves when the worker has stored them (or after 60 s / without an active worker)
+  return sw.ready.then(r => r.active && new Promise(res => {
+    const ch = new MessageChannel(), to = setTimeout(res, 60000); ch.port1.onmessage = () => { clearTimeout(to); res(); };
+    r.active.postMessage({ type: 'warm', urls: [...new Set(urls)] }, [ch.port2]);
+  })).catch(() => {});
 }
 App.warmSW = warmSW;
 App.warmFonts = () => warmSW(FONT_FILES);

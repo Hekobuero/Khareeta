@@ -35,7 +35,7 @@ en: {
   mods: {uturn:'Make a U-turn', 'sharp right':'Turn sharp right', right:'Turn right', 'slight right':'Bear right', straight:'Continue straight', 'slight left':'Bear left', left:'Turn left', 'sharp left':'Turn sharp left'},
   onto: '{a} onto {n}', keep: 'Keep {side}', keepOnto: 'Keep {side} onto {n}', sideL: 'left', sideR: 'right',
   ramp: 'Take the ramp', rampOnto: 'Take the ramp onto {n}', exitRamp: 'Take the exit', exitOnto: 'Take the exit onto {n}', merge: 'Merge', mergeOnto: 'Merge onto {n}',
-  rbt: 'At the roundabout, take exit {x}', rbtOnto: 'At the roundabout, take exit {x} onto {n}', rbtEnter: 'Enter the roundabout', endRoad: 'At the end of the road, {a}', cont: 'Continue', contOn: 'Continue on {n}',
+  rbt: 'At the roundabout, take the {x} exit', rbtOnto: 'At the roundabout, take the {x} exit onto {n}', rbtEnter: 'Enter the roundabout', endRoad: 'At the end of the road, {a}', cont: 'Continue', contOn: 'Continue on {n}',
   arriveDest: 'You have arrived at your destination', arriveL: 'Your destination is on the left', arriveR: 'Your destination is on the right', arriveWp: 'You have reached stop {n}',
   ferry: 'Take the ferry', inDist: 'In {d}, {i}', ordinals: ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'],
   sources: 'Data', reportIssue: 'Data from OpenStreetMap – anyone can improve it.', share_route: 'Share route',

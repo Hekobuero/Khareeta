@@ -4,7 +4,8 @@ const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
 // are cached at runtime (stale-while-revalidate, cache ASSETS) – including the ones the page loaded before this
-// worker took control (see 'warm' below).
+// worker took control (see 'warm' below). The POI data (data/poi/index.json + pN.json?dv=…) lives in its own cache per
+// data version, kh-poi-<dv>: a set is only used/kept as a whole, so index and parts never come from two deployments.
 const SHELL_FILES = [
   './',
   'index.html',
@@ -37,7 +38,7 @@ const SHELL_FILES = [
   'fonts/glyphs-empty.pbf',
   'icons/icon.svg',
   'icons/icon-192.png'];
-const TILES = 'kh-tiles', OFFLINE = 'kh-offline', RT = 'kh-rt', ASSETS = 'kh-assets';
+const TILES = 'kh-tiles', OFFLINE = 'kh-offline', RT = 'kh-rt', ASSETS = 'kh-assets-' + VERSION, POI = 'kh-poi-';
 const MAX_TILES = 6000, MAX_AGE = 21 * 864e5;
 
 async function hasBanner() {
@@ -50,11 +51,11 @@ async function migrate() {
   try {
     const dst = await caches.open(ASSETS);
     for (const k of await caches.keys()) {
-      if (!k.startsWith('kh-shell-') || k === SHELL) continue;
+      if (!(k.startsWith('kh-shell-') && k !== SHELL) && !(k.startsWith('kh-assets') && k !== ASSETS)) continue;
       const src = await caches.open(k);
       for (const req of await src.keys()) {
         const p = new URL(req.url).pathname;
-        if (!isAsset(p) || await dst.match(assetKey(req.url))) continue;
+        if (!isAsset(p) || isPoi(p) || await dst.match(assetKey(req.url))) continue;
         const r = await src.match(req); if (r) await dst.put(assetKey(req.url), r);
       }
     }
@@ -64,12 +65,13 @@ self.addEventListener('install', e => {
   // 'no-cache' = revalidate with the server (ETag) instead of re-downloading: files the page just loaded come back as 304.
   // Updates wait for the page's "Reload" banner (js/update.js), so an open tab never mixes old and new modules.
   // Skip waiting only on the first install, or when the running version has no banner yet (older build).
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES.map(f => new Request(f, { cache: 'no-cache' })))).then(migrate).then(async () => {
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(SHELL_FILES.map(f => new Request(f, { cache: 'no-cache' })))).then(migrate).then(poiUpdate).then(async () => {
     if (!self.registration.active || !(await hasBanner())) return self.skipWaiting();
   }));
 });
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('kh-shell-') && k !== SHELL).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => (k.startsWith('kh-shell-') && k !== SHELL) || (k.startsWith('kh-assets') && k !== ASSETS)).map(k => caches.delete(k))))
+    .then(poiPrune).then(() => self.clients.claim()));
 });
 
 const tileKey = u => u.replace(/^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+\//, '$1/_/');
@@ -119,6 +121,72 @@ async function networkFirst(req, name, timeout = 5000) {
 }
 
 // ----- runtime assets: stale-while-revalidate -----
+// ----- POI data: one complete set per data version (kh-poi-<dv>) -----
+const isPoi = p => /\/data\/poi\/[^/]+\.json$/.test(p);
+const poiIndexUrl = () => new URL('data/poi/index.json', self.registration.scope).href;
+const poiPartUrl = (n, dv) => new URL(`data/poi/p${n}.json?dv=${dv}`, self.registration.scope).href;
+const DONE = '__complete';
+async function poiSets() { // [{ key, dv, done, t }] newest complete first
+  const out = [];
+  for (const k of await caches.keys()) {
+    if (!k.startsWith(POI)) continue;
+    const r = await (await caches.open(k)).match(DONE);
+    out.push({ key: k, dv: k.slice(POI.length), done: !!r, t: r ? +(await r.text()) || 0 : 0 });
+  }
+  return out.sort((a, b) => (b.done - a.done) || (b.t - a.t));
+}
+// a set is complete when the index and all its parts are cached: mark it, then drop every other set
+async function poiCheck(dv) {
+  const c = await caches.open(POI + dv), ix = await c.match(poiIndexUrl()); if (!ix) return;
+  if (await c.match(DONE)) return;
+  let n; try { n = (await ix.clone().json()).parts; } catch { return; }
+  for (let i = 0; i < n; i++) if (!(await c.match(poiPartUrl(i, dv)))) return;
+  await c.put(DONE, new Response(String(Date.now())));
+  for (const s of await poiSets()) if (s.dv !== dv) await caches.delete(s.key);
+}
+async function poiPrune() { // on activate: keep only the newest complete set (+ a set still being filled that is newer)
+  const sets = await poiSets(), best = sets.find(s => s.done);
+  for (const s of sets) if (best && s.done && s !== best) await caches.delete(s.key);
+}
+async function poiPut(res, url) { // store a fetched index or part in the set of its own data version
+  try {
+    const j = await res.clone().json(), dv = j.dv; if (!dv || !/^[\w-]{1,40}$/.test(dv)) return;
+    const u = new URL(url); if (/\/p\d+\.json$/.test(u.pathname) && u.searchParams.get('dv') !== dv) return; // part from another deployment
+    await (await caches.open(POI + dv)).put(url, res); await poiCheck(dv);
+  } catch {}
+}
+async function poiFetch(req, e) {
+  const url = new URL(req.url), isIndex = url.pathname.endsWith('/index.json');
+  if (isIndex) { // network first (newest data), offline: the index of the newest complete set
+    try {
+      const r = await Promise.race([fetch(req), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))]);
+      if (r.ok && r.status === 200) { e.waitUntil(poiPut(r.clone(), poiIndexUrl())); return r; }
+      throw new Error('http ' + r.status);
+    } catch (err) {
+      for (const s of await poiSets()) { const h = await (await caches.open(s.key)).match(poiIndexUrl()); if (h && s.done) return h; }
+      throw err;
+    }
+  }
+  const dv = url.searchParams.get('dv');
+  if (dv) { const h = await (await caches.open(POI + dv)).match(req.url); if (h) return h; }
+  const r = await fetch(req);
+  if (dv && r.ok && r.status === 200) e.waitUntil(poiPut(r.clone(), req.url));
+  return r;
+}
+// On an update with a cached POI set, fetch the new set during install so a later offline start has complete POIs
+// (no-op if the data version did not change). First installs are filled by the page's own requests + 'warm'.
+async function poiUpdate() {
+  try {
+    const sets = await poiSets(), old = (await caches.keys()).some(k => k === 'kh-assets');
+    if (!sets.length && !old) return;
+    const r = await fetch(poiIndexUrl(), { cache: 'no-cache' }); if (!r.ok) return;
+    const j = await r.clone().json(); if (!j.dv || sets.some(s => s.dv === j.dv && s.done)) return;
+    const c = await caches.open(POI + j.dv);
+    for (let n = 0; n < j.parts; n++) { const u = poiPartUrl(n, j.dv); if (await c.match(u)) continue; const p = await fetch(u); if (!p.ok) return; await poiPut(p, u); }
+    await poiPut(r, poiIndexUrl());
+  } catch {}
+}
+
 const isAsset = p => /\/(fonts\/[^/]+\.woff2|sprites\/[^/]+|data\/(poi\/)?[^/]+\.json|icons\/[^/]+\.(png|svg)|favicon[^/]*)$/.test(p) && !p.endsWith('/icons/og-image.png');
 const assetKey = u => { const x = new URL(u); x.search = ''; x.hash = ''; return x.href; };
 async function swr(req, e) {
@@ -135,6 +203,8 @@ async function warm(urls) {
   for (const u of urls) {
     let url; try { url = new URL(u, self.registration.scope); } catch { continue; }
     if (url.origin !== location.origin || !isAsset(url.pathname)) continue;
+    if (isPoi(url.pathname)) { const ix = url.pathname.endsWith('/index.json'); if (!ix && !url.searchParams.get('dv')) continue;
+      try { const r = await fetch(ix ? poiIndexUrl() : url.href); if (r.ok && r.status === 200) await poiPut(r, ix ? poiIndexUrl() : url.href); } catch {} continue; }
     const key = assetKey(url.href);
     if (await caches.match(key, { ignoreSearch: true })) continue;
     try { const r = await fetch(key); if (r.ok && r.status === 200) await c.put(key, r); } catch {}
@@ -153,11 +223,12 @@ self.addEventListener('fetch', e => {
     if (/\/(robots\.txt|sitemap\.xml)$/.test(url.pathname) || url.pathname.endsWith('/icons/og-image.png')) return;
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
+    if (isPoi(url.pathname)) return e.respondWith(poiFetch(req, e));
     if (isAsset(url.pathname)) return e.respondWith(swr(req, e));
     return e.respondWith(caches.match(req, { ignoreSearch: true }).then(h => h || fetch(req).then(r => { if (r.ok) { const cl = r.clone(); caches.open(SHELL).then(c => c.put(req, cl)); } return r; })));
   }
 });
 self.addEventListener('message', e => {
   if (e.data === 'skipWaiting') self.skipWaiting();
-  else if (e.data && e.data.type === 'warm' && Array.isArray(e.data.urls)) e.waitUntil(warm(e.data.urls.slice(0, 200)));
+  else if (e.data && e.data.type === 'warm' && Array.isArray(e.data.urls)) e.waitUntil(warm(e.data.urls.slice(0, 200)).catch(() => {}).then(() => e.ports[0] && e.ports[0].postMessage('warmed')));
 });
