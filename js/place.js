@@ -167,11 +167,10 @@ function render(item, tg, loading) {
   if (phones[0]) fourth = `<a class="abtn" href="tel:${esc(phones[0].tel)}">${ic('phone')}<span>${t('call')}</span></a>`;
   else if (web) fourth = `<a class="abtn" href="${esc(web.href)}" target="_blank" rel="noopener noreferrer">${ic('web')}<span>${t('website')}</span></a>`;
   else fourth = `<button class="abtn" id="pMore">${ic('dots')}<span>${t('more')}</span></button>`;
-  // Round contact buttons (call, website, WhatsApp, Telegram, Facebook, Instagram) – only when the place has social links,
-  // so a plain phone/website is not shown twice (it is already the 4th main action). URLs come from links.js (validated).
+  // Round contact buttons (website, WhatsApp, Telegram, Facebook, Instagram) – only when the place has social links.
+  // Call (or website when there is no phone) is already the 4th main action, so it is not repeated here. URLs come from links.js (validated).
   const contacts = soc.length ? [
-    phones[0] && { href: 'tel:' + phones[0].tel, icon: 'phone', label: t('call'), ext: false },
-    web && { href: web.href, icon: 'web', label: t('website'), ext: true },
+    web && phones[0] && { href: web.href, icon: 'web', label: t('website'), ext: true }, // not already the 4th action
     ...soc.map(s => ({ href: s.href, icon: s.kind, label: t(s.kind), ext: true })),
   ].filter(Boolean) : [];
   const contactRow = contacts.length ? `<div class="crow" role="group" aria-label="${esc(t('contactRow'))}">${contacts.map(c => `<a class="cbtn" href="${esc(c.href)}"${c.ext ? ' target="_blank" rel="noopener noreferrer"' : ''} aria-label="${esc(c.label)}"><span class="cc">${ic(c.icon)}</span><span class="cl">${esc(c.label)}</span></a>`).join('')}</div>` : '';
