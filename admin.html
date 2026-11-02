@@ -72,7 +72,7 @@ svg text{font-family:Inter,sans-serif}
       <div class="card trk hidden"><h2>Funnel (sessions)</h2><div id="funnel"></div></div>
       <div class="card trk hidden"><h2>channel_language (sessions)</h2><div id="chl"></div></div>
       <div class="card trk hidden"><h2>Campaigns (source / medium / campaign)</h2><div id="campaigns"></div></div>
-      <div class="card trk hidden"><h2>Install</h2><div id="install_stages"></div><h2 style="margin-top:14px">Display mode at visit</h2><div id="display_modes"></div></div>
+      <div class="card trk hidden"><h2>Install</h2><p class="muted" id="install_total"></p><div id="install_stages"></div><h2 style="margin-top:14px">Display mode at visit</h2><div id="display_modes"></div></div>
       <div class="card"><h2>Top countries</h2><div id="countries"></div></div>
       <div class="card"><h2>Top cities</h2><div id="cities"></div></div>
       <div class="card"><h2>Top referrers</h2><div id="referrers"></div></div>
@@ -193,6 +193,7 @@ async function load() {
     const v = t.funnel?.[0]?.n || 0;
     bars('funnel', (t.funnel || []).map(f => ({ k: f.k + (v ? ` (${Math.round(f.n / v * 100)} %)` : ''), n: f.n })));
     bars('chl', t.channel_language || []); bars('campaigns', t.campaigns || []);
+    $('#install_total').textContent = t.installs != null ? `Installs (once per device): ${nf(t.installs)} · stages = distinct devices` : '';
     bars('install_stages', t.install_stages || []); bars('display_modes', t.display_modes || []);
     document.querySelectorAll('.trk').forEach(c => c.classList.remove('hidden'));
   }).catch(() => document.querySelectorAll('.trk').forEach(c => c.classList.add('hidden')));

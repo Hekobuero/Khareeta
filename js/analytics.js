@@ -96,6 +96,11 @@ export function deriveChannel(src, refHost) {
   if (refHost) return normChannel(refHost) || 'referral';
   return 'direct';
 }
+const CH_KNOWN = new Set([...CH_ALIAS.map(([k]) => k), 'direct', 'referral', 'qr', 'sms', 'print']);
+export function parseCh(v) {
+  const m = String(v || '').trim().toLowerCase().match(/^([a-z]{1,20})[_-](ar|en|de)$/);
+  return m && CH_KNOWN.has(m[1]) ? { ch: m[1], l: m[2] } : null;
+}
 function attribution() {
   try { const a = JSON.parse(sessionStorage.getItem('kh.att') || 'null'); if (a) return a; } catch {}
   const sp = new URLSearchParams(location.search);
@@ -107,9 +112,13 @@ function attribution() {
     utm_content: clip(sp.get('utm_content')), utm_term: clip(sp.get('utm_term')),
     referrer: refHost,
   };
+  // ?ch=<channel>_<lang> (e.g. ch=facebook_ar) – only known channels and languages, anything else is ignored;
+  // an explicit utm_source/ref wins for the channel, the language of ch still applies
+  const cp = parseCh(sp.get('ch'));
+  if (cp && !a.utm_source) a.utm_source = cp.ch;
   const ch = deriveChannel(a.utm_source, refHost);
   const pl = (sp.get('lang') || '').toLowerCase().slice(0, 2);
-  const l = (LANGS.includes(pl) && pl) || langHint(a.utm_content, a.utm_campaign) || getLang();
+  const l = (cp && cp.l) || (LANGS.includes(pl) && pl) || langHint(a.utm_content, a.utm_campaign) || getLang();
   a.ch = ch; a.chl = `${ch}_${l}`;
   try { sessionStorage.setItem('kh.att', JSON.stringify(a)); } catch {}
   return a;
@@ -120,13 +129,16 @@ const UTM_KEYS = ['utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
 const FUNNEL = new Set(['visit', 'search', 'route', 'nav_start', 'install']);
 function funnelFirst(type, pr) {
   if (!FUNNEL.has(type)) return false;
-  if (type === 'install' && !['installed', 'accepted'].includes(pr.stage)) return false;
+  if (type === 'install' && pr.stage !== 'installed') return false; // 'accepted' is only a stage, not an install
   try { const f = JSON.parse(sessionStorage.getItem('kh.fun') || '[]'); if (f.includes(type)) return false; f.push(type); sessionStorage.setItem('kh.fun', JSON.stringify(f)); return true; } catch { return false; }
 }
 // Install events (all as type 'install' – the table's type check already allows it; props.stage tells them apart)
 const onceSession = k => { try { if (sessionStorage.getItem(k)) return false; sessionStorage.setItem(k, '1'); return true; } catch { return true; } };
 addEventListener('beforeinstallprompt', () => { if (onceSession('kh.bip')) track('install', { stage: 'available' }); });
-addEventListener('appinstalled', () => track('install', { stage: 'installed' }));
+// 'installed' = the real install: at most one per device (localStorage) and per session, even if the browser fires
+// appinstalled twice (seen in Chrome). Only this event can carry the funnel flag f = 1.
+const onceDevice = k => { try { if (localStorage.getItem(k)) return false; localStorage.setItem(k, String(Date.now())); return true; } catch { return true; } };
+addEventListener('appinstalled', () => { if (onceSession('kh.inst') && onceDevice('kh.inst')) track('install', { stage: 'installed' }); });
 const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => matchMedia(`(display-mode: ${m})`).matches) || (navigator.standalone === true ? 'standalone' : 'browser');
 
 // ----- queue -----

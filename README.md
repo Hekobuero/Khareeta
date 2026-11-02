@@ -86,6 +86,7 @@ load in a tab are kept for that tab (sessionStorage) even if the user later navi
 | `utm_content` | post/creative id **with language suffix**, e.g. `post3_ar` | `props.utm_content` |
 | `utm_term` | optional keyword/audience | `props.utm_term` |
 | `lang` | explicit language `ar` / `en` / `de` (overrides `utm_content`) | part of `props.ch` |
+| `ch` | short form `<channel>_<lang>`, e.g. `ch=facebook_ar` – only known channels (`facebook`, `instagram`, `telegram`, `whatsapp`, `x`, `youtube`, `tiktok`, `linkedin`, `reddit`, `snapchat`, `email`, `organic`, `direct`, `referral`, `qr`, `sms`, `print`) and `ar`/`en`/`de`; anything else is ignored; an explicit `utm_source`/`ref` wins for the channel | `props.ch`; also `utm_source` if none is given |
 
 UTM values are cut to 40 chars (`utm_source` 80). Use lowercase, `_` or `-`, no personal data in links.
 
@@ -106,6 +107,8 @@ else the UI language at the first page load.
 | `https://khareeta.app/?utm_source=instagram&utm_medium=story&utm_content=story_de` | `instagram_de` |
 | `https://khareeta.app/?utm_source=whatsapp&utm_medium=group&lang=en` | `whatsapp_en` |
 | `https://khareeta.app/?ref=tg&lang=ar` (short form) | `telegram_ar` |
+| `https://khareeta.app/?ch=facebook_ar` (shortest form) | `facebook_ar` |
+| `https://khareeta.app/?ch=myblog_ar` (unknown channel → ignored) | `direct_<ui language>` |
 | shared plain link opened from `t.me` (no parameters) | `telegram_<ui language>` |
 | typed in / bookmark / home-screen app | `direct_<ui language>` |
 | found via Google | `organic_<ui language>` |
@@ -113,9 +116,14 @@ else the UI language at the first page load.
 Deep links combine normally: `https://khareeta.app/?q=Aleppo&utm_source=fb&utm_content=post2_ar`.
 
 **Funnel** `visit → search → route → nav_start → install`: the first event of each step in a session carries `props.f = 1`
-(at most once per step and session; later events are still counted normally, without the flag).
+(at most once per step and session). Repeated `search` / `route` / `nav_start` events are sent **on purpose** (they are the
+usage counts in the dashboard); only the funnel flag is once per session. The funnel step `search` = event type `search`
+(typed searches and category chips, `props.kind`); `category` events (chip filter changes) are not a funnel step.
+In `kh_tracking()` a session counts for a step only if it also has the previous steps; `install` needs a `visit` earlier in the same session.
 **Install**: event type `install` with `props.stage` = `available` (browser offered install, once per session),
-`prompt_shown`, `accepted`, `dismissed`, `installed` (`appinstalled`). `visit` also carries `props.dm` = display mode
+`prompt_shown`, `accepted`, `dismissed` (stages only) and `installed` (`appinstalled`) – the one real install: sent at
+most **once per device** (`localStorage kh.inst`) and once per session, even if the browser fires `appinstalled` twice;
+only it can carry `f = 1`. The admin counts installs as distinct devices. `visit` also carries `props.dm` = display mode
 (`browser`, `standalone`, …). Only the session id links events – no account, IP, fingerprinting or personal data.
 All of this uses existing columns + `props` JSON, so **no migration is required for collecting**.
 The optional `supabase/migrations/20261102_tracking.sql` adds the `kh_tracking()` RPC + indexes for the Funnel /
