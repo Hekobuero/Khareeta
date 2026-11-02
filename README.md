@@ -85,9 +85,9 @@ scripts/bump-version.sh 20261102-1530   # or an explicit value
 
 ### SEO & sharing files
 `robots.txt` (blocks `/admin.html`, points to the sitemap), `sitemap.xml`, Open Graph/Twitter tags and a JSON-LD
-`WebApplication` block in `index.html`. The share image `icons/og-image.png` (1200×630) is rendered from the HTML
-template `tools/og/og-image.html` with headless Chrome: `sh tools/og/render.sh`. The service worker never caches
-these three files (and the OG image is not in the precache).
+`WebApplication` block in `index.html`. The share image is `icons/og-image.png` (1200×630, logo A) – keep its
+path stable so link previews are not re-cached. The service worker never caches robots.txt, sitemap.xml or the
+OG image (and the OG image is not in the precache).
 
 ### Map attribution & OSM tile fallback
 "© OpenStreetMap contributors" (linked to openstreetmap.org/copyright, localized EN/AR/DE) is always visible on the map;
