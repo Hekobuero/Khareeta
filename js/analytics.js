@@ -60,11 +60,74 @@ async function gpsGeo(lat, lon) {
   lsSet('kh.ageo', geo);
 }
 
-// ----- referrer / utm (first visit of the session) -----
-const sp = new URLSearchParams(location.search);
-const utm = (sp.get('utm_source') || '').slice(0, 80) || null;
-let refDomain = null;
-try { if (document.referrer) { const h = new URL(document.referrer).hostname; if (h && h !== location.hostname) refDomain = h.replace(/^www\./, '').slice(0, 120); } } catch {}
+// ----- attribution: UTM + referrer, first touch per session (sessionStorage, survives reloads in this tab) -----
+// channel_language = "<channel>_<lang>", e.g. facebook_ar, telegram_ar, instagram_de, whatsapp_en, direct_en, organic_ar.
+// channel: utm_source (or ?ref=) normalised, else the referrer domain, else "direct". lang: ?lang= or a language code
+// in utm_content (ar, post3_ar, de-story …), else the active UI language when the visit starts. See README "Tracking".
+const CH_ALIAS = [
+  ['facebook', /^(fb|facebook|meta|fb\.(com|me)|([a-z]+\.)?facebook\.com|com\.facebook\.(katana|lite|orca)|messenger(\.com)?)$/],
+  ['instagram', /^(ig|insta|instagram|([a-z]+\.)?instagram\.com|com\.instagram\.android)$/],
+  ['telegram', /^(tg|telegram|t\.me|telegram\.(me|org|dog)|web\.telegram\.org|org\.telegram\.messenger(\.web)?|org\.thunderdog\.challegram)$/],
+  ['whatsapp', /^(wa|whatsapp|wa\.me|(api|web|chat)\.whatsapp\.com|whatsapp\.com|com\.whatsapp(\.w4b)?)$/],
+  ['x', /^(x|twitter|tw|t\.co|x\.com|(mobile\.)?twitter\.com|com\.twitter\.android)$/],
+  ['youtube', /^(yt|youtube|youtu\.be|([a-z]+\.)?youtube\.com|com\.google\.android\.youtube)$/],
+  ['tiktok', /^(tiktok|tt|([a-z]+\.)?tiktok\.com|com\.zhiliaoapp\.musically)$/],
+  ['linkedin', /^(linkedin|li|lnkd\.in|([a-z]+\.)?linkedin\.com|com\.linkedin\.android)$/],
+  ['reddit', /^(reddit|([a-z]+\.)?reddit\.com)$/],
+  ['snapchat', /^(snapchat|snap|([a-z]+\.)?snapchat\.com)$/],
+  ['email', /^(email|e-mail|mail|newsletter|com\.google\.android\.gm|mail\.google\.com|outlook\.(live|office)\.com)$/],
+  ['organic', /^(organic|seo|(www\.)?google(\.[a-z]+)+|com\.google\.android\.googlequicksearchbox|([a-z]+\.)?bing\.com|duckduckgo\.com|([a-z]+\.)?yandex\.[a-z]+|([a-z]+\.)?yahoo\.com|(www\.)?ecosia\.org|(www\.)?qwant\.com|(www\.)?baidu\.com|search\.brave\.com|(www\.)?startpage\.com)$/],
+];
+const LANGS = ['ar', 'en', 'de'];
+const clip = (v, n = 40) => { v = (v || '').trim(); return v ? v.slice(0, n) : null; };
+export function normChannel(v) {
+  v = (v || '').trim().toLowerCase().replace(/^android-app:\/\//, '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+  if (!v) return null;
+  for (const t of [v, v.split(/[_\-\s+]/)[0]]) for (const [k, re] of CH_ALIAS) if (re.test(t)) return k; // fb, fb_ads, facebook-group …
+  return null;
+}
+export function langHint(...vals) {
+  for (const v of vals) { const m = (v || '').toLowerCase().match(/(?:^|[^a-z])(ar|en|de)(?:$|[^a-z])/); if (m) return m[1]; }
+  return null;
+}
+// channel from utm_source/ref first, then the referrer; unknown sources become a short slug, unknown referrers "referral"
+export function deriveChannel(src, refHost) {
+  if (src) return normChannel(src) || (src.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 20) || 'other');
+  if (refHost) return normChannel(refHost) || 'referral';
+  return 'direct';
+}
+function attribution() {
+  try { const a = JSON.parse(sessionStorage.getItem('kh.att') || 'null'); if (a) return a; } catch {}
+  const sp = new URLSearchParams(location.search);
+  let refHost = null, refRaw = '';
+  try { refRaw = document.referrer || ''; if (refRaw) { const u = new URL(refRaw); const h = u.protocol === 'android-app:' ? u.host || refRaw.slice(14).split('/')[0] : u.hostname; if (h && h !== location.hostname) refHost = h.replace(/^www\./, '').slice(0, 120); } } catch {}
+  const a = {
+    utm_source: clip(sp.get('utm_source') || sp.get('ref') || sp.get('source'), 80),
+    utm_medium: clip(sp.get('utm_medium')), utm_campaign: clip(sp.get('utm_campaign')),
+    utm_content: clip(sp.get('utm_content')), utm_term: clip(sp.get('utm_term')),
+    referrer: refHost,
+  };
+  const ch = deriveChannel(a.utm_source, refHost);
+  const pl = (sp.get('lang') || '').toLowerCase().slice(0, 2);
+  const l = (LANGS.includes(pl) && pl) || langHint(a.utm_content, a.utm_campaign) || getLang();
+  a.ch = ch; a.chl = `${ch}_${l}`;
+  try { sessionStorage.setItem('kh.att', JSON.stringify(a)); } catch {}
+  return a;
+}
+const ATT = attribution();
+const UTM_KEYS = ['utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+// Funnel visit → search → route → nav_start → install: the first event of each step in a session carries props.f = 1
+const FUNNEL = new Set(['visit', 'search', 'route', 'nav_start', 'install']);
+function funnelFirst(type, pr) {
+  if (!FUNNEL.has(type)) return false;
+  if (type === 'install' && !['installed', 'accepted'].includes(pr.stage)) return false;
+  try { const f = JSON.parse(sessionStorage.getItem('kh.fun') || '[]'); if (f.includes(type)) return false; f.push(type); sessionStorage.setItem('kh.fun', JSON.stringify(f)); return true; } catch { return false; }
+}
+// Install events (all as type 'install' – the table's type check already allows it; props.stage tells them apart)
+const onceSession = k => { try { if (sessionStorage.getItem(k)) return false; sessionStorage.setItem(k, '1'); return true; } catch { return true; } };
+addEventListener('beforeinstallprompt', () => { if (onceSession('kh.bip')) track('install', { stage: 'available' }); });
+addEventListener('appinstalled', () => track('install', { stage: 'installed' }));
+const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => matchMedia(`(display-mode: ${m})`).matches) || (navigator.standalone === true ? 'standalone' : 'browser');
 
 // ----- queue -----
 let q = lsGet(QKEY, []);
@@ -76,12 +139,16 @@ export function track(type, props = {}) {
     const pr = { ...props };
     if (type === 'locate' && pr.lat != null) { gpsGeo(pr.lat, pr.lon); delete pr.lat; delete pr.lon; }
     for (const k in pr) if (pr[k] == null || (typeof pr[k] === 'string' && pr[k].length > 40)) delete pr[k];
+    pr.ch = ATT.chl; // channel_language on every event (props JSON: works without new columns)
+    if (funnelFirst(type, pr)) pr.f = 1;
+    if (type === 'visit' || pr.f) { for (const k of UTM_KEYS) if (ATT[k]) pr[k] = ATT[k]; }
+    if (type === 'visit') pr.dm = displayMode();
     const ev = {
       client_ts: new Date().toISOString(), install_id: installId, session_id: sessionId, type, lang: getLang(),
       device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
       country: geo.country || null, city: geo.city || null, geo_src: geo.geo_src || null,
       lat_r: geo.geo_src === 'gps' ? geo.lat_r : null, lon_r: geo.geo_src === 'gps' ? geo.lon_r : null,
-      referrer: type === 'visit' ? refDomain : null, utm_source: type === 'visit' ? utm : null, props: pr,
+      referrer: type === 'visit' ? ATT.referrer : null, utm_source: ATT.utm_source, props: pr,
     };
     q.push(ev); if (q.length > MAXQ) q = q.slice(-MAXQ);
     lsSet(QKEY, q); schedule();
