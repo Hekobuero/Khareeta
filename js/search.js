@@ -59,7 +59,7 @@ export function addRecent(item) {
 function row(item, i, extra = '') {
   const [icn, col] = item.icon || catIcon(item.tags || {});
   const d = item.lon != null ? fmtDist(haversine(refPoint(), [item.lon, item.lat])) : '';
-  return `<div class="srow" data-i="${i}"><div class="sic badge" style="background:${col}">${ic(icn)}</div><div class="st"><div class="t1" dir="auto">${esc(item.name)}</div><div class="t2">${esc(item.sub || catLabel(item.tags || {}))}${extra}</div></div><div class="dist">${d}</div></div>`;
+  return `<div class="srow" data-i="${i}"><div class="sic badge" style="background:${col}">${ic(icn)}</div><div class="st"><div class="t1" dir="auto">${esc(item.name)}</div><div class="t2" dir="auto">${esc(item.sub || catLabel(item.tags || {}))}${extra}</div></div><div class="dist">${d}</div></div>`;
 }
 
 // ---------- suggest UI ----------

@@ -45,10 +45,12 @@ export function stepIcon(s) {
 
 // ---------------- routing engines ----------------
 const OSRM = { car: 'routed-car', foot: 'routed-foot', bike: 'routed-bike' };
-async function osrm(stops, mode) {
+async function osrm(stops, mode, opts = {}) {
   const coords = stops.map(s => s.lon.toFixed(6) + ',' + s.lat.toFixed(6)).join(';');
   const alt = stops.length === 2 ? '&alternatives=2' : '';
-  const j = await fetchJSON(`https://routing.openstreetmap.de/${OSRM[mode]}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alt}&continue_straight=default`, {}, 20000);
+  // reroute while driving: depart in the current direction of travel instead of a U-turn (OSRM bearings=value,range)
+  const brg = opts.heading != null ? '&bearings=' + Math.round((opts.heading + 360) % 360) + ',60' + ';'.repeat(stops.length - 1) : '';
+  const j = await fetchJSON(`https://routing.openstreetmap.de/${OSRM[mode]}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alt}${brg}&continue_straight=default`, {}, 20000);
   if (j.code !== 'Ok' || !j.routes?.length) throw new Error(j.code || 'noroute');
   return j.routes.map(r => {
     const steps = [];
@@ -76,9 +78,10 @@ function decode6(str) {
   return out;
 }
 const VTYPE = { 1: ['depart'], 2: ['depart'], 3: ['depart'], 4: ['arrive'], 5: ['arrive', 'right'], 6: ['arrive', 'left'], 7: ['new name', 'straight'], 8: ['continue', 'straight'], 9: ['turn', 'slight right'], 10: ['turn', 'right'], 11: ['turn', 'sharp right'], 12: ['turn', 'uturn'], 13: ['turn', 'uturn'], 14: ['turn', 'sharp left'], 15: ['turn', 'left'], 16: ['turn', 'slight left'], 17: ['on ramp', 'straight'], 18: ['on ramp', 'slight right'], 19: ['on ramp', 'slight left'], 20: ['off ramp', 'slight right'], 21: ['off ramp', 'slight left'], 22: ['fork', 'straight'], 23: ['fork', 'slight right'], 24: ['fork', 'slight left'], 25: ['merge', 'straight'], 26: ['roundabout', 'straight'], 27: ['exit roundabout', 'straight'], 28: ['ferry'], 29: ['continue'], 36: ['turn', 'right'], 37: ['turn', 'left'], 38: ['merge', 'right'], 39: ['merge', 'left'] };
-async function valhalla(stops, mode) {
+async function valhalla(stops, mode, opts = {}) {
   const costing = { car: 'auto', foot: 'pedestrian', bike: 'bicycle' }[mode];
   const req = { locations: stops.map((s, i) => ({ lat: s.lat, lon: s.lon, type: i === 0 || i === stops.length - 1 ? 'break' : 'break' })), costing, directions_options: { units: 'kilometers', language: 'en-US' }, alternates: stops.length === 2 ? 2 : 0 };
+  if (opts.heading != null) { req.locations[0].heading = Math.round((opts.heading + 360) % 360); req.locations[0].heading_tolerance = 60; }
   const j = await fetchJSON('https://valhalla1.openstreetmap.de/route?json=' + encodeURIComponent(JSON.stringify(req)), {}, 20000);
   const trips = [j.trip, ...(j.alternates || []).map(a => a.trip)].filter(Boolean);
   return trips.map(trip => {
@@ -93,9 +96,9 @@ async function valhalla(stops, mode) {
     return { coords, distance: trip.summary.length * 1000, duration: trip.summary.time, steps, summary: steps.filter(s => s.name).sort((a, b) => b.distance - a.distance).slice(0, 1).map(s => s.name).join(', '), engine: 'Valhalla' };
   });
 }
-export async function computeRoutes(stops, mode) {
-  try { return await osrm(stops, mode); }
-  catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); return await valhalla(stops, mode); }
+export async function computeRoutes(stops, mode, opts) {
+  try { return await osrm(stops, mode, opts); }
+  catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); return await valhalla(stops, mode, opts); }
 }
 
 // ---------------- map layers (route layers live in the style, source 'khareeta-route') ----------------
@@ -167,7 +170,7 @@ export function openDirections({ from, to, autostart } = {}) {
   import('./search.js').then(m => m.cancelCategory());
   setSelMarker(null); clearMarkers();
   R.stops = [from || meStop() || { name: '' }, to || { name: '' }];
-  R.autostart = autostart;
+  R.autostart = autostart; R.hintedStart = false;
   if (!R.mode || R.mode === 'transit') R.mode = 'car';
   $('#dirPanel').classList.remove('hidden'); document.body.classList.add('dir-open');
   $('#top').classList.add('hidden');
@@ -175,8 +178,8 @@ export function openDirections({ from, to, autostart } = {}) {
   if ($('#sheet')?.dataset.state !== 'hidden') closeSheet();
   renderPanel();
   track('directions_open', {});
-  route();
   if (!autostart) { const empty = R.stops.findIndex(s => s.lon == null); if (empty >= 0) $(`#dirStops input[data-i="${empty}"]`)?.focus({ preventScroll: true }); }
+  route(); // after focusing the empty field, so the "choose start" hint knows the user is already there
 }
 export function closeDirections() {
   if (R.active) return;
@@ -270,6 +273,13 @@ function initPanel() {
   box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) pick(+r.dataset.i, false); });
 }
 
+// "Choose starting point" toast (QA P2): only when a destination is set, the start is still empty, the start field is
+// not being edited (its placeholder already says it) and at most once per directions session – no flashing while typing.
+function hintStart() {
+  const last = R.stops[R.stops.length - 1], start = $('#dirStops input[data-i="0"]');
+  if (R.stops[0].lon != null || last?.lon == null || R.hintedStart || document.activeElement === start) return;
+  R.hintedStart = true; toast(t('chooseStart'));
+}
 let routeSeq = 0;
 async function route() {
   const ok = R.stops.filter(s => s.lon != null);
@@ -281,15 +291,15 @@ async function route() {
     const el = last ? pinEl('#E5484D') : Object.assign(document.createElement('div'), { className: 'mpt' });
     R.markers.push(new maplibregl.Marker({ element: el, anchor: last ? 'bottom' : 'center' }).setLngLat([s.lon, s.lat]).addTo(App.map));
   });
-  if (ok.length < R.stops.length || ok.length < 2) { R.routes = []; drawRoutes(); if (!R.stops[0].lon && !App.me) toast(t('chooseStart')); return; }
+  if (ok.length < R.stops.length || ok.length < 2) { R.routes = []; drawRoutes(); hintStart(); return; }
   const mode = R.mode === 'transit' ? 'foot' : R.mode;
-  openSheet(`<div style="padding:0 16px"><p class="psub">${t('routing')}</p><div class="skel-row"><div class="skel"></div></div><div class="skel" style="width:70%"></div></div>`, innerWidth < 900 ? 'half' : 'half');
+  openSheet(`<div style="padding:0 16px"><p class="psub">${t('routing')}</p><div class="skel-row"><div class="skel"></div></div><div class="skel" style="width:70%"></div></div>`, innerWidth < 900 ? 'peek' : 'half');
   try {
     const routes = await computeRoutes(R.stops, mode);
     if (my !== routeSeq) return;
     R.routes = routes; R.sel = 0;
     track('route', { mode: R.mode, stops: R.stops.length, km: Math.round(routes[0].distance / 1000) });
-    ensureRouteLayers(); drawRoutes(); renderPanel(); fitRoute(); showRouteSheet();
+    ensureRouteLayers(); drawRoutes(); renderPanel(); showRouteSheet(); fitRoute();
     if (R.autostart) { R.autostart = false; startNav(); }
   } catch (e) {
     if (my !== routeSeq) return;
@@ -303,7 +313,7 @@ function fitRoute() {
   const b = new maplibregl.LngLatBounds(); R.routes.forEach(rt => rt.coords.forEach(c => b.extend(c)));
   const pad = mapPadding(), desk = innerWidth >= 900;
   const top = (desk ? 24 : $('#dirPanel').offsetHeight + 24) + 48; // + destination pin height
-  let bottom = (desk ? 0 : Math.max(pad.bottom, Math.max(360, innerHeight / 2))) + 24;
+  let bottom = (desk ? 24 : Math.max(pad.bottom, App.routePeek || Math.max(360, innerHeight / 2)) + 72); // + map buttons above the sheet
   bottom = Math.max(24, Math.min(bottom, innerHeight - top - 140));
   fitTo(b, { top, bottom, left: pad.left + 36, right: pad.right + 36 }, { duration: 800, maxZoom: 17 });
 }
@@ -318,7 +328,16 @@ function showRouteSheet() {
     <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
     <div class="steps list">${r.steps.map((s, i) => `<div class="srow" data-s="${i}"><div class="sic">${ic(stepIcon(s))}</div><div class="st"><div class="t1" style="white-space:normal" dir="auto">${esc(instr(s))}</div><div class="t2">${s.distance > 0 && s.type !== 'arrive' ? fmtDist(s.distance) : ''}</div></div></div>`).join('')}</div>
     <div class="dfoot">${r.engine === 'OSRM' ? 'Routing: OSRM · FOSSGIS (routing.openstreetmap.de)' : 'Routing: Valhalla · FOSSGIS (valhalla1.openstreetmap.de)'} · © OpenStreetMap contributors</div>`;
-  const body = openSheet(html, 'half');
+  const desk = innerWidth >= 900;
+  const body = openSheet(html, desk ? 'half' : 'peek');
+  // phones (QA P2, iPhone 393×852): the half sheet + directions panel left ~120 px of map. Open the route sheet only
+  // as high as the route card(s) + chips; the steps are one swipe / the "Steps" chip away.
+  App.routePeek = 0;
+  if (!desk) {
+    const sh = $('#sheet'), st = $('#stepsTitle');
+    const h = Math.round(st.getBoundingClientRect().top - sh.getBoundingClientRect().top + 4);
+    if (h > 120) { App.routePeek = Math.min(h, Math.round(innerHeight * 0.45)); App.peekH = App.routePeek; setSheet('peek'); }
+  }
   body.onclick = e => {
     const go = e.target.closest('[data-go]'); if (go) { const i = +go.dataset.go; if (i !== R.sel) { R.sel = i; drawRoutes(); } return startNav(); }
     const c = e.target.closest('.rcard'); if (c) { selectRoute(+c.dataset.i); return; }
@@ -350,7 +369,11 @@ export function initRouteMapEvents() {
 }
 
 // ---------------- live navigation ----------------
-const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 0, follow: true, spoken: {}, marker: null, pos: null, speed: 0, hdg: 0 };
+const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 0, follow: true, spoken: {}, marker: null, pos: null, speed: 0, hdg: 0, moved: false, anchor: null };
+// Navigation start (P2): until the user has really moved (≥ MOVE_M from the first accurate fix) the HUD stays on the
+// depart step ("Head east on …"), no maneuver/U-turn is announced and off-route/rerouting is off. Fixes with an
+// accuracy worse than ACC_OK m only move the puck – they never advance steps, speak or count as off-route.
+export const NAV_ACC_OK = 30, NAV_MOVE_M = 25;
 export function navActive() { return R.active; }
 let voiceWarned = false;
 function speak(text) {
@@ -372,7 +395,7 @@ const NAV_HIDE = ['label-housenumber'];
 function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); setPoiVisible(App.map, !hide); }
 export function startNav(sim = false) {
   const r = R.routes[R.sel]; if (!r) return;
-  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false;
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
   track('nav_start', { mode: R.mode, sim });
   $('#dirPanel').classList.add('hidden'); closeSheet();
   $('#navHud').classList.remove('hidden');
@@ -382,7 +405,7 @@ export function startNav(sim = false) {
   N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(r.coords[0]).addTo(App.map);
   wake();
   App.map.on('dragstart', onDrag);
-  speak(instr(r.steps[0]) + (r.steps[1] ? '. ' + t('then') + ' ' + instr(r.steps[1]) : ''));
+  speak(instr(r.steps[0])); // always start with the depart step ("Head east on …"), never with the first turn
   if (sim || !('geolocation' in navigator)) simulate(r);
   else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   App.map.easeTo({ center: r.coords[0], pitch: 58, zoom: 17, bearing: bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]), padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
@@ -421,6 +444,8 @@ function moveArrow(to, hdg) {
 function onPos(p, heading, speed, acc) {
   const r = R.routes[R.sel]; if (!r || !R.active) return;
   N.pos = p; App.me = p; N.speed = speed;
+  const good = acc == null || acc <= NAV_ACC_OK;
+  if (good && !N.moved) { if (!N.anchor) N.anchor = p; else if (haversine(N.anchor, p) >= NAV_MOVE_M) N.moved = true; }
   const near = nearestOnLine(p, r.coords, N.cum);
   const hdg = heading != null && !isNaN(heading) && speed > 1 ? heading : (near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : N.hdg);
   N.hdg = hdg;
@@ -428,10 +453,17 @@ function onPos(p, heading, speed, acc) {
   moveArrow(shown, hdg);
   // off-route: > 40 m for 3 fixes in a row (§4.6)
   const lim = 40;
+  if (!r._stepAlong) r._stepAlong = r.steps.map(s => nearestOnLine(s.loc, r.coords, N.cum).along);
+  if (!good || !N.moved) {
+    // inaccurate fix or not moved yet: puck/camera only; HUD keeps the depart step (or the current step)
+    if (!N.moved) { N.stepIdx = 0; N.off = 0; N.lastDist = r._stepAlong[1] ?? r.distance; N.lastRemain = N.cum[N.cum.length - 1]; } // depart: distance until the first maneuver
+    if (N.follow) App.map.easeTo({ center: shown, bearing: hdg, pitch: 58, zoom: camZoom(speed), duration: 1000, easing: x => x, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 } });
+    renderHud(p, N.lastDist, N.lastRemain);
+    return;
+  }
   if (near.dist > Math.max(lim, (acc || 0) * 1.2)) N.off++; else N.off = 0;
   if (N.off >= 3 && Date.now() - N.lastReroute > 10000) { N.lastReroute = Date.now(); N.off = 0; reroute(p); }
   const along = near.along;
-  if (!r._stepAlong) r._stepAlong = r.steps.map(s => nearestOnLine(s.loc, r.coords, N.cum).along);
   let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
   N.stepIdx = idx;
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
@@ -458,8 +490,8 @@ async function reroute(p) {
   track('reroute', {});
   const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
   try {
-    const routes = await computeRoutes([{ lon: p[0], lat: p[1] }, ...remainingStops], R.mode);
-    R.routes = [routes[0]]; R.sel = 0; N.cum = cumulative(routes[0].coords); N.spoken = {};
+    const routes = await computeRoutes([{ lon: p[0], lat: p[1] }, ...remainingStops], R.mode, { heading: N.speed > 2 && N.hdg != null ? N.hdg : null });
+    R.routes = [routes[0]]; R.sel = 0; N.cum = cumulative(routes[0].coords); N.spoken = {}; N.stepIdx = 0; N.lastDist = null; N.lastRemain = null;
     drawRoutes(0);
   } catch { }
   N.rerouting = false;
@@ -482,7 +514,7 @@ function renderHud(p, distTo, remain) {
   }
   banner.setAttribute('aria-label', fmtDist(Math.max(0, distTo)) + ', ' + instr(step));
   const thenEl = $('#navThen');
-  const showThen = next && !N.arrived && !N.rerouting && step.type !== 'arrive' && (r._stepAlong ? r._stepAlong[N.stepIdx + 1] - r._stepAlong[N.stepIdx] : next.distance) < 300;
+  const showThen = next && !N.arrived && !N.rerouting && step.type !== 'arrive' && !(next.modifier === 'uturn' && !N.moved) && (r._stepAlong ? r._stepAlong[N.stepIdx + 1] - r._stepAlong[N.stepIdx] : next.distance) < 300;
   thenEl.classList.toggle('hidden', !showThen);
   if (showThen) { thenEl.innerHTML = `${t('then')} ${ic(stepIcon(next))}`; thenEl.style.top = (banner.offsetTop + banner.offsetHeight - 2) + 'px'; }
   const arr = fmtTime(new Date(Date.now() + tleft * 1000));
