@@ -6,6 +6,7 @@ import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
+import { speak as voiceSpeak, announce, arriveText, reroutingText, thresholds as voiceAt } from './voice.js';
 import { photonSearch, rank, dedupe, combobox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -375,17 +376,8 @@ const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 
 // accuracy worse than ACC_OK m only move the puck – they never advance steps, speak or count as off-route.
 export const NAV_ACC_OK = 30, NAV_MOVE_M = 25;
 export function navActive() { return R.active; }
-let voiceWarned = false;
-function speak(text) {
-  if (!settings.voice || !('speechSynthesis' in window)) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text); u.lang = SPEECH_LANG[getLang()];
-    const vs = speechSynthesis.getVoices(), v = vs.find(v => v.lang?.toLowerCase().startsWith(getLang()));
-    if (v) u.voice = v;
-    else if (vs.length && !voiceWarned) { voiceWarned = true; toast(t('noVoice', { l: { ar: 'العربية', de: 'Deutsch', en: 'English' }[getLang()] }), 4000); }
-    u.rate = 1; speechSynthesis.cancel(); speechSynthesis.speak(u);
-  } catch {}
-}
+// voice output lives in js/voice.js (on-device voices only, voice choice, dedupe, no-voice toast)
+function speak(text) { if (settings.voice) voiceSpeak(text); }
 function navArrowEl() {
   const d = document.createElement('div');
   d.innerHTML = `<svg class="navarrow" viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="21.5" fill="var(--k-puck)" stroke="#fff" stroke-width="3"/><path d="M24 11l9.5 23L24 29l-9.5 5z" fill="#fff"/></svg>`;
@@ -467,26 +459,26 @@ function onPos(p, heading, speed, acc) {
   let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
   N.stepIdx = idx;
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
-  // voice at 500 m, 150 m and at the maneuver (car); shorter for walk/bike
-  const th = R.mode === 'car' ? [500, 150, 30] : [150, 40, 12];
-  for (let k = 2; k >= 0; k--) {
+  // voice: one early prompt (car ≈ 300 m, speed-scaled; walk 30 m) + "now" at the maneuver – see voice.js thresholds()
+  const th = voiceAt(R.mode, speed);
+  for (let k = 1; k >= 0; k--) {
     if (distTo > th[k]) continue;
     if (!N.spoken[idx + ':' + k] && idx > 0) {
       for (let j = 0; j <= k; j++) N.spoken[idx + ':' + j] = 1;
-      speak(k === 2 ? instr(step) : t('inDist', { d: fmtDist(distTo), i: instr(step) }));
+      speak(announce(step, k === 1 ? 'now' : 'pre', distTo, instr));
     }
     break;
   }
   const remain = N.cum[N.cum.length - 1] - along;
   drawRoutes(along);
-  if (remain < 25 && !N.arrived) { N.arrived = true; speak(t('arriveDest')); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
+  if (remain < 25 && !N.arrived) { N.arrived = true; speak(arriveText(r.steps[r.steps.length - 1])); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
   if (N.follow) App.map.easeTo({ center: shown, bearing: hdg, pitch: 58, zoom: camZoom(speed), duration: 1000, easing: x => x, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 } });
   N.lastDist = distTo; N.lastRemain = remain;
   renderHud(p, distTo, remain);
 }
 async function reroute(p) {
   N.rerouting = true; renderHud(N.pos, N.lastDist, N.lastRemain);
-  speak(t('rerouting'));
+  speak(reroutingText());
   track('reroute', {});
   const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
   try {
