@@ -41,6 +41,7 @@ en: {
   sources: 'Data', reportIssue: 'Data from OpenStreetMap – anyone can improve it.', share_route: 'Share route',
   tryAgain: 'Try again', netErr: 'Network problem – retrying with another server…', serviceDown: 'Service unreachable. Check your connection.',
   osmLink: 'View on OpenStreetMap', moreInfo: 'More info', seeAll: 'See all', opennow: 'Open now', distance: 'Distance', duration: 'Time', simulate: 'Simulate drive', stats: 'Anonymous usage statistics', privacy: 'Privacy', privacyText: 'No account, no tracking cookies. If enabled, Khareeta sends anonymous counts (random install id, language, device type, app version, country/city at ~10 km precision only if you shared your location). Never your exact position, IP address or search texts. Saved places stay on your device.',
+  updateAvail: 'New version available', reloadNow: 'Reload',
 },
 ar: {
   searchOffline: 'ابحث في الأماكن المحفوظة وغير المتصلة', add: 'إضافة', addHint: 'ابحث عن مكان ثم اضغط حفظ', setHint: 'ابحث عن مكان ثم استخدم «تعيين كـ{k}»', locDeniedT: 'الموقع متوقف', locDeniedB: 'اسمح لخريطة بالوصول إلى موقعك من إعدادات المتصفح لرؤية مكانك والملاحة.', noHeading: 'البوصلة غير متاحة على هذا الجهاز', droppedPin: 'دبوس', coordinates: 'الإحداثيات', copy: 'نسخ', editOsm: 'تعديل في OpenStreetMap', fee: 'رسوم', more: 'المزيد', close: 'إغلاق', fastestRoute: 'أسرع طريق', shortest: 'الأقصر', go: 'انطلق', noVoice: 'الصوت غير متاح بـ{l} على هذا الجهاز', done: 'تم', arrival: 'الوصول', system: 'النظام', mapHdr: 'الخريطة', appearance: 'المظهر', bilingual: 'إظهار أسماء الأماكن بالعربية أيضًا', navHdr: 'الملاحة', details: 'التفاصيل', threeD: 'ثلاثي الأبعاد', settings: 'الإعدادات',
@@ -83,6 +84,7 @@ ar: {
   sources: 'البيانات', reportIssue: 'البيانات من OpenStreetMap – يمكن لأي شخص تحسينها.', share_route: 'مشاركة المسار',
   tryAgain: 'إعادة المحاولة', netErr: 'مشكلة في الشبكة – إعادة المحاولة بخادم آخر…', serviceDown: 'تعذّر الوصول إلى الخدمة. تحقق من اتصالك.',
   osmLink: 'عرض على OpenStreetMap', moreInfo: 'معلومات إضافية', seeAll: 'عرض الكل', opennow: 'مفتوح الآن', distance: 'المسافة', duration: 'الوقت', simulate: 'محاكاة القيادة', stats: 'إحصاءات استخدام مجهولة', privacy: 'الخصوصية', privacyText: 'لا حساب ولا ملفات تعريف تتبع. عند التفعيل يرسل التطبيق أعدادًا مجهولة فقط (معرّف عشوائي، اللغة، نوع الجهاز، الإصدار، الدولة/المدينة بدقة ~١٠ كم فقط إذا شاركت موقعك). لا يُرسل موقعك الدقيق أو عنوان IP أو نصوص البحث أبدًا. الأماكن المحفوظة تبقى على جهازك.',
+  updateAvail: 'يتوفر إصدار جديد', reloadNow: 'إعادة التحميل',
 },
 de: {
   searchOffline: 'Gespeicherte & Offline-Orte suchen', add: 'Hinzufügen', addHint: 'Ort suchen und dann „Speichern“ tippen', setHint: 'Ort suchen und dann „Als {k} festlegen“ nutzen', locDeniedT: 'Standort ist aus', locDeniedB: 'Erlaube Khareeta in den Browser-Einstellungen den Standortzugriff, um deine Position zu sehen und zu navigieren.', noHeading: 'Kompass auf diesem Gerät nicht verfügbar', droppedPin: 'Markierung', coordinates: 'Koordinaten', copy: 'Kopieren', editOsm: 'In OpenStreetMap bearbeiten', fee: 'Gebühr', more: 'Mehr', close: 'Schließen', fastestRoute: 'Schnellste Route', shortest: 'Kürzeste', go: 'Los', noVoice: 'Sprachausgabe auf {l} auf diesem Gerät nicht verfügbar', done: 'Fertig', arrival: 'Ankunft', system: 'Automatisch', mapHdr: 'Karte', appearance: 'Darstellung', bilingual: 'Ortsnamen zusätzlich auf Arabisch anzeigen', navHdr: 'Navigation', details: 'Details', threeD: '3D', settings: 'Einstellungen',
@@ -125,6 +127,7 @@ de: {
   sources: 'Daten', reportIssue: 'Daten von OpenStreetMap – jeder kann sie verbessern.', share_route: 'Route teilen',
   tryAgain: 'Erneut versuchen', netErr: 'Netzwerkproblem – versuche anderen Server…', serviceDown: 'Dienst nicht erreichbar. Verbindung prüfen.',
   osmLink: 'Auf OpenStreetMap ansehen', moreInfo: 'Mehr Infos', seeAll: 'Alle anzeigen', opennow: 'Jetzt geöffnet', distance: 'Entfernung', duration: 'Dauer', simulate: 'Fahrt simulieren', stats: 'Anonyme Nutzungsstatistik', privacy: 'Datenschutz', privacyText: 'Kein Konto, keine Tracking-Cookies. Wenn aktiviert, sendet Khareeta nur anonyme Zählwerte (zufällige Installations-ID, Sprache, Gerätetyp, App-Version, Land/Stadt auf ~10 km genau nur wenn du deinen Standort geteilt hast). Niemals genaue Position, IP-Adresse oder Suchtexte. Gespeicherte Orte bleiben auf deinem Gerät.',
+  updateAvail: 'Neue Version verfügbar', reloadNow: 'Neu laden',
 }};
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];

@@ -7,6 +7,7 @@ import { App, center, refPoint, catIcon, catLabel, pickName, openSheet, clearMar
 import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
+import { photonSearch, rank, dedupe, inSyria, combobox, SY_BBOX } from './suggest.js';
 import { loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
@@ -36,14 +37,16 @@ function fromPhoton(f) {
   const p = f.properties, [lon, lat] = f.geometry.coordinates;
   const tags = { name: p.name, [p.osm_key]: p.osm_value };
   const sub = [p.street && (p.street + (p.housenumber ? ' ' + p.housenumber : '')), p.district, p.city || p.town || p.village, p.state, p.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i && v !== p.name).join(', ');
-  return { id: (p.osm_type || 'N') + p.osm_id, osm_type: { N: 'node', W: 'way', R: 'relation' }[p.osm_type] || 'node', osm_id: p.osm_id, name: p.name || sub, sub, lon, lat, tags, extent: p.extent };
+  return { id: (p.osm_type || 'N') + p.osm_id, osm_type: { N: 'node', W: 'way', R: 'relation' }[p.osm_type] || 'node', osm_id: p.osm_id, name: p.name || sub, sub, lon, lat, tags, extent: p.extent, cc: p.countrycode, placeHit: !!p.placeHit };
 }
 function fromNominatim(r) {
   const tags = Object.assign({}, r.extratags || {}, r.namedetails || {}, { [r.category || r.class]: r.type });
   const name = r.name || (r.display_name || '').split(',')[0];
   const sub = (r.display_name || '').split(',').slice(1, 4).join(',').trim();
+  const at = r.addresstype;
+  if (!tags.place && ['city', 'town', 'village'].includes(at) && (r.category === 'boundary' || r.category === 'place')) tags.place = at;
   const bb = r.boundingbox ? [+r.boundingbox[2], +r.boundingbox[0], +r.boundingbox[3], +r.boundingbox[1]] : null;
-  return { id: (r.osm_type || 'n')[0].toUpperCase() + r.osm_id, osm_type: r.osm_type, osm_id: r.osm_id, name: pickName(tags).primary || name, sub, lon: +r.lon, lat: +r.lat, tags, extent: bb };
+  return { id: (r.osm_type || 'n')[0].toUpperCase() + r.osm_id, osm_type: r.osm_type, osm_id: r.osm_id, name: pickName(tags).primary || name, sub, lon: +r.lon, lat: +r.lat, tags, extent: bb, cc: r.address?.country_code, placeHit: !!tags.place };
 }
 
 // ---------- recents ----------
@@ -65,7 +68,7 @@ let photonCtl;
 export function initSearch() {
   const q = $('#q'), box = $('#suggest');
   q.placeholder = navigator.onLine ? t('search') : t('searchOffline');
-  const show = () => box.classList.toggle('hidden', !box.innerHTML);
+  const show = () => { box.classList.toggle('hidden', !box.innerHTML); document.body.classList.toggle('sugg-open', !!box.innerHTML); cb.refresh(); };
   const renderIdle = () => {
     const saved = lsGet('kh.saved', []), recent = lsGet('kh.recent', []);
     items = [...saved.map(s => ({ ...s, icon: s.kind === 'home' ? ['home', '#1A73E8'] : s.kind === 'work' ? ['work', '#6E7781'] : ['bookmark', '#E8710A'] })), ...recent.map(r => ({ ...r, icon: ['history', '#8E8E93'] }))];
@@ -74,7 +77,7 @@ export function initSearch() {
     if (recent.length) h += `<div class="shead">${t('recent')}</div>` + recent.map((r, j) => row(items[saved.length + j], saved.length + j)).join('');
     box.innerHTML = h; show();
   };
-  const runPhoton = debounce(async (text) => {
+  const doPhoton = async (text) => {
     const my = ++seq;
     const c = center(), z = App.map.getZoom();
     const lang = getLang() === 'de' ? 'de' : getLang() === 'en' ? 'en' : 'default';
@@ -83,23 +86,31 @@ export function initSearch() {
     const local = localMatches(text);
     const lp = poiLocal(text);
     try {
-      const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=8&lang=${lang}&lat=${c[1].toFixed(4)}&lon=${c[0].toFixed(4)}&zoom=${Math.round(Math.max(6, z))}&location_bias_scale=0.4`, { signal: photonCtl.signal }, 8000);
-      res = j.features.map(fromPhoton);
+      res = (await photonSearch(text, { lang, center: c, zoom: z, limit: 8, signal: photonCtl.signal })).map(fromPhoton);
     } catch (e) { if (e.name === 'AbortError') return; }
     if (my !== seq) return;
     $('#searchProg').classList.add('hidden');
-    // settlements whose name matches the query beat regions/bus lines with the same word (Photon ranks "Latakia Governorate" first)
-    const ql = text.toLowerCase();
-    const isTown = r => ['city', 'town', 'village'].includes(r.tags?.place) && (r.name || '').toLowerCase().startsWith(ql);
-    res = [...res.filter(isTown), ...res.filter(r => !isTown(r))];
-    if (lp.chip) res = res.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
-    const seen = new Set([...local, ...lp.items].map(x => x.id));
-    items = [...(lp.chip ? [chipItem(lp.chip)] : []), ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id)), ...res.filter(r => !seen.has(r.id))].slice(0, 14);
+    // Syria first: matching cities/towns/villages before saved places and POIs (QA: "Homs" → Homs city),
+    // then the rest by country (SY, others, SA/JO/TR last)
+    let { settlements, rest } = rank(res, text);
+    if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
+    const top = [...settlements, ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
+    const seen = new Set();
+    items = dedupe([...(lp.chip ? [chipItem(lp.chip)] : []), ...top, ...rest].filter(x => !seen.has(x.id) && seen.add(x.id))).slice(0, 14);
     const coord = parseCoords(text) || plusDecode(text);
     if (coord) items.unshift({ id: 'c', name: text, sub: t('coords'), lon: coord[0], lat: coord[1], icon: ['pin', '#E5484D'], coord: true });
     box.innerHTML = items.length ? items.map((it, i) => row(it, i)).join('') : `<div class="srow muted">${t('noResults')}</div>`;
     sel = -1; show();
-  }, 250);
+  };
+  const runPhoton = debounce(doPhoton, 250);
+  const cb = combobox(q, box, {
+    label: t('search'),
+    onPick: i => items[i] && choose(items[i]),
+    onEnterEmpty: () => fullSearch(q.value.trim()),
+    flush: () => { const v = q.value.trim(); return v.length >= 2 ? doPhoton(v) : !v ? renderIdle() : null; },
+    onClose: () => { box.innerHTML = ''; box.classList.add('hidden'); document.body.classList.remove('sugg-open'); },
+    onEscapeClosed: () => q.blur(),
+  });
   q.addEventListener('focus', () => { if (!q.value) renderIdle(); });
   q.addEventListener('input', () => {
     $('#btnClear').classList.toggle('hidden', !q.value);
@@ -107,12 +118,7 @@ export function initSearch() {
     if (q.value.trim().length < 2) return;
     runPhoton(q.value.trim());
   });
-  q.addEventListener('keydown', e => {
-    const rows = [...box.querySelectorAll('.srow[data-i]')];
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(-1, Math.min(rows.length - 1, sel + (e.key === 'ArrowDown' ? 1 : -1))); rows.forEach((r, i) => r.classList.toggle('sel', i === sel)); }
-    if (e.key === 'Enter') { e.preventDefault(); if (sel >= 0 && items[sel]) choose(items[sel]); else fullSearch(q.value.trim()); }
-    if (e.key === 'Escape') { box.innerHTML = ''; show(); q.blur(); }
-  });
+  q.addEventListener('keydown', e => cb.keydown(e));
   box.addEventListener('pointerdown', e => e.preventDefault());
   box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) choose(items[+r.dataset.i]); });
   loadPois().catch(() => {});
@@ -151,7 +157,7 @@ function chipItem(key) {
 export function choose(item) {
   if (item.chip) { $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden'); const q = $('#q'); q.value = t(item.chip); q.blur(); $('#btnClear').classList.remove('hidden'); track('search', { kind: 'cat', cat: item.chip }); applyChips([item.chip], false); return; }
   cancelCategory();
-  $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden');
+  $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden'); document.body.classList.remove('sugg-open');
   const q = $('#q'); q.value = item.name; q.blur(); $('#btnClear').classList.remove('hidden');
   track('search', { kind: item.coord ? 'coord' : 'place', cat: catLabelKey(item.tags) });
   if (!item.coord) addRecent(item);
@@ -165,21 +171,23 @@ export async function fullSearch(text) {
   const coord = parseCoords(text) || plusDecode(text);
   if (coord) return choose({ id: 'c', name: text, lon: coord[0], lat: coord[1], coord: true });
   const box = $('#suggest'); box.innerHTML = `<div class="srow muted">${t('searching')}</div>`; box.classList.remove('hidden');
-  const b = App.map.getBounds();
-  const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => v.toFixed(4)).join(',');
+  const b = App.map.getBounds(), c = center();
+  // bias (not bound) to the view if it is in Syria, otherwise to Syria
+  const vb = (!inSyria(c[0], c[1]) ? [SY_BBOX[0], SY_BBOX[3], SY_BBOX[2], SY_BBOX[1]] : [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()]).map(v => (+v).toFixed(4)).join(',');
   let res = [];
   if (navigator.onLine) try {
-    const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=0&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
+    const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=1&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
   } catch {
-    try { const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=12`); res = j.features.map(fromPhoton); } catch {}
+    try { res = (await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 12 })).map(fromPhoton); } catch {}
   }
-  box.innerHTML = ''; box.classList.add('hidden');
+  box.innerHTML = ''; box.classList.add('hidden'); document.body.classList.remove('sugg-open');
   try { await loadPois(); } catch {}
   const lr = searchLocal(text, refPoint(), 30);
   if (lr.chip && !lr.items.length) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
   const loc = lr.items.map(poiRow);
-  res = [...loc, ...res.filter(r => !loc.some(l => l.id === r.id))];
+  const rk = rank(res, text);
+  res = dedupe([...rk.settlements, ...loc, ...rk.rest.filter(r => !loc.some(l => l.id === r.id))]);
   track('search', { kind: 'full', n: res.length });
   if (!res.length) { toast(t('noResults')); return; }
   if (res.length === 1) return choose(res[0]);

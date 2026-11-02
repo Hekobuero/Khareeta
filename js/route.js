@@ -1,11 +1,12 @@
 // Directions (OSRM @ FOSSGIS with Valhalla @ FOSSGIS failover), alternatives, multi-stop,
 // turn-by-turn list, live GPS navigation with rerouting + voice guidance.
 import { setPoiVisible } from './poi.js';
-import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, debounce, toast, settings, lsGet } from './util.js';
+import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, toast, settings, lsGet } from './util.js';
 import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
+import { photonSearch, rank, dedupe, combobox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
 export const routeState = R;
@@ -170,10 +171,12 @@ export function openDirections({ from, to, autostart } = {}) {
   if (!R.mode || R.mode === 'transit') R.mode = 'car';
   $('#dirPanel').classList.remove('hidden'); document.body.classList.add('dir-open');
   $('#top').classList.add('hidden');
-  if (App.sheetKind === 'home') closeSheet();
+  // close the Saved panel *and* a place card – they used to cover the stop suggestions (QA P1-1)
+  if ($('#sheet')?.dataset.state !== 'hidden') closeSheet();
   renderPanel();
   track('directions_open', {});
   route();
+  if (!autostart) { const empty = R.stops.findIndex(s => s.lon == null); if (empty >= 0) $(`#dirStops input[data-i="${empty}"]`)?.focus({ preventScroll: true }); }
 }
 export function closeDirections() {
   if (R.active) return;
@@ -182,13 +185,19 @@ export function closeDirections() {
 }
 function renderPanel() {
   const st = $('#dirStops');
+  // keep focus + caret of the stop being edited: the panel is rebuilt after every pick / route (QA P1-2)
+  const ae = document.activeElement, fi = ae && st.contains(ae) && ae.dataset.i != null ? ae.dataset.i : null;
+  const caret = fi != null ? [ae.selectionStart, ae.selectionEnd] : null;
   $('#dirTitle').textContent = t('directions');
   st.innerHTML = R.stops.map((s, i) => `<div class="stop ${i === 0 ? 'first' : ''} ${i === R.stops.length - 1 ? 'last' : ''}"><span class="dot">${i === R.stops.length - 1 ? ic('pin', 'sm') : ''}</span><input data-i="${i}" dir="auto" class="${s.isMe ? 'me' : ''}" value="${esc(s.name || '')}" placeholder="${i === 0 ? t('chooseStart') : i === R.stops.length - 1 ? t('chooseDest') : t('stop', { n: i })}">${R.stops.length > 2 ? `<button class="ib" data-rm="${i}">${ic('close', 'sm')}</button>` : ''}</div>`).join('') + (R.stops.length < 6 ? `<button class="addstop" id="addStop">+ ${t('addStop')}</button>` : '');
   // No transit tab: there is no GTFS data for Syria (DESIGN §4.5)
   const modes = [['car', 'car'], ['foot', 'walk'], ['bike', 'bike']];
   $('#dirModes').innerHTML = modes.map(([m, icn]) => `<button class="mode ${R.mode === m ? 'on' : ''}" data-m="${m}" aria-label="${t(m)}" aria-pressed="${R.mode === m}">${ic(icn, 'sm')}<span>${R.routes.length && R.mode === m ? fmtDur(R.routes[R.sel]?.duration) : t(m)}</span></button>`).join('');
+  st.querySelectorAll('input[data-i]').forEach(inp => { stopCb?.attach(inp); inp.setAttribute('aria-label', inp.placeholder); });
+  if (fi != null) { const inp = st.querySelector(`input[data-i="${fi}"]`); if (inp) { restoring = true; inp.focus({ preventScroll: true }); restoring = false; try { inp.setSelectionRange(...caret); } catch {} } }
   document.documentElement.style.setProperty('--dirh', $('#dirPanel').offsetHeight + 'px');
 }
+let stopCb = null, restoring = false;
 function initPanel() {
   $('#dirBack').innerHTML = ic('back', 'flip-rtl'); $('#dirSwap').innerHTML = ic('swap');
   $('#dirBack').onclick = closeDirections;
@@ -198,33 +207,67 @@ function initPanel() {
     if (e.target.closest('#addStop')) { R.stops.splice(R.stops.length - 1, 0, { name: '' }); renderPanel(); $(`#dirStops input[data-i="${R.stops.length - 2}"]`).focus(); return; }
     const rm = e.target.closest('[data-rm]'); if (rm) { R.stops.splice(+rm.dataset.rm, 1); renderPanel(); route(); }
   });
-  let activeInput = null, sugg = [];
+  let activeInput = null, sugg = [], shownFor = null, sseq = 0, ctl = null;
   const box = $('#dirSuggest');
-  const search = debounce(async (inp) => {
-    const q = inp.value.trim(); const c = center();
+  const setOpen = on => { box.classList.toggle('hidden', !on); document.body.classList.toggle('sugg-open', on); };
+  const doSearch = async (inp) => {
+    const q = inp.value.trim(), c = center(), my = ++sseq;
     let res = [];
     if (App.me) res.push({ name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true, sub: '' });
-    lsGet('kh.saved', []).filter(s => !q || s.name.toLowerCase().includes(q.toLowerCase())).slice(0, 4).forEach(s => res.push({ ...s }));
+    lsGet('kh.saved', []).filter(s => !q || (s.name || '').toLowerCase().includes(q.toLowerCase())).slice(0, 4).forEach(s => res.push({ ...s, saved: true }));
     if (q.length >= 2) {
+      ctl?.abort(); ctl = new AbortController();
       try {
-        const j = await fetchJSON(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=${getLang() === 'ar' ? 'default' : getLang()}&lat=${c[1]}&lon=${c[0]}`, {}, 8000);
-        j.features.forEach(f => { const p = f.properties; res.push({ name: p.name || p.street, sub: [p.city, p.state, p.country].filter(Boolean).join(', '), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }); });
-      } catch {}
+        const fs = await photonSearch(q, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 8, signal: ctl.signal });
+        const list = fs.map(f => { const p = f.properties; return { name: p.name || p.street, sub: [p.city || p.town || p.village, p.state, p.country].filter((v, i, a) => v && v !== p.name && a.indexOf(v) === i).join(', '), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], cc: p.countrycode, placeHit: !!p.placeHit, tags: { [p.osm_key]: p.osm_value } }; }).filter(r => r.name);
+        // settlements (Homs city, Damascus …) first, then Syria before neighbours (QA P1-1/P1-3)
+        const rk = rank(list, q);
+        res = dedupe([...rk.settlements, ...res, ...rk.rest]).slice(0, 10);
+      } catch (e) { if (e.name === 'AbortError' && my !== sseq) return; }
     }
-    if (activeInput !== inp) return;
-    sugg = res;
-    box.innerHTML = res.map((r, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic(r.isMe ? 'locate' : 'pinOutline')}</div><div class="st"><div class="t1">${esc(r.name)}</div><div class="t2">${esc(r.sub || '')}</div></div></div>`).join('');
-    box.classList.toggle('hidden', !res.length);
-  }, 300);
-  $('#dirStops').addEventListener('focusin', e => { if (e.target.tagName === 'INPUT') { activeInput = e.target; e.target.select(); search(e.target); } });
-  $('#dirStops').addEventListener('input', e => { if (e.target.tagName === 'INPUT') search(e.target); });
-  $('#dirStops').addEventListener('focusout', () => setTimeout(() => { box.classList.add('hidden'); activeInput = null; }, 200));
-  box.addEventListener('pointerdown', e => e.preventDefault());
-  box.addEventListener('click', e => {
-    const r = e.target.closest('.srow'); if (!r || !activeInput) return;
-    const s = sugg[+r.dataset.i]; R.stops[+activeInput.dataset.i] = { name: s.name, lon: s.lon, lat: s.lat, isMe: s.isMe };
-    activeInput.blur(); box.classList.add('hidden'); renderPanel(); route();
+    // the panel may have been rebuilt meanwhile (route finished): compare the stop index, not the element
+    if (!activeInput || activeInput.dataset.i !== inp.dataset.i || my !== sseq) return;
+    sugg = res; shownFor = activeInput.value.trim();
+    box.innerHTML = res.map((r, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic(r.isMe ? 'locate' : r.saved ? 'bookmark' : 'pinOutline')}</div><div class="st"><div class="t1" dir="auto">${esc(r.name)}</div><div class="t2" dir="auto">${esc(r.sub || '')}</div></div></div>`).join('');
+    setOpen(res.length > 0); stopCb.refresh();
+  };
+  let stm = 0;
+  const search = inp => { clearTimeout(stm); stm = setTimeout(() => doSearch(inp), 300); };
+  const cancel = () => { clearTimeout(stm); sseq++; ctl?.abort(); };
+  const pick = (i, viaKey) => {
+    const s = sugg[i]; if (!s || !activeInput) return;
+    cancel(); // a late answer must not reopen the list
+    const idx = +activeInput.dataset.i;
+    R.stops[idx] = { name: s.name, lon: s.lon, lat: s.lat, isMe: s.isMe };
+    setOpen(false); stopCb.close();
+    // keyboard: continue with the next empty stop, else stay in the field (Tab goes on); pointer: close the keyboard
+    const next = viaKey ? R.stops.findIndex((x, j) => j !== idx && x.lon == null) : -1;
+    if (!viaKey) activeInput.blur();
+    renderPanel();
+    if (next >= 0) $(`#dirStops input[data-i="${next}"]`)?.focus();
+    route();
+  };
+  stopCb = combobox(document.createElement('input'), box, {
+    label: t('directions'), input: () => activeInput,
+    onPick: i => pick(i, true),
+    flush: async () => { if (activeInput && (shownFor !== activeInput.value.trim() || box.classList.contains('hidden'))) await doSearch(activeInput); },
+    onClose: () => setOpen(false),
   });
+  $('#dirStops').addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' && e.target.dataset.i != null) { activeInput = e.target; stopCb.keydown(e); } });
+  $('#dirStops').addEventListener('focusin', e => { if (e.target.tagName === 'INPUT') { if (restoring) { activeInput = e.target; return; } if (activeInput !== e.target) { activeInput = e.target; shownFor = null; cancel(); setOpen(false); box.innerHTML = ''; e.target.select(); } search(e.target); } });
+  // typed text belongs to its own stop – never to another one, and survives re-renders (QA P1-2)
+  $('#dirStops').addEventListener('input', e => {
+    const inp = e.target; if (inp.tagName !== 'INPUT') return;
+    R.stops[+inp.dataset.i] = { name: inp.value }; inp.classList.remove('me');
+    search(inp);
+  });
+  $('#dirStops').addEventListener('focusout', () => setTimeout(() => {
+    const ae = document.activeElement;
+    if (ae && $('#dirStops').contains(ae) && ae.tagName === 'INPUT') return; // moved to another stop field
+    cancel(); setOpen(false); stopCb.close(); activeInput = null;
+  }, 200));
+  box.addEventListener('pointerdown', e => e.preventDefault());
+  box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) pick(+r.dataset.i, false); });
 }
 
 let routeSeq = 0;

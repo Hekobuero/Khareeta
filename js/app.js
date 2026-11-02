@@ -185,7 +185,7 @@ map.on('click', async e => {
     }
     openPlace(item, { noFly: true }); return;
   }
-  if (!$('#dirPanel').offsetParent && App.sheetKind !== 'home') { if (sheetState() !== 'hidden') closeSheet(); else showHome(); }
+  if (!document.body.classList.contains('dir-open') && App.sheetKind !== 'home') { if (sheetState() !== 'hidden') closeSheet(); else showHome(); }
 });
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
@@ -254,7 +254,7 @@ map.on('dragstart', () => { if (App.locMode) { App.locMode = 0; renderLocBtn(); 
 
 // ---------- home peek: Saved row (mockup 01) ----------
 function showHome(keep) {
-  if (navActive() || $('#dirPanel').offsetParent || measureActive()) return;
+  if (navActive() || document.body.classList.contains('dir-open') || measureActive()) return; // offsetParent is always null for the fixed panel
   const saved = lsGet('kh.saved', []);
   const home = saved.find(s => s.kind === 'home'), work = saved.find(s => s.kind === 'work');
   const favs = saved.filter(s => s.kind === 'fav').slice(0, 6);
@@ -345,7 +345,7 @@ try { navigator.permissions?.query({ name: 'geolocation' }).then(s => { if (s.st
 // ---------- service worker ----------
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // app.js awaits the style at top level, so the window 'load' event may already have fired here
-  const regSW = () => navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));
+  const regSW = () => import('./update.js').then(m => m.registerSW('sw.js')).catch(e => console.warn('sw', e));
   if (document.readyState === 'complete') regSW(); else addEventListener('load', regSW);
 }
 track('visit', {});
