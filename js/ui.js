@@ -7,7 +7,7 @@ import { getTheme, setTheme } from './mapstyle.js';
 import { openOfflinePanel } from './offline.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
-import { voiceRowsHtml, bindVoiceRows } from './voice.js';
+import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
 export const hooks = { restyle: null, relabel: null, rerenderUI: null, set3d: null };
 
@@ -72,6 +72,7 @@ export function initDrawer() {
     if (['lowData', 'voice', 'arabicDigits'].includes(a)) {
       settings[a] = !settings[a]; saveSettings();
       if (a === 'lowData') hooks.restyle();
+      if (a === 'voice' && !settings.voice) stopSpeaking();
       if (a === 'arabicDigits') hooks.rerenderUI();
       openDrawer(); return;
     }

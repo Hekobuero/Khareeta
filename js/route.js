@@ -6,7 +6,7 @@ import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
-import { speak as voiceSpeak, announce, arriveText, reroutingText, thresholds as voiceAt } from './voice.js';
+import { speak as voiceSpeak, navPrompt, arriveText, reroutingText, stopSpeaking } from './voice.js';
 import { photonSearch, rank, dedupe, combobox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -459,16 +459,8 @@ function onPos(p, heading, speed, acc) {
   let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
   N.stepIdx = idx;
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
-  // voice: one early prompt (car ≈ 300 m, speed-scaled; walk 30 m) + "now" at the maneuver – see voice.js thresholds()
-  const th = voiceAt(R.mode, speed);
-  for (let k = 1; k >= 0; k--) {
-    if (distTo > th[k]) continue;
-    if (!N.spoken[idx + ':' + k] && idx > 0) {
-      for (let j = 0; j <= k; j++) N.spoken[idx + ':' + j] = 1;
-      speak(announce(step, k === 1 ? 'now' : 'pre', distTo, instr));
-    }
-    break;
-  }
+  // voice: start prompt, early prompt (car ≈ 13 s ahead = 300–700 m; walk 30 m), "now", close maneuvers chained – see voice.js
+  navPrompt(r, idx, distTo, R.mode, speed, instr, N.spoken);
   const remain = N.cum[N.cum.length - 1] - along;
   drawRoutes(along);
   if (remain < 25 && !N.arrived) { N.arrived = true; speak(arriveText(r.steps[r.steps.length - 1])); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
@@ -478,7 +470,7 @@ function onPos(p, heading, speed, acc) {
 }
 async function reroute(p) {
   N.rerouting = true; renderHud(N.pos, N.lastDist, N.lastRemain);
-  speak(reroutingText());
+  if (settings.voice) voiceSpeak(reroutingText(), { interrupt: true });
   track('reroute', {});
   const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
   try {
@@ -518,7 +510,7 @@ function renderHud(p, distTo, remain) {
     <div class="m"><b>${nf(remain < 10000 ? Math.round(remain / 100) / 10 : Math.round(remain / 1000), { maximumFractionDigits: 1 })}</b><small>${t('km')}</small></div>
     <button class="endbtn" id="navStop">${t('navEnd')}</button>`;
   $('#navStop').onclick = stopNav;
-  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; renderHud(p, distTo, remain); });
+  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; if (!settings.voice) stopSpeaking(); renderHud(p, distTo, remain); });
   const rc = $('#navRecenter');
   rc.classList.toggle('hidden', N.follow);
   rc.innerHTML = `${ic('navigation')}<span>${t('recenter')}</span>`;
@@ -528,7 +520,7 @@ export function stopNav() {
   R.active = false; App.navMode = false; document.body.classList.remove('nav');
   if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);
   N.marker?.remove(); N.marker = null; N.wake?.release?.(); N.wake = null; N.arrived = false;
-  try { speechSynthesis.cancel(); } catch {}
+  stopSpeaking();
   App.map.off('dragstart', onDrag);
   App.meMarker?.getElement().classList.remove('hidden');
   R.markers.forEach(m => m.getElement().classList.remove('hidden'));
