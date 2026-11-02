@@ -191,6 +191,8 @@ export function thresholds(mode, speed, finalArrive = false) {
 }
 // two maneuvers closer than this are announced together ("Now turn left, then turn right")
 const THEN_GAP = { car: 150, bike: 60, foot: 40 };
+// after a chained "Now X, then Y", Y gets its own "now" only if it is farther than this behind X
+const NOW_AGAIN = { car: 120, bike: 50, foot: 30 };
 
 // ---------- navigation prompts (called from route.js onPos) ----------
 // `said` remembers prompts per maneuver location so a recalculated route does not repeat what was just announced.
@@ -203,17 +205,19 @@ function markSaid(st, stage) { said.set(mkey(st, stage), Date.now()); }
  * One call per position fix. r = route, idx = index of the next maneuver, distTo = metres to it,
  * spoken = route.js N.spoken (reset per route), fallback = display text builder (instr).
  */
+let startPending = false;
+/** Navigation started: exactly one start prompt (in the chosen variant) on the first fix; fresh per-route memory. */
+export function navVoiceStart() { said.clear(); startPending = true; }
 export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
   const steps = r.steps, step = steps[idx]; if (!step || idx <= 0) return;
   const along = r._stepAlong || [];
   const th = thresholds(mode, speed, step.type === 'arrive' && step.last);
-  // start prompt: on the first fix of a route, if the first maneuver is still far away ("Follow the road. In 2 km, turn left.")
-  if (!spoken.start) {
-    spoken.start = 1;
-    if (distTo > th[0] * 1.3 && !wasSaid(step, 'start') && !wasSaid(step, 'pre')) {
-      const txt = announce(step, 'pre', distTo, fallback);
-      if (txt) { markSaid(step, 'start'); speak(fill(V().start, { i: txt })); }
-    }
+  // start prompt, once per navigation (not after a recalculation): "Follow the road. In 2 km, turn left." –
+  // or just "Follow the road." when the first maneuver is close (its own prompts follow right after).
+  if (startPending) {
+    startPending = false;
+    const far = distTo > th[0] * 1.3, txt = far ? announce(step, 'pre', distTo, fallback) : '';
+    speak(fill(V().start, { i: txt }).trim());
   }
   for (let k = 1; k >= 0; k--) {
     if (distTo > th[k]) continue;
@@ -224,7 +228,11 @@ export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
       for (let j = 0; j <= k; j++) markSaid(step, j ? 'now' : 'pre');
       const next = steps[idx + 1], gap = next && along[idx + 1] != null ? along[idx + 1] - along[idx] : Infinity;
       const chain = next && gap < (THEN_GAP[mode] || 60) && step.type !== 'arrive' && !(next.type === 'arrive' && !next.last) ? next : null;
-      if (chain) { spoken[(idx + 1) + ':0'] = 1; markSaid(chain, 'pre'); } // the chained maneuver gets only its "now"
+      if (chain) {
+        spoken[(idx + 1) + ':0'] = 1; markSaid(chain, 'pre'); // the chained maneuver gets no separate early prompt …
+        // … and after "Now X, then Y" no separate "Now Y" a few seconds later, unless Y is far enough away to need it
+        if (stage === 'now' && gap <= (NOW_AGAIN[mode] || 40)) { spoken[(idx + 1) + ':1'] = 1; markSaid(chain, 'now'); }
+      }
       speak(announce(step, stage, distTo, fallback, chain), { ttl: stage === 'now' ? 3000 : MAX_WAIT }); // a late "now" is worse than none
     }
     break;
@@ -234,7 +242,7 @@ export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
 // ---------- speaking (own queue: a running prompt is never cut by the next one) ----------
 let last = '', lastT = 0, warned = {}, cur = null, guard = null, queue = [];
 const MAX_WAIT = 8000; // queued prompts older than this are dropped (stale distance)
-function finish(u) { if (cur !== u) return; cur = null; clearTimeout(guard); const now = Date.now(); while (queue.length) { const q = queue.shift(); if (now - q.t < q.ttl) { play(q.text); return; } } }
+function finish(u) { if (cur !== u) return; cur = null; clearTimeout(guard); const now = Date.now(); while (queue.length) { const q = queue.shift(); if (now - q.t < q.ttl && play(q.text)) return; } } // a failing prompt does not block the rest
 function play(text) {
   const s = SYN(), lang = getLang(), v = chosenVoice(lang);
   if (!s || !v) return false;
@@ -268,8 +276,9 @@ export function speak(text, { force = false, interrupt = false, ttl = MAX_WAIT }
   if (cur) { queue.push({ text, t: Date.now(), ttl }); if (queue.length > 2) queue.shift(); return true; }
   return play(text);
 }
-/** Stop immediately (navigation ended / voice switched off): clears the queue, the repeat guard and the per-route memory. */
-export function stopSpeaking() { queue = []; cur = null; clearTimeout(guard); last = ''; said.clear(); try { SYN()?.cancel(); } catch {} }
+/** Stop immediately: clears the running prompt, the queue and the repeat guard (voice switched off, language changed).
+ *  reset: also forget what was announced on this route (only when navigation stops). */
+export function stopSpeaking({ reset = false } = {}) { queue = []; cur = null; clearTimeout(guard); last = ''; if (reset) { said.clear(); startPending = false; } try { SYN()?.cancel(); } catch {} }
 
 // ---------- settings rows (inside the drawer's Navigation group, DESIGN §4.9) ----------
 const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

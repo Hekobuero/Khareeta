@@ -61,7 +61,7 @@ export function initDrawer() {
   $('#drawer').addEventListener('click', e => {
     if (e.target.closest('#dClose')) { closeDrawer(); return; }
     const l = e.target.closest('#dLang [data-l]');
-    if (l) { const from = getLang(); if (from === l.dataset.l) return; setLang(l.dataset.l); track('lang_change', { from, to: l.dataset.l }); hooks.rerenderUI(); hooks.relabel(); openDrawer(); return; }
+    if (l) { const from = getLang(); if (from === l.dataset.l) return; setLang(l.dataset.l); stopSpeaking(); track('lang_change', { from, to: l.dataset.l }); hooks.rerenderUI(); hooks.relabel(); openDrawer(); return; }
     const th = e.target.closest('#dTheme [data-v]');
     if (th) { applyTheme(th.dataset.v); openDrawer(); return; }
     const ml = e.target.closest('#dMapLang [data-v]');

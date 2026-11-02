@@ -6,7 +6,7 @@ import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
-import { speak as voiceSpeak, navPrompt, arriveText, reroutingText, stopSpeaking } from './voice.js';
+import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking } from './voice.js';
 import { photonSearch, rank, dedupe, combobox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -397,7 +397,7 @@ export function startNav(sim = false) {
   N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(r.coords[0]).addTo(App.map);
   wake();
   App.map.on('dragstart', onDrag);
-  speak(instr(r.steps[0])); // always start with the depart step ("Head east on …"), never with the first turn
+  navVoiceStart(); // the single start prompt comes from navPrompt() on the first fix, in the chosen spoken variant
   if (sim || !('geolocation' in navigator)) simulate(r);
   else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   App.map.easeTo({ center: r.coords[0], pitch: 58, zoom: 17, bearing: bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]), padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
@@ -520,7 +520,7 @@ export function stopNav() {
   R.active = false; App.navMode = false; document.body.classList.remove('nav');
   if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);
   N.marker?.remove(); N.marker = null; N.wake?.release?.(); N.wake = null; N.arrived = false;
-  stopSpeaking();
+  stopSpeaking({ reset: true });
   App.map.off('dragstart', onDrag);
   App.meMarker?.getElement().classList.remove('hidden');
   R.markers.forEach(m => m.getElement().classList.remove('hidden'));
