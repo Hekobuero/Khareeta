@@ -62,8 +62,8 @@ coverage of opening hours/phones depends on OpenStreetMap contributors (everyone
 
 ## Usage statistics & admin
 - What is recorded (per event): random install id, session id, event type (visit, search, route, place_view, offline_download,
-  lang_change, …), time, UI language, device class/OS, app version, coarse country/city, referrer **domain** and `utm_source`
-  (visit only), and a location rounded to 0.1° **only** if the user already granted location. No IP address, no raw search text.
+  lang_change, …), time, UI language, device class/OS, app version, coarse country/city, referrer **domain** (visit only), first-touch
+  `utm_source` and `channel_language` (see *Tracking links* below), and a location rounded to 0.1° **only** if the user already granted location. No IP address, no raw search text.
 - Opt-out: Settings → "Usage statistics"; Do-Not-Track / Global-Privacy-Control are honoured. Events are queued offline
   and sent in batches; failures never block the UI. One `visit` per browser session (sessionStorage); a batch is removed
   from the queue *before* it is sent (`fetch` with `keepalive`), so reloads, SW updates and second tabs cannot resend
@@ -72,6 +72,62 @@ coverage of opening hours/phones depends on OpenStreetMap contributors (everyone
 - Setup: run `supabase.sql` in the Supabase SQL editor → create the admin user (Authentication → Users → Add user,
   "Auto Confirm") → `insert into public.kh_admins (user_id, email) select id, email from auth.users where email = 'you@example.com';`
   → optionally disable public sign-ups → open `/admin.html` and sign in.
+
+### Tracking links for marketing (UTM → `channel_language`)
+Every event carries `props.ch` = **`<channel>_<language>`** (e.g. `facebook_ar`, `telegram_ar`, `instagram_de`,
+`whatsapp_en`, `direct_ar`, `organic_de`). Attribution is **first touch per session**: the parameters of the first page
+load in a tab are kept for that tab (sessionStorage) even if the user later navigates or reloads; a new tab/visit is a new session.
+
+| Parameter | Use | Stored as |
+|---|---|---|
+| `utm_source` (alias `ref`, `source`) | channel – **required** for campaigns | column `utm_source` (every event, ≤ 80 chars) |
+| `utm_medium` | `social`, `paid`, `group`, `story`, `email`, `qr` … | `props.utm_medium` |
+| `utm_campaign` | campaign name, e.g. `launch_2026` | `props.utm_campaign` |
+| `utm_content` | post/creative id **with language suffix**, e.g. `post3_ar` | `props.utm_content` |
+| `utm_term` | optional keyword/audience | `props.utm_term` |
+| `lang` | explicit language `ar` / `en` / `de` (overrides `utm_content`) | part of `props.ch` |
+| `ch` | short form `<channel>_<lang>`, e.g. `ch=facebook_ar` – only known channels (`facebook`, `instagram`, `telegram`, `whatsapp`, `x`, `youtube`, `tiktok`, `linkedin`, `reddit`, `snapchat`, `email`, `organic`, `direct`, `referral`, `qr`, `sms`, `print`) and `ar`/`en`/`de`; anything else is ignored; an explicit `utm_source`/`ref` wins for the channel | `props.ch`; also `utm_source` if none is given |
+
+UTM values are cut to 40 chars (`utm_source` 80). Use lowercase, `_` or `-`, no personal data in links.
+
+**Channel** = `utm_source`/`ref` normalised, else the referrer domain, else `direct`:
+`fb`, `facebook`, `m./l./lm.facebook.com`, `fb.me`, `messenger` → `facebook` · `ig`, `l.instagram.com` → `instagram` ·
+`tg`, `t.me`, `web.telegram.org`, Telegram app → `telegram` · `wa`, `wa.me`, `chat.whatsapp.com` → `whatsapp` ·
+`x`, `twitter`, `t.co` → `x` · also `youtube`, `tiktok`, `linkedin`, `reddit`, `snapchat`, `email` (`newsletter`, Gmail app) ·
+Google/Bing/DuckDuckGo/Yandex/Yahoo/Ecosia/Qwant/Brave search → `organic` · any other website → `referral` ·
+an unknown `utm_source` becomes a short slug of itself (`utm_source=Syria Forum` → `syriaforum`). Prefixes work: `fb_ads` → `facebook`.
+
+**Language** = `lang=` → else a language code inside `utm_content`/`utm_campaign` (`ar`, `post3_ar`, `de-story`) →
+else the UI language at the first page load.
+
+| Example link | `channel_language` |
+|---|---|
+| `https://khareeta.app/?utm_source=facebook&utm_medium=social&utm_campaign=launch&utm_content=post1_ar` | `facebook_ar` |
+| `https://khareeta.app/?utm_source=telegram&utm_medium=channel&utm_content=ar` | `telegram_ar` |
+| `https://khareeta.app/?utm_source=instagram&utm_medium=story&utm_content=story_de` | `instagram_de` |
+| `https://khareeta.app/?utm_source=whatsapp&utm_medium=group&lang=en` | `whatsapp_en` |
+| `https://khareeta.app/?ref=tg&lang=ar` (short form) | `telegram_ar` |
+| `https://khareeta.app/?ch=facebook_ar` (shortest form) | `facebook_ar` |
+| `https://khareeta.app/?ch=myblog_ar` (unknown channel → ignored) | `direct_<ui language>` |
+| shared plain link opened from `t.me` (no parameters) | `telegram_<ui language>` |
+| typed in / bookmark / home-screen app | `direct_<ui language>` |
+| found via Google | `organic_<ui language>` |
+
+Deep links combine normally: `https://khareeta.app/?q=Aleppo&utm_source=fb&utm_content=post2_ar`.
+
+**Funnel** `visit → search → route → nav_start → install`: the first event of each step in a session carries `props.f = 1`
+(at most once per step and session). Repeated `search` / `route` / `nav_start` events are sent **on purpose** (they are the
+usage counts in the dashboard); only the funnel flag is once per session. The funnel step `search` = event type `search`
+(typed searches and category chips, `props.kind`); `category` events (chip filter changes) are not a funnel step.
+In `kh_tracking()` a session counts for a step only if it also has the previous steps; `install` needs a `visit` earlier in the same session.
+**Install**: event type `install` with `props.stage` = `available` (browser offered install, once per session),
+`prompt_shown`, `accepted`, `dismissed` (stages only) and `installed` (`appinstalled`) – the one real install: sent at
+most **once per device** (`localStorage kh.inst`) and once per session, even if the browser fires `appinstalled` twice;
+only it can carry `f = 1`. The admin counts installs as distinct devices. `visit` also carries `props.dm` = display mode
+(`browser`, `standalone`, …). Only the session id links events – no account, IP, fingerprinting or personal data.
+All of this uses existing columns + `props` JSON, so **no migration is required for collecting**.
+The optional `supabase/migrations/20261102_tracking.sql` adds the `kh_tracking()` RPC + indexes for the Funnel /
+channel_language / Campaign / Install cards in `admin.html` (they stay hidden until it is applied).
 
 ## Development
 Static site, no build step. Serve the folder with any static web server (`python3 -m http.server`).
