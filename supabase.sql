@@ -1,5 +1,5 @@
 -- =====================================================================
--- Khareeta – privacy-first usage analytics (Supabase project ihqcgjndnjxxgeqheoei)
+-- Khareeta – privacy-first usage analytics (Supabase project lqanalmwztxdonrrrgqi)
 -- Run once in the Supabase SQL editor. Safe to re-run.
 --   * anon (the public app) may only INSERT events – it can never read them
 --   * only signed-in admins listed in public.kh_admins may SELECT / use the dashboard

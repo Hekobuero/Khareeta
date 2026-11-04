@@ -5,8 +5,8 @@
 import { VERSION, lsGet, lsSet } from './util.js';
 import { getLang } from './i18n.js';
 
-const SB_URL = 'https://ihqcgjndnjxxgeqheoei.supabase.co';
-const SB_KEY = 'sb_publishable_0YKvFqXx8JX_xGH6ZcloRg_1Lrb_Ngz'; // public (publishable) key – RLS allows INSERT only
+const SB_URL = 'https://lqanalmwztxdonrrrgqi.supabase.co';
+const SB_KEY = 'sb_publishable_d2TYqPpaVRe1IkD8TYsJ5Q_HAIYFS-b'; // public (publishable) key – RLS allows INSERT only
 const QKEY = 'kh.aq', MAXQ = 300;
 // Local/dev copies (localhost, 127.x, file:) never send: test runs must not land in the production table.
 // A test can opt in with localStorage kh.trackDev = '1' (and then has to intercept the requests itself).
