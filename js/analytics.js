@@ -176,7 +176,7 @@ export function reportQuiet(ms = QUIET_MS, now = Date.now()) {
 export const reportQuietOff = (now = Date.now()) => { mark(now); dropAround(now); lsSet(QUKEY, Math.min(quietUntil(), now + QUIET_MS)); };
 export const _heldCount = () => held.length;
 export const _queue = () => q.slice();
-export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
+export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); clearTimeout(timer); timer = null; rsending = false; for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
 function hold(x, now = Date.now()) {
   const h = { ...x, tm: null };
   held.push(h);
@@ -238,6 +238,11 @@ function enqueue(type, props, ts = Date.now(), sid = sessionId) {
 // Reports are anonymous: they NEVER carry the install id, session id or any geo (country/city), whether or not usage
 // analytics is on. Local/dev copies never send (tests intercept fetch themselves with kh.trackDev = 1).
 export const REPORT_DEV_BLOCKED = () => { try { return DEV_HOST && localStorage.getItem('kh.trackDev') !== '1'; } catch { return true; } };
+// Idempotency: a delayed report carries props.rid (random UUID, unrelated to install id / time). With the migration
+// 20261106_kh_events_rid (generated column rid + unique index) the insert uses on_conflict=rid + ignore-duplicates, so a
+// retry after a timeout cannot create a second row. Without the migration the server answers 400 for the unknown
+// column; the insert is then repeated once without on_conflict (best effort) and that is remembered (kh.noRid).
+const NORID = 'kh.noRid';
 export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeout = 12000 } = {}) {
   if (!ALLOWED.has(type)) return { ok: false, why: 'type' };
   if (REPORT_DEV_BLOCKED()) return { ok: false, why: 'dev' };
@@ -253,7 +258,13 @@ export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeo
   const ac = typeof AbortController === 'function' ? new AbortController() : null;
   const tm = ac && setTimeout(() => ac.abort(), timeout);
   try {
-    const r = await fetchImpl(SB_URL + '/rest/v1/kh_events', { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify([ev]), signal: ac?.signal });
+    const idem = !!props?.rid && lsGet(NORID, 0) < Date.now() - 864e5;
+    const post = up => fetchImpl(SB_URL + '/rest/v1/kh_events' + (up ? '?on_conflict=rid' : ''), { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: up ? 'return=minimal,resolution=ignore-duplicates' : 'return=minimal' }, body: JSON.stringify([ev]), signal: ac?.signal });
+    let r = await post(idem);
+    if (idem && r.status === 400) {
+      let txt = ''; try { txt = await r.text(); } catch {}
+      if (/rid|on_conflict|42703|42P10|PGRST/.test(txt)) { lsSet(NORID, Date.now()); r = await post(false); }
+    }
     try { r.text().catch(() => {}); } catch {}
     return r.ok ? { ok: true } : { ok: false, why: 'http', status: r.status };
   } catch { return { ok: false, why: 'network' }; }
@@ -265,33 +276,46 @@ export function submitReport(type, props, { now = Date.now(), rand = Math.random
   if (!ALLOWED.has(type)) return { ok: false, why: 'type' };
   if (REPORT_DEV_BLOCKED()) return { ok: false, why: 'dev' };
   const [lo, hi] = REPORT_DELAY_MS;
-  const it = { id: rid(), type, props: { ...props }, due: Math.round(now + lo + rand() * (hi - lo)), tries: 0, exp: now + 7 * 864e5 };
+  const it = { id: rid(), type, props: { ...props, rid: crypto.randomUUID ? crypto.randomUUID() : rid() }, due: Math.round(now + lo + rand() * (hi - lo)), tries: 0, exp: now + 7 * 864e5 };
   try { localStorage.setItem(RQKEY, JSON.stringify([...lsGet(RQKEY, []), it].slice(-20))); } catch { return { ok: false, why: 'storage' }; }
   scheduleReports(); return { ok: true, queued: true, due: it.due };
 }
 export const _pendingReports = () => lsGet(RQKEY, []);
+// ms to wait before the next usage flush attempt if a pending report is due within QUIET_MS (0 = no report pending)
+function reportDueSoon(now = Date.now()) {
+  if (navigator.onLine === false) return 0;
+  const l = lsGet(RQKEY, []).filter(x => x.exp > now); if (!l.length) return 0;
+  const due = Math.min(...l.map(x => x.due));
+  return due - QUIET_MS <= now ? Math.max(5e3, due - now + QUIET_MS + 2e3) : 0;
+}
 function scheduleReports(now = Date.now()) {
   clearTimeout(rtm); const l = lsGet(RQKEY, []); if (!l.length) return;
   rtm = setTimeout(() => sendDueReports(), Math.max(0, Math.min(...l.map(x => x.due)) - now));
 }
 export async function sendDueReports({ fetchImpl = globalThis.fetch } = {}) {
   if (rsending) return 0;
-  const now = Date.now(), l = lsGet(RQKEY, []), due = l.filter(x => x.due <= now);
+  const now = Date.now(), l = lsGet(RQKEY, []).filter(x => x.exp > now);
+  // claimed by a tab that is sending right now (or died while sending: retried after 2 min, rid keeps it idempotent)
+  const due = l.filter(x => x.due <= now && !(x.claim > now - 120e3));
   if (!due.length) { scheduleReports(now); return 0; }
-  // a usage batch went out less than QUIET_MS ago (this or another tab): wait, so the insert times stay apart
+  if (navigator.onLine === false) return 0; // the 'online' event calls us again
+  // usage flushes are paused from QUIET_MS before a due report, so this wait is only needed if a batch slipped out
+  // just before (other tab / in flight): at most ~61 s, then the report goes first
   const lf = +lsGet(FKEY, 0) || 0;
-  if (now - lf < QUIET_MS || sending) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), lf + QUIET_MS - now + 1000 + Math.random() * 30e3); return 0; }
-  rsending = true; lsSet(RQKEY, l.filter(x => x.due > now)); // claim first: another tab / a reload never sends it twice
-  let sent = 0; const back = [];
+  if (now - lf < QUIET_MS || sending) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), Math.max(1000, lf + QUIET_MS - now + 1000)); return 0; }
+  rsending = true;
+  const ids = new Set(due.map(x => x.id));
+  lsSet(RQKEY, l.map(x => ids.has(x.id) ? { ...x, claim: now } : x));
+  let sent = 0;
   for (const it of due) {
-    if (it.exp < Date.now()) continue;
     reportQuiet(QUIET_MS); // server insert time ≈ now: drop/suppress usage events ±60 s around it
     const r = await sendNow(it.type, it.props, { fetchImpl });
     reportQuiet(QUIET_MS);
+    const rest = lsGet(RQKEY, []).filter(x => x.id !== it.id); // success: the stored report is deleted right away
     if (r.ok) sent++;
-    else if (r.why !== 'type' && r.why !== 'dev') back.push({ ...it, tries: it.tries + 1, due: Date.now() + Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random()) });
+    else if (r.why !== 'type' && r.why !== 'dev') rest.push({ ...it, claim: 0, tries: it.tries + 1, due: Date.now() + (r.why === 'offline' ? 0 : Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random())) });
+    lsSet(RQKEY, rest);
   }
-  if (back.length) lsSet(RQKEY, [...lsGet(RQKEY, []), ...back]);
   rsending = false; scheduleReports(); return sent;
 }
 let timer = null, sending = false, leaving = false;
@@ -304,6 +328,8 @@ export async function flush() {
   q = lsGet(QKEY, q);
   if (!q.length) return;
   // no usage batch reaches the server while a report form is open or within QUIET_MS of a report insert
+  // a report is due within QUIET_MS (or overdue): it has priority – usage batches wait (held, not dropped) until it went out
+  const rd = reportDueSoon(); if (rd) { clearTimeout(timer); timer = null; schedule(rd); return; }
   const qu = quietUntil(); if (Date.now() < qu) { clearTimeout(timer); timer = null; if (qu - Date.now() < OPEN_MS) schedule(qu - Date.now() + 1000); return; }
   sending = true; lsSet(FKEY, Date.now());
   const batch = [];
@@ -329,7 +355,7 @@ export async function flush() {
 }
 export function initAnalytics() {
   scheduleReports(); // pending anonymous reports go out even when usage analytics is off
-  addEventListener('online', () => scheduleReports());
+  addEventListener('online', () => sendDueReports());
   if (OFF) return;
   _adoptHeld();
   setTimeout(edgeCountry, 4000);

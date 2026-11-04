@@ -145,7 +145,7 @@ test('P1: every anonymous report (road + #20 reports) has no client time, langua
 
 // ---- P1 timeline simulation: real usage events vs. anonymous reports, client time AND server insert time ----
 function sim(t, start) {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: start });
+  t.mock.timers.reset(); t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: start });
   A._resetPrivacy(); localStorage.removeItem('kh.aq'); sessionStorage.clear();
   const reqs = []; // { at (server time), evs }
   globalThis.fetch = async (u, o) => { reqs.push({ at: Date.now(), evs: JSON.parse(o.body) }); return { ok: true, status: 201, text: async () => '' }; };
@@ -199,21 +199,75 @@ test('P1b: visit is held 60 s and dropped when a report form opens right after a
   S.done();
 });
 
-test('P1: report is sent after a random 2–10 min delay, kept across reloads, never next to a usage batch', async (t) => {
+test('P1: report is sent after a random 2–10 min delay, kept across reloads, deleted after success', async (t) => {
   const S = sim(t, NOW + 40e6);
   const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 }, { rand: () => 0.5 });
   assert.equal(r.ok, true); assert.equal(r.due, S.at(360)); assert.equal(A._pendingReports().length, 1);
   assert.equal(A.submitReport('report', {}).ok, false); // type check stays
   A.reportQuietOff(); S.go(119); await flushAll(); assert.equal(S.reqs.length, 0, 'nothing before 2 min');
-  // usage continues normally; one batch goes out at ~5:30 → report must wait ≥60 s after it
-  S.go(200); A.track('search', { n: 1 }); S.go(330); await flushAll(); const batchAt = S.reqs.at(-1)?.at;
-  S.go(360); await A.sendDueReports();
-  for (let i = 0; i < 10; i++) { t.mock.timers.tick(30e3); await flushAll(); }
-  const { reps } = S.check([]); assert.equal(reps.length, 1); assert.ok(reps[0].at - batchAt > 60e3);
-  assert.equal(A._pendingReports().length, 0);
-  // UI wording: still a plain "thanks, sent" in EN/AR/DE, both forms use the delayed path
-  const i18 = readFileSync(root + 'js/i18n.js', 'utf8'); assert.equal((i18.match(/rpThanks:/g) || []).length, 3);
-  for (const f of ['js/report.js', 'js/closures.js']) { const src = readFileSync(root + f, 'utf8'); assert.match(src, /submitReport\('layer'/); assert.doesNotMatch(src, /await sendNow/); assert.match(src, /reportQuiet\(Infinity\)/); assert.match(src, /reportQuietOff\(\)/); }
+  S.go(360); await A.sendDueReports(); await flushAll();
+  const { reps } = S.check([]); assert.equal(reps.length, 1); assert.ok(reps[0].at - S.at(360) < 1000);
+  assert.equal(A._pendingReports().length, 0); assert.equal(localStorage.getItem('kh.rq'), '[]', 'nothing of the report left in localStorage');
+  S.done();
+});
+
+test('P1 starvation: usage every minute + continuous navigation → report still sent within due+90 s, no real event ±60 s', async (t) => {
+  for (const [lbl, every] of [['1×/min', 60e3], ['continuous', 7e3]]) {
+    const S = sim(t, NOW + (lbl === 'continuous' ? 61e6 : 60e6));
+    A.track('visit');
+    let due = 0, k = 0;
+    for (let s = 0; s <= 1200; s += 1) {
+      S.go(s);
+      if ((s * 1000) % every === 0) A.track(k++ % 2 ? 'search' : 'reroute', { n: s });
+      if (s === 30) { A.reportQuiet(Infinity); A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 }, { rand: () => 0.75 }); due = A._pendingReports()[0].due; A.reportQuietOff(); }
+      await new Promise(r => setImmediate(r));
+    }
+    const { real, reps } = S.check([S.at(30)]);
+    assert.equal(reps.length, 1, lbl + ': report sent'); assert.ok(reps[0].at <= due + 90e3, `${lbl}: sent ${(reps[0].at - due) / 1000}s after due`);
+    assert.ok(real.length > 5, lbl + ': usage still delivered (held, not dropped) ' + real.length + ' reqs ' + S.reqs.map(r => (r.at - S.at(0)) / 1000 + ':' + r.evs.length).join(','));
+    assert.ok(real.some(e => Date.parse(e.client_ts) > reps[0].at + 60e3), lbl + ': usage after the report is sent later');
+    S.done();
+  }
+});
+
+test('P2b: idempotent report: random rid, retry after timeout inserts once; works without the migration', async (t) => {
+  const S = sim(t, NOW + 70e6);
+  const rows = new Map(); let calls = 0, migrated = true;
+  globalThis.fetch = async (u, o) => {
+    calls++; const ev = JSON.parse(o.body)[0], url = new URL(u);
+    if (url.searchParams.get('on_conflict') === 'rid' && !migrated) return { ok: false, status: 400, text: async () => '{"code":"42703","message":"column kh_events.rid does not exist"}' };
+    const dupOk = url.searchParams.get('on_conflict') === 'rid' && /ignore-duplicates/.test(o.headers.Prefer);
+    if (!(dupOk && rows.has(ev.props.rid))) rows.set(ev.props.rid ?? calls, ev);
+    if (calls === 1) throw new TypeError('timeout'); // inserted, but the answer is lost
+    return { ok: true, status: 201, text: async () => '' };
+  };
+  const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
+  const rid = A._pendingReports()[0].props.rid;
+  assert.match(rid, /^[0-9a-f-]{36}$/); assert.ok(!rid.includes(localStorage.getItem('kh.iid')));
+  t.mock.timers.tick(r.due - Date.now()); await A.sendDueReports(); await flushAll();
+  assert.equal(A._pendingReports().length, 1, 'kept for retry');
+  t.mock.timers.tick(A._pendingReports()[0].due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
+  assert.equal(rows.size, 1, 'one row despite retry'); assert.equal(A._pendingReports().length, 0);
+  // without the migration: 400 for on_conflict=rid → repeated once without it (best effort), remembered
+  rows.clear(); calls = 1; migrated = false; localStorage.removeItem('kh.noRid');
+  const r2 = A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 });
+  t.mock.timers.tick(r2.due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
+  assert.equal(rows.size, 1); assert.equal(A._pendingReports().length, 0); assert.ok(+localStorage.getItem('kh.noRid') > 0);
+  const sql = readFileSync(root + 'supabase/migrations/20261106_kh_events_rid.sql', 'utf8');
+  assert.match(sql, /DO NOT run/); assert.match(sql, /generated always as \(props->>'rid'\) stored/); assert.match(sql, /create unique index[^;]*\(rid\)/i);
+  localStorage.removeItem('kh.noRid'); S.done();
+});
+
+test('P3: offline at due time → sent on the online event; P2a: toast says saved / sent shortly (EN/AR/DE)', async (t) => {
+  const S = sim(t, NOW + 80e6);
+  const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
+  navigator.onLine = false; t.mock.timers.tick(r.due - Date.now() + 5e3); await A.sendDueReports(); assert.equal(S.reqs.length, 0);
+  navigator.onLine = true; await A.sendDueReports(); assert.equal(S.reqs.length, 1); assert.equal(A._pendingReports().length, 0);
+  assert.match(readFileSync(root + 'js/analytics.js', 'utf8'), /addEventListener\('online', \(\) => sendDueReports\(\)\)/);
+  const I = await import('../../js/i18n.js');
+  const T = I.STR || I.default || null; const src = readFileSync(root + 'js/i18n.js', 'utf8');
+  for (const w of ['saved and will be sent for review shortly', 'حُفظ بلاغك وسيُرسل قريبًا للمراجعة', 'gespeichert, wird in Kürze zur Prüfung gesendet']) assert.ok(src.includes(w), w);
+  assert.ok(!/report was sent for review|أُرسل بلاغك للمراجعة|wurde zur Prüfung gesendet/.test(src));
   S.done();
 });
 
