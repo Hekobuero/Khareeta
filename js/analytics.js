@@ -144,36 +144,75 @@ const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => m
 // ----- queue -----
 let q = lsGet(QKEY, []);
 const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
-// Reports must not be linkable to normal usage events by time. Therefore EVERY usage event except the session's
-// 'visit' is held back for HOLD_MS before it is queued (keeping its original timestamp); opening a report sheet drops
-// everything held plus anything queued in the last QUIET_MS (nothing is flushed early), and no event at all is recorded
-// while a report sheet is open or for QUIET_MS after it closed / the report was sent. Result: no event carrying the
-// real install id has a client_ts within ±QUIET_MS of a report.
+// Reports must not be linkable to normal usage events, neither by client time nor by the server's insert time:
+//  - EVERY usage event (visit included) is held back HOLD_MS before it is queued, keeping its original timestamp;
+//  - a "report mark" is stored (localStorage, shared by tabs) when a report form opens and when a report is actually
+//    sent; any held/queued event whose time is within ±QUIET_MS of a mark is dropped, and no event is recorded while
+//    a report form is open or for QUIET_MS after it closed / a report was sent (quietUntil, also in localStorage);
+//  - hiding the page only releases events that are already older than HOLD_MS; younger ones are persisted
+//    (kh.held) and re-checked on the next load;
+//  - the anonymous report itself is not sent right away but after a random 2–10 min delay (kh.rq, survives closing
+//    the page; then sent on the next load), so its server created_at does not line up with the moment of reporting.
 export const POINT_TYPES = new Set(['place_view', 'whats_here', 'share', 'directions_open', 'route', 'measure']); // kept for callers; all types are held now
-const HOLD_EXEMPT = new Set(['visit']);
-export const HOLD_MS = 60e3, QUIET_MS = 60e3;
-let held = [], quietUntil = 0;
-/** Call when a report sheet opens (ms = how long to stay quiet; Infinity until reportQuietOff) and after sending. */
-export function reportQuiet(ms = QUIET_MS, now = Date.now()) {
+export const HOLD_MS = 60e3, QUIET_MS = 60e3, REPORT_DELAY_MS = [2 * 60e3, 10 * 60e3];
+const FKEY = 'kh.lflush', HKEY = 'kh.held', MKEY = 'kh.rmark', QUKEY = 'kh.quiet', RQKEY = 'kh.rq', OPEN_MS = 6 * 36e5;
+let held = [];
+const quietUntil = () => +lsGet(QUKEY, 0) || 0;
+const marks = (now = Date.now()) => lsGet(MKEY, []).filter(m => m > now - 864e5);
+const nearReport = ts => marks().some(m => Math.abs(ts - m) <= QUIET_MS);
+const blocked = (ts, now = Date.now()) => now < quietUntil() || nearReport(ts);
+function mark(now) { lsSet(MKEY, [...marks(now), now].slice(-30)); }
+function dropAround(now) {
   for (const h of held) clearTimeout(h.tm); held = [];
-  try { q = lsGet(QKEY, q).filter(ev => ev.type === 'visit' || !(Date.parse(ev.client_ts) > now - QUIET_MS)); lsSet(QKEY, q); } catch {}
-  quietUntil = Math.max(quietUntil, now + ms);
+  try { lsSet(HKEY, lsGet(HKEY, []).filter(x => Math.abs(x.ts - now) > QUIET_MS)); } catch {}
+  try { q = lsGet(QKEY, q).filter(ev => !(Date.parse(ev.client_ts) > now - QUIET_MS)); lsSet(QKEY, q); } catch {}
 }
-export const reportQuietOff = (now = Date.now()) => { quietUntil = Math.min(quietUntil, now + QUIET_MS); };
+/** A report form opens (ms = Infinity until reportQuietOff) or a report is sent (ms = QUIET_MS). ms = 0: no-op mark. */
+export function reportQuiet(ms = QUIET_MS, now = Date.now()) {
+  if (!(ms > 0)) return;
+  mark(now); dropAround(now);
+  lsSet(QUKEY, Math.max(quietUntil(), now + Math.min(ms, OPEN_MS)));
+}
+export const reportQuietOff = (now = Date.now()) => { mark(now); dropAround(now); lsSet(QUKEY, Math.min(quietUntil(), now + QUIET_MS)); };
 export const _heldCount = () => held.length;
 export const _queue = () => q.slice();
-// leaving the page: queue what is held unless a report is open / was just closed (then it is dropped)
-function releaseHeld() { const h = held; held = []; for (const x of h) { clearTimeout(x.tm); if (Date.now() >= quietUntil) enqueue(x.type, x.props, x.ts); } }
+export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
+function hold(x, now = Date.now()) {
+  const h = { ...x, tm: null };
+  held.push(h);
+  h.tm = setTimeout(() => { held = held.filter(y => y !== h); unpersist(h.id); if (!blocked(h.ts)) enqueue(h.type, h.props, h.ts, h.sid); }, Math.max(0, x.ts + HOLD_MS - now));
+}
+const unpersist = id => { try { const l = lsGet(HKEY, []); if (l.some(x => x.id === id)) lsSet(HKEY, l.filter(x => x.id !== id)); } catch {} };
+// page hidden / closed: only events already older than HOLD_MS may go out now; younger ones are persisted
+export function _onHide(now = Date.now()) {
+  const keep = [];
+  for (const h of held) {
+    if (h.ts <= now - HOLD_MS) { clearTimeout(h.tm); unpersist(h.id); if (!blocked(h.ts, now)) enqueue(h.type, h.props, h.ts, h.sid); }
+    else keep.push(h);
+  }
+  held = keep;
+  const l = lsGet(HKEY, []), ids = new Set(l.map(x => x.id));
+  lsSet(HKEY, [...l, ...keep.filter(h => !ids.has(h.id)).map(({ tm, ...x }) => x)].slice(-200));
+}
+// next load (or the page is shown again): re-check persisted events – drop near a report, queue old ones, hold the rest
+export function _adoptHeld(now = Date.now()) {
+  const l = lsGet(HKEY, []); lsSet(HKEY, []);
+  const mine = new Set(held.map(h => h.id));
+  for (const x of l) {
+    if (mine.has(x.id)) continue;
+    if (blocked(x.ts, now) || x.ts < now - 864e5) continue;
+    if (x.ts <= now - HOLD_MS) enqueue(x.type, x.props, x.ts, x.sid); else hold(x, now);
+  }
+}
 export function track(type, props = {}) {
   if (OFF || !ALLOWED.has(type)) return false;
   const now = Date.now();
-  if (now < quietUntil) return false;
-  if (HOLD_EXEMPT.has(type)) return enqueue(type, props, now);
-  const h = { type, props, ts: now, tm: setTimeout(() => { held = held.filter(x => x !== h); if (Date.now() >= quietUntil) enqueue(type, props, now); }, HOLD_MS) };
-  held.push(h); return true;
+  if (blocked(now, now)) return false;
+  if (type === 'visit') { try { if (sessionStorage.getItem('kh.visitH') === sessionId) return false; sessionStorage.setItem('kh.visitH', sessionId); } catch {} }
+  hold({ id: rid(), type, props, ts: now, sid: sessionId }, now); return true;
 }
-function enqueue(type, props, ts = Date.now()) {
-  if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sessionId) return; sessionStorage.setItem('kh.visit', sessionId); } catch {} }
+function enqueue(type, props, ts = Date.now(), sid = sessionId) {
+  if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sid) return; if (sid === sessionId) sessionStorage.setItem('kh.visit', sid); } catch {} }
   try {
     const pr = { ...props };
     if (type === 'locate' && pr.lat != null) { gpsGeo(pr.lat, pr.lon); delete pr.lat; delete pr.lon; }
@@ -183,7 +222,7 @@ function enqueue(type, props, ts = Date.now()) {
     if (type === 'visit' || pr.f) { for (const k of UTM_KEYS) if (ATT[k]) pr[k] = ATT[k]; }
     if (type === 'visit') pr.dm = displayMode();
     const ev = {
-      client_ts: new Date(ts).toISOString(), install_id: installId, session_id: sessionId, type, lang: getLang(),
+      client_ts: new Date(ts).toISOString(), install_id: installId, session_id: sid, type, lang: getLang(),
       device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
       country: geo.country || null, city: geo.city || null, geo_src: geo.geo_src || null,
       lat_r: geo.geo_src === 'gps' ? geo.lat_r : null, lon_r: geo.geo_src === 'gps' ? geo.lon_r : null,
@@ -220,6 +259,41 @@ export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeo
   } catch { return { ok: false, why: 'network' }; }
   finally { if (tm) clearTimeout(tm); }
 }
+// Delayed anonymous report delivery (see above). The UI may say "sent" once the report is stored for delivery.
+let rtm = null, rsending = false;
+export function submitReport(type, props, { now = Date.now(), rand = Math.random } = {}) {
+  if (!ALLOWED.has(type)) return { ok: false, why: 'type' };
+  if (REPORT_DEV_BLOCKED()) return { ok: false, why: 'dev' };
+  const [lo, hi] = REPORT_DELAY_MS;
+  const it = { id: rid(), type, props: { ...props }, due: Math.round(now + lo + rand() * (hi - lo)), tries: 0, exp: now + 7 * 864e5 };
+  try { localStorage.setItem(RQKEY, JSON.stringify([...lsGet(RQKEY, []), it].slice(-20))); } catch { return { ok: false, why: 'storage' }; }
+  scheduleReports(); return { ok: true, queued: true, due: it.due };
+}
+export const _pendingReports = () => lsGet(RQKEY, []);
+function scheduleReports(now = Date.now()) {
+  clearTimeout(rtm); const l = lsGet(RQKEY, []); if (!l.length) return;
+  rtm = setTimeout(() => sendDueReports(), Math.max(0, Math.min(...l.map(x => x.due)) - now));
+}
+export async function sendDueReports({ fetchImpl = globalThis.fetch } = {}) {
+  if (rsending) return 0;
+  const now = Date.now(), l = lsGet(RQKEY, []), due = l.filter(x => x.due <= now);
+  if (!due.length) { scheduleReports(now); return 0; }
+  // a usage batch went out less than QUIET_MS ago (this or another tab): wait, so the insert times stay apart
+  const lf = +lsGet(FKEY, 0) || 0;
+  if (now - lf < QUIET_MS || sending) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), lf + QUIET_MS - now + 1000 + Math.random() * 30e3); return 0; }
+  rsending = true; lsSet(RQKEY, l.filter(x => x.due > now)); // claim first: another tab / a reload never sends it twice
+  let sent = 0; const back = [];
+  for (const it of due) {
+    if (it.exp < Date.now()) continue;
+    reportQuiet(QUIET_MS); // server insert time ≈ now: drop/suppress usage events ±60 s around it
+    const r = await sendNow(it.type, it.props, { fetchImpl });
+    reportQuiet(QUIET_MS);
+    if (r.ok) sent++;
+    else if (r.why !== 'type' && r.why !== 'dev') back.push({ ...it, tries: it.tries + 1, due: Date.now() + Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random()) });
+  }
+  if (back.length) lsSet(RQKEY, [...lsGet(RQKEY, []), ...back]);
+  rsending = false; scheduleReports(); return sent;
+}
 let timer = null, sending = false, leaving = false;
 function schedule(ms = 8000) { if (!timer) timer = setTimeout(() => { timer = null; flush(); }, ms); }
 // Delivery is at-most-once: a batch is removed from the stored queue BEFORE it is sent (so a reload, the SW update
@@ -229,7 +303,9 @@ export async function flush() {
   if (sending || !navigator.onLine) return;
   q = lsGet(QKEY, q);
   if (!q.length) return;
-  sending = true;
+  // no usage batch reaches the server while a report form is open or within QUIET_MS of a report insert
+  const qu = quietUntil(); if (Date.now() < qu) { clearTimeout(timer); timer = null; if (qu - Date.now() < OPEN_MS) schedule(qu - Date.now() + 1000); return; }
+  sending = true; lsSet(FKEY, Date.now());
   const batch = [];
   let bytes = 2;
   for (const ev of q) { const n = JSON.stringify(ev).length + 1; if (batch.length >= 50 || (batch.length && bytes + n > 48000)) break; batch.push(ev); bytes += n; }
@@ -252,11 +328,14 @@ export async function flush() {
   if (q.length) schedule(keep ? 30000 : 1000);
 }
 export function initAnalytics() {
+  scheduleReports(); // pending anonymous reports go out even when usage analytics is off
+  addEventListener('online', () => scheduleReports());
   if (OFF) return;
+  _adoptHeld();
   setTimeout(edgeCountry, 4000);
   addEventListener('online', () => schedule(2000));
-  addEventListener('pagehide', () => { leaving = true; releaseHeld(); flush(); });
-  addEventListener('pageshow', () => { leaving = false; });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { releaseHeld(); flush(); } });
+  addEventListener('pagehide', () => { leaving = true; _onHide(); flush(); });
+  addEventListener('pageshow', () => { leaving = false; _adoptHeld(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { _onHide(); flush(); } else _adoptHeld(); });
   if (q.length) schedule(5000);
 }

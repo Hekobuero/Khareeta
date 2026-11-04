@@ -1,11 +1,11 @@
 // In-app report sheet: (a) missing place, (b) wrong data on an OSM/Overture place, (c) suggest a social link.
-// Everything is moderated – nothing a user sends is shown in the app. Sent via analytics.sendNow() (publishable,
+// Everything is moderated – nothing a user sends is shown in the app. Sent via analytics.submitReport() → sendNow() (publishable,
 // insert-only Supabase key); the "thank you" toast appears only after the server accepted the row.
 import { $, esc, toast, fmtCoord } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
-import { sendNow, reportQuiet, reportQuietOff } from './analytics.js';
+import { submitReport, reportQuiet, reportQuietOff } from './analytics.js';
 import { REPORT_CATS, REPORT_FIELDS, LINK_KINDS, buildReport, rateCheck, rateNote } from './report-core.js';
 
 let busy = false;
@@ -55,7 +55,7 @@ export function openReport(item, type) {
     const rl = rateCheck();
     if (!rl.ok) return err(body, rl.why === 'gap' ? 'rpE_gap' : 'rpE_rate');
     busy = true; const btn = body.querySelector('#rpSend'); btn.disabled = true; btn.textContent = t('rpSending');
-    const r = await sendNow('layer', b.props);
+    const r = submitReport('layer', b.props); // stored, sent after a random 2–10 min delay (see analytics)
     busy = false;
     if (!body.isConnected) return;
     btn.disabled = false; btn.textContent = t('rpSend');

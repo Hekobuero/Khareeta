@@ -4,7 +4,7 @@ import { $, esc, toast, fmtCoord, haversine } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
-import { sendNow, reportQuiet, reportQuietOff } from './analytics.js';
+import { submitReport, reportQuiet, reportQuietOff } from './analytics.js';
 import { rateCheck, rateNote } from './report-core.js';
 import { CLOSURE_KINDS, CLOSURE_COLORS, NOTE_MAX, buildClosureReport, nearestOnPolyline, activeClosures, toGeoJSON, snap } from './closures-core.js';
 
@@ -110,7 +110,7 @@ export function snapToRoad(map, lon, lat) {
     if (!named.length) named = fs.filter(f => f.sourceLayer === 'transportation_name');
     for (const f of named) {
       if (!nm(f)) continue;
-      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline(best.pt, l); if (n.pt) { const d = haversine(best.pt, n.pt); if (d <= 25 && (!lbl || d < lbl.d)) lbl = { d, name: nm(f) }; } }
+      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline(best.pt, l); if (n.pt) { const d = haversine(best.pt, n.pt); if (d <= SNAP_M && (!lbl || d < lbl.d)) lbl = { d, name: nm(f) }; } }
     }
     return { lon: best.pt[0], lat: best.pt[1], road: lbl?.name || best.name || '', snapped: true };
   } catch {}
@@ -145,7 +145,7 @@ export function openClosureReport(item) {
     if (!b.ok) return err(b.err === 'kind' ? 'clE_kind' : b.err === 'pii' ? 'clE_pii' : 'rpE_pos');
     const rl = rateCheck(); if (!rl.ok) return err(rl.why === 'gap' ? 'rpE_gap' : 'rpE_rate');
     busy = true; const btn = body.querySelector('#clSend'); btn.disabled = true; btn.textContent = t('rpSending');
-    const r = await sendNow('layer', b.props);
+    const r = submitReport('layer', b.props); // stored, sent after a random 2–10 min delay (see analytics)
     busy = false;
     if (!body.isConnected) return;
     btn.disabled = false; btn.textContent = t('rpSend');

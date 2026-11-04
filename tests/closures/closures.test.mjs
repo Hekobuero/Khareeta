@@ -143,53 +143,89 @@ test('P1: every anonymous report (road + #20 reports) has no client time, langua
   }
 });
 
-test('P1: point/place events are held back and dropped when a report sheet opens; quiet 60 s after', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
-  const queued = () => JSON.parse(localStorage.getItem('kh.aq') || '[]').map(e => e.type);
-  localStorage.removeItem('kh.aq');
-  // normal case: queued only after HOLD_MS
-  assert.equal(A.track('place_view', { cat: 'pin' }), true);
-  assert.equal(queued().includes('place_view'), false); assert.equal(A._heldCount(), 1);
-  t.mock.timers.tick(A.HOLD_MS + 1);
-  assert.equal(queued().includes('place_view'), true);
-  const base = queued().filter(x => x === 'place_view' || x === 'whats_here').length;
-  // report case: whats_here + place_view 3 s before the report sheet opens are never queued
-  A.track('whats_here', {}); t.mock.timers.tick(3000); A.track('place_view', { cat: 'pin' });
-  A.reportQuiet(Infinity);
-  assert.equal(A._heldCount(), 0);
-  assert.equal(A.track('place_view', { cat: 'pin' }), false); // sheet open
-  A.reportQuietOff(); // sheet closed (after sending)
-  t.mock.timers.tick(A.QUIET_MS - 1000);
-  assert.equal(A.track('whats_here', {}), false); // still inside the quiet window
-  t.mock.timers.tick(A.HOLD_MS * 2);
-  assert.equal(queued().filter(x => x === 'place_view' || x === 'whats_here').length, base); // nothing new
-  assert.equal(A.track('whats_here', {}), true); // later views count again (held)
-  A.reportQuiet(0); localStorage.removeItem('kh.aq');
-  // both report sheets enable the quiet mode on open and end it on close
-  for (const f of ['js/report.js', 'js/closures.js']) { const src = readFileSync(root + f, 'utf8'); assert.match(src, /reportQuiet\(Infinity\)/, f); assert.match(src, /reportQuietOff\(\)/, f); }
+// ---- P1 timeline simulation: real usage events vs. anonymous reports, client time AND server insert time ----
+function sim(t, start) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: start });
+  A._resetPrivacy(); localStorage.removeItem('kh.aq'); sessionStorage.clear();
+  const reqs = []; // { at (server time), evs }
+  globalThis.fetch = async (u, o) => { reqs.push({ at: Date.now(), evs: JSON.parse(o.body) }); return { ok: true, status: 201, text: async () => '' }; };
+  const at = s => start + s * 1000;
+  const go = s => { const d = at(s) - Date.now(); if (d > 0) t.mock.timers.tick(d); };
+  const check = (extraMarks = []) => {
+    const real = reqs.flatMap(r => r.evs.filter(e => e.install_id !== 'anon').map(e => ({ ...e, at: r.at })));
+    const reps = reqs.flatMap(r => r.evs.filter(e => e.install_id === 'anon').map(e => ({ ...e, at: r.at })));
+    for (const rp of reps) { assert.equal(rp.client_ts, null); for (const e of real) {
+      assert.ok(Math.abs(Date.parse(e.client_ts) - rp.at) > 60e3, `${e.type} client_ts within 60 s of the report insert`);
+      assert.ok(Math.abs(e.at - rp.at) > 60e3, `${e.type} batch inserted within 60 s of the report insert`); } }
+    for (const m of extraMarks) for (const e of real) assert.ok(Math.abs(Date.parse(e.client_ts) - m) > 60e3, `${e.type} @${(Date.parse(e.client_ts) - start) / 1000}s within 60 s of the report form (${(m - start) / 1000}s)`);
+    return { real, reps };
+  };
+  return { at, go, check, reqs, done: () => { globalThis.fetch = () => { throw new Error('network access in tests is forbidden'); }; A._resetPrivacy(); localStorage.removeItem('kh.aq'); } };
+}
+const flushAll = async t => { for (let i = 0; i < 5; i++) { await A.flush(); await new Promise(r => setImmediate(r)); } };
+const FIVE = () => { A.track('search', { n: 1 }); A.track('layer', { l: 'sat' }); A.track('place_view', { cat: 'pin' }); A.track('whats_here', {}); A.track('locate', {}); };
+
+test('P1a: hide/pagehide releases only events older than 60 s; younger ones persist and are dropped on next load if a report is near (Nour rt2-A)', async (t) => {
+  const S = sim(t, NOW + 20e6);
+  A.track('visit'); S.go(5); FIVE();
+  S.go(100); FIVE();                       // trackB
+  S.go(110); A._onHide(); await flushAll(); // app switch: t=5 events may go (older than 60 s), t=100 must not
+  assert.ok(A._heldCount() >= 5); assert.ok(JSON.parse(localStorage.getItem('kh.held')).length >= 5, 'young events persisted');
+  S.go(112); A._adoptHeld();               // back in the app
+  S.go(125); A.reportQuiet(Infinity);      // form opens → t=100 events dropped
+  S.go(132); A._onHide(); await flushAll(); S.go(133); A._adoptHeld();
+  S.go(147); assert.equal(A.submitReport('layer', C.buildClosureReport('closed', '', 33.51, 36.29).props).ok, true);
+  S.go(150); A.reportQuietOff(); S.go(152); A._onHide(); await flushAll();
+  S.go(215); FIVE(); S.go(227); A._onHide(); await flushAll();
+  // page closed for good at t=227 (persisted events + the pending report stay in localStorage) → next load at t=2000
+  t.mock.timers.reset(); t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: S.at(2000) });
+  A._adoptHeld(); await A.sendDueReports(); await flushAll();
+  t.mock.timers.tick(30 * 60e3); await flushAll(); await A.sendDueReports(); await flushAll();
+  const { real, reps } = S.check([S.at(125), S.at(147), S.at(150)]);
+  assert.equal(reps.length, 1, 'the report was delivered on the next load');
+  const ts = new Set(real.map(e => Math.round((Date.parse(e.client_ts) - S.at(0)) / 1000)));
+  assert.ok(ts.has(5) && ts.has(0), 'old events (visit, t=5) still count: ' + [...ts]);
+  assert.ok(!ts.has(100), 't=100 events (25 s before the form) never sent');
+  S.done();
 });
 
-test('P1: no event with the real install_id has a client_ts within ±60 s of a report (all types, incl. search/layer)', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW + 10e6 });
-  localStorage.removeItem('kh.aq'); A.reportQuiet(0);
-  const T0 = Date.now();
-  // T-90 s: a search (outside the window, may go out), T-15 s: search + layer, T-3 s: whats_here
-  A.track('search', { n: 1 }); t.mock.timers.tick(75e3);
-  A.track('search', { n: 2 }); A.track('layer', { l: 'sat' }); t.mock.timers.tick(12e3);
-  A.track('whats_here', {}); t.mock.timers.tick(3e3);
-  const Topen = Date.now(); A.reportQuiet(Infinity); // report form opens
-  assert.equal(A.track('search', { n: 3 }), false); assert.equal(A.track('layer', { l: 'x' }), false); // during the form
-  t.mock.timers.tick(20e3); const Treport = Date.now(); // report sent
-  A.reportQuietOff(); t.mock.timers.tick(30e3);
-  assert.equal(A.track('search', { n: 4 }), false); // after the form, still quiet
-  t.mock.timers.tick(31e3 + A.HOLD_MS * 2);
-  A.track('search', { n: 5 }); t.mock.timers.tick(A.HOLD_MS + 1); // much later: counted again
-  const evs = JSON.parse(localStorage.getItem('kh.aq') || '[]').concat(A._queue()).filter(e => e.install_id && e.install_id !== 'anon');
-  for (const e of evs) for (const T of [Topen, Treport]) assert.ok(Math.abs(Date.parse(e.client_ts) - T) > 60e3, `${e.type} ${e.client_ts} too close to the report`);
-  const nums = new Set(evs.filter(e => e.type === 'search').map(e => e.props.n));
-  assert.ok(nums.has(1) && nums.has(5) && !nums.has(2) && !nums.has(3) && !nums.has(4), [...nums].join());
-  assert.ok(T0 < Topen);
-  A.reportQuiet(0); localStorage.removeItem('kh.aq');
+test('P1b: visit is held 60 s and dropped when a report form opens right after app start (rt2-B)', async (t) => {
+  const S = sim(t, NOW + 30e6);
+  A.track('visit'); S.go(8); await flushAll(); assert.equal(S.reqs.length, 0, 'visit not sent at t=8');
+  S.go(20); A.reportQuiet(Infinity); S.go(32); A.submitReport('layer', C.buildClosureReport('delay', '', 33.51, 36.29).props); A.reportQuietOff();
+  for (let i = 0; i < 30; i++) { t.mock.timers.tick(60e3); await flushAll(); }
+  const { real, reps } = S.check([S.at(20), S.at(32)]);
+  assert.equal(reps.length, 1); assert.equal(real.filter(e => e.type === 'visit').length, 0, 'visit dropped');
+  S.done();
+});
+
+test('P1: report is sent after a random 2–10 min delay, kept across reloads, never next to a usage batch', async (t) => {
+  const S = sim(t, NOW + 40e6);
+  const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 }, { rand: () => 0.5 });
+  assert.equal(r.ok, true); assert.equal(r.due, S.at(360)); assert.equal(A._pendingReports().length, 1);
+  assert.equal(A.submitReport('report', {}).ok, false); // type check stays
+  A.reportQuietOff(); S.go(119); await flushAll(); assert.equal(S.reqs.length, 0, 'nothing before 2 min');
+  // usage continues normally; one batch goes out at ~5:30 → report must wait ≥60 s after it
+  S.go(200); A.track('search', { n: 1 }); S.go(330); await flushAll(); const batchAt = S.reqs.at(-1)?.at;
+  S.go(360); await A.sendDueReports();
+  for (let i = 0; i < 10; i++) { t.mock.timers.tick(30e3); await flushAll(); }
+  const { reps } = S.check([]); assert.equal(reps.length, 1); assert.ok(reps[0].at - batchAt > 60e3);
+  assert.equal(A._pendingReports().length, 0);
+  // UI wording: still a plain "thanks, sent" in EN/AR/DE, both forms use the delayed path
+  const i18 = readFileSync(root + 'js/i18n.js', 'utf8'); assert.equal((i18.match(/rpThanks:/g) || []).length, 3);
+  for (const f of ['js/report.js', 'js/closures.js']) { const src = readFileSync(root + f, 'utf8'); assert.match(src, /submitReport\('layer'/); assert.doesNotMatch(src, /await sendNow/); assert.match(src, /reportQuiet\(Infinity\)/); assert.match(src, /reportQuietOff\(\)/); }
+  S.done();
+});
+
+test('P1: quiet state and report marks are shared via localStorage (other tabs)', async (t) => {
+  const S = sim(t, NOW + 50e6);
+  A.reportQuiet(Infinity); assert.ok(+localStorage.getItem('kh.quiet') > Date.now());
+  assert.equal(A.track('search', {}), false);
+  A.reportQuietOff(); S.go(30); assert.equal(A.track('search', {}), false);
+  // event persisted by another tab 30 s before a report mark is dropped on adopt
+  localStorage.setItem('kh.held', JSON.stringify([{ id: 'x', type: 'search', props: {}, ts: S.at(0) - 30e3, sid: 's' }]));
+  S.go(200); A._adoptHeld(); assert.equal(A._heldCount(), 0); await flushAll(); assert.equal(S.reqs.length, 0);
+  S.done();
 });
 
 test('P2: note PII filter (emails, phones Latin + Arabic-Indic, URLs, @handles)', () => {
@@ -252,6 +288,11 @@ test('P2: snapToRoad works in metres (zoom-independent), refuses > 60 m, name fr
   m2.querySourceFeatures = (sid, o) => { asked.push([sid, o.sourceLayer]); return [label]; };
   assert.equal(CL.snapToRoad(m2, 36.29, 33.51).road, 'Al-Thawra St');
   assert.deepEqual(asked, [['openmaptiles', 'transportation_name']]);
+  // label segment 33 m away (Nour's case) is still used; ≤ 60 m like the snap, > 60 m falls back to the line name
+  const off = mm => ({ ...label, geometry: { type: 'LineString', coordinates: [[36.285, 33.51 + dLat(mm)], [36.295, 33.51 + dLat(mm)]] } });
+  m2.querySourceFeatures = () => [off(33)]; assert.equal(CL.snapToRoad(m2, 36.29, 33.51).road, 'Al-Thawra St');
+  m2.queryRenderedFeatures = () => [{ ...road, source: 'openmaptiles', properties: { name: 'Line' } }];
+  m2.querySourceFeatures = () => [off(70)]; assert.equal(CL.snapToRoad(m2, 36.29, 33.51).road, 'Line');
   const src = readFileSync(root + 'js/closures.js', 'utf8');
   assert.match(src, /item\.snapped !== false/); assert.match(src, /clE_noroad/);
 });
