@@ -1,0 +1,29 @@
+{
+ "damascus": {
+  "routes": 13,
+  "route_masters": 0,
+  "stops": 25,
+  "by_mode": {
+   "bus": 12,
+   "minibus": 1
+  },
+  "with_geometry": 13,
+  "with_stops": 12,
+  "bytes": 17007,
+  "gzip_bytes": 4844,
+  "osm_base": "2026-11-04T20:19:14Z"
+ },
+ "aleppo": {
+  "routes": 29,
+  "route_masters": 0,
+  "stops": 66,
+  "by_mode": {
+   "bus": 29
+  },
+  "with_geometry": 29,
+  "with_stops": 21,
+  "bytes": 40252,
+  "gzip_bytes": 8716,
+  "osm_base": "2026-11-04T20:17:10Z"
+ }
+}

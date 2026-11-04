@@ -16,6 +16,7 @@ import { showSaved } from './ui.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
 import { initAnalytics, track } from './analytics.js';
+import { addTransitLayers, syncTransit, transitClick, openLines } from './transit.js';
 
 applyDir();
 try { performance.setResourceTimingBufferSize(1000); } catch {} // warmSW() reads the page's resource list
@@ -36,6 +37,7 @@ function renderUI() {
   $('#map').setAttribute('aria-label', t('mapAria'));
   App.map?.getCanvas().setAttribute('aria-label', t('mapAria'));
   attrib?.render();
+  App.map && syncTransit(App.map);
   renderChips();
   document.title = t('docTitle'); // tab title follows the UI language (static <title> in index.html stays EN for SEO)
 }
@@ -142,6 +144,12 @@ function startPois() {
 function ovLayers() { if (!map.isStyleLoaded()) { setTimeout(ovLayers, 250); return; } addOvLayers(map, mapIsDark()); ovSync(); }
 const ovSync = () => syncOverture(map, settings.overture !== false && !navActive(), on => attrib.setOverture(on));
 hooks.overture = ovSync;
+// Servis / bus lines from OSM (js/transit.js): off by default, synced on every move
+function trLayers() { if (!map.isStyleLoaded()) { setTimeout(trLayers, 250); return; } addTransitLayers(map, mapIsDark()); syncTransit(map); }
+hooks.transit = () => syncTransit(map);
+map.on('moveend', () => syncTransit(map));
+map.once('idle', trLayers);
+$('#trPill').onclick = () => openLines(map);
 map.on('moveend', ovSync);
 map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
 map.once('idle', startPois); setTimeout(startPois, 5000);
@@ -152,7 +160,7 @@ addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
   addWorldLayers(map, mapIsDark());
-  ovLayers();
+  ovLayers(); trLayers();
   if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
   if (App.selName) applySelFilter(App.selName);
@@ -195,6 +203,7 @@ map.on('click', async e => {
   if (navActive()) return;
   if (measureActive()) { measureClick([e.lngLat.lng, e.lngLat.lat]); return; }
   $('#layersPop').classList.add('hidden');
+  if (transitClick(map, e)) return;
   const kp = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: POI_LAYERS.filter(id => map.getLayer(id)) });
   if (kp.length) {
     const rec = POIS.all[kp[0].properties.i];
