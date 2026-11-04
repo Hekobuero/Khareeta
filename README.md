@@ -173,3 +173,11 @@ Nominatim/Overpass when a place is opened. To refresh: download a new extract an
 not load `data/poi-syria.json` itself but `data/poi/index.json` + `data/poi/p0…pN.json` (2000 places / ~150 KB each).
 The parts are fetched in parallel after the first map paint and parsed one by one with yields to the main thread, so
 startup stays fast on phones; they are cached by the service worker for offline search.
+
+## Shops layer (Overture, unverified)
+
+Optional layer "Shops (Overture, unverified)" with business places from the [Overture Maps Foundation](https://overturemaps.org) Places theme (CDLA-Permissive-2.0, Foursquare records removed, see `data/overture/LICENSE.txt`). OpenStreetMap stays primary: Overture places that duplicate a bundled OSM POI are dropped at build time, and the layer is drawn as muted hollow dots below the OSM POIs. It's on by default, shows only in Syria from zoom 14, loads 0.1° tiles lazily, and is cached offline (SW cache `kh-ov`, max 150 entries). You can switch it off under Layers → Details.
+
+Privacy (QA 2026-11-04): only an allowlist of business categories (food & drink, shops, lodging, services, health facilities, fuel) is kept. Homes (منزل/بيت/دار, "house of"), clerics (امام/شيخ/خطيب), kunya names (أبو/أم …), person-only names, institutions, locality names, records with foreign phones or non-SY addresses, exact duplicates and centroid stacks (>3 places on one point) are dropped. Mobile numbers stay only for clearly commercial categories, and tracking parameters are stripped from links. `scripts/overture/last_build_stats.json` lists the counts per rule. The layer only loads inside a simplified Syria outline (`OV_SY` in `js/overture-data.js`). Every Overture place sheet has **Report / remove**: the place is hidden on this device right away (`localStorage kh.ovHidden`), and one anonymous event (`type 'layer'`, `props {k:'ov_report', id, r}`) goes through the existing analytics path (`js/analytics.js`). That path respects kh.noTrack, DNT and GPC and sends nothing on dev hosts.
+
+Rebuild: `pip install duckdb==1.4.1 && python3 scripts/overture/build_overture.py` (reads the public release from S3 anonymously; `--input file.parquet` uses a local extract). Tests: `node --test 'tests/overture/*.test.mjs'`.
