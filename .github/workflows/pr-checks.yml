@@ -172,6 +172,17 @@ jobs:
           node-version: 24
       - run: node --test 'tests/photos/*.test.mjs'
 
+  offline-tests:
+    # Pure Node unit tests for js/cities.js (whole-city offline packs: tile lists, size estimate, quota, polite downloader).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/offline/*.test.mjs'
+
   version:
     runs-on: ubuntu-latest
     timeout-minutes: 5
