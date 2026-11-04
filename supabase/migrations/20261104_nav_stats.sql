@@ -1,5 +1,5 @@
 -- Khareeta – navigation arrivals + reroutes in the admin dashboard (2026-11-04)
--- Run once in the Supabase SQL editor (project ihqcgjndnjxxgeqheoei). Safe to re-run.
+-- Run once in the Supabase SQL editor (project lqanalmwztxdonrrrgqi). Safe to re-run.
 -- Adds key 'nav' to kh_dashboard(); every existing output key is unchanged (backward compatible).
 -- Events: type 'nav_arrive' and 'reroute' in public.kh_events; props->>'sim' = 'true' marks simulated trips.
 -- Distinct devices = count(distinct install_id) excluding 'anon'.

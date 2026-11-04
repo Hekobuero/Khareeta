@@ -79,7 +79,7 @@ test('sendNow: one POST to kh_events with the publishable key; ok only on 2xx', 
   const props = C.buildReport('link', { kind: 'telegram', url: 't.me/cafe' }, { id: 'N1', src: 'osm', lat: 33.5, lon: 36.3 }).props;
   assert.deepEqual(await A.sendNow('layer', props, { fetchImpl: mk(201) }), { ok: true });
   const c = calls[0];
-  assert.equal(c.url, 'https://ihqcgjndnjxxgeqheoei.supabase.co/rest/v1/kh_events');
+  assert.equal(c.url, 'https://lqanalmwztxdonrrrgqi.supabase.co/rest/v1/kh_events');
   assert.match(c.o.headers.apikey, /^sb_publishable_/);
   assert.equal(c.o.headers.Authorization, undefined);
   const [ev] = JSON.parse(c.o.body);
