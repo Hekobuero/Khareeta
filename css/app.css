@@ -482,5 +482,5 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 
 /* offline city packs */
 .srow.city{cursor:default}
-.srow.city .act{flex:none;min-height:36px;padding-inline:12px;width:auto}
+.srow.city .act{flex:none;min-height:44px;height:44px;padding-inline:12px;width:auto}
 .srow.city .prog{margin-top:6px}

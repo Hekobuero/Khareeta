@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1810';
+const VERSION = '20261104-1855';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -105,6 +105,8 @@ const isTile = u => /tiles\.openfreemap\.org\/(planet|natural_earth)\//.test(u) 
 const isStatic = u => /tiles\.openfreemap\.org\/(fonts|sprites)\//.test(u);
 const isStyle = u => /tiles\.openfreemap\.org\/(styles\/|planet$)/.test(u) || /tiles\.mapterhorn\.com\/tilejson/.test(u);
 
+const isCityDl = u => /[?&]kh-city=1(&|$)/.test(u);
+const unmarkCity = u => u.replace(/([?&])kh-city=1(&|$)/, (m, a, b) => (b ? a : '')).replace(/[?&]$/, '');
 let puts = 0;
 async function trim() {
   const c = await caches.open(TILES); const ks = await c.keys();
@@ -278,6 +280,9 @@ async function photoFetch(req, e) {
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const u = req.url;
+  // whole-city pack downloads (js/cities.js) carry the marker kh-city=1: straight to the network, marker stripped,
+  // nothing written to kh-tiles / kh-rt – the page stores them in kh-city-<id> itself (no duplicate, clean delete)
+  if (isCityDl(u)) return e.respondWith(fetch(unmarkCity(u), { mode: 'cors', credentials: 'omit' }));
   if (isTile(u)) return e.respondWith(tileFetch(req));
   if (isWorldPoi(u)) return e.respondWith(wpoiFetch(req));
   if (isStatic(u)) return e.respondWith(cacheFirst(req, RT));

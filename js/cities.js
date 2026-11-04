@@ -40,6 +40,15 @@ export function quotaOk(est, need) {
   if (!est || !est.quota) return true; // unknown (old browsers): let the download try
   return (est.quota - (est.usage || 0)) >= need * 1.2 + 20 * 1048576;
 }
+// download marker: the service worker passes marked requests straight to the network without caching them
+export const markCity = u => u + (u.includes('?') ? '&' : '?') + 'kh-city=1';
+export const unmarkCity = u => u.replace(/([?&])kh-city=1(&|$)/, (m, a, b) => (b ? a : '')).replace(/[?&]$/, '');
+// Delete / Cancel: remove the city pack and any copies of its tile URLs in the shared tile cache kh-tiles
+// (glyphs/sprites stay: other areas and the normal map use them)
+export async function purgeCity(cachesApi, id, keys) {
+  await cachesApi.delete(CITY_CACHE + id);
+  const c = await cachesApi.open('kh-tiles'); for (const k of keys) await c.delete(k);
+}
 export const cityName = (city, lang) => city.name[lang] || city.name.en;
 
 // Polite downloader: limited concurrency, pause between requests, retry with back-off on 429/5xx/network errors,
@@ -52,7 +61,7 @@ export async function downloadAll(urls, { fetchFn, cache, keyOf = u => u, signal
     for (let a = 0; a <= MAX_RETRY; a++) {
       if (signal?.aborted) return;
       try {
-        const r = await fetchFn(u, { mode: 'cors', credentials: 'omit', signal });
+        const r = await fetchFn(markCity(u), { mode: 'cors', credentials: 'omit', signal });
         if (r.ok) { const b = await r.blob(); bytes += b.size; await cache.put(key, new Response(b, { headers: { 'Content-Type': r.headers.get('Content-Type') || 'application/octet-stream', 'x-kh-date': String(Date.now()) } })); return; }
         if (r.status === 404 || r.status === 204) { empty++; return; }
         if (r.status !== 429 && r.status < 500) { fail++; return; }

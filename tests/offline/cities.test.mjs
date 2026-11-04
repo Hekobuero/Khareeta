@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CITIES, cityTiles, tilesInBbox, estimateCityBytes, quotaOk, downloadAll, tileUrl, cityName, ZMAX, CONCURRENCY } from '../../js/cities.js';
+import { CITIES, cityTiles, tilesInBbox, estimateCityBytes, quotaOk, downloadAll, tileUrl, cityName, ZMAX, CONCURRENCY, unmarkCity } from '../../js/cities.js';
 const read = f => readFileSync(new URL('../../' + f, import.meta.url), 'utf8');
 
 test('three cities with names in EN/AR/DE and bboxes inside Syria', () => {
@@ -37,7 +37,7 @@ const ok = () => new Response(new Uint8Array(100), { status: 200 });
 test('downloader: concurrency limit, skip cached, 404 as empty, retry 429', async () => {
   const cache = mkCache(); await cache.put('u0', ok());
   let inflight = 0, max = 0, calls = {};
-  const fetchFn = async u => { inflight++; max = Math.max(max, inflight); await new Promise(r => setTimeout(r, 2)); inflight--; calls[u] = (calls[u] || 0) + 1;
+  const fetchFn = async m => { const u = unmarkCity(m); inflight++; max = Math.max(max, inflight); await new Promise(r => setTimeout(r, 2)); inflight--; calls[u] = (calls[u] || 0) + 1;
     if (u === 'u3') return new Response(null, { status: 404 }); if (u === 'u4' && calls[u] < 2) return new Response(null, { status: 429 }); return ok(); };
   const urls = Array.from({ length: 10 }, (_, i) => 'u' + i);
   const r = await downloadAll(urls, { fetchFn, cache, sleep: async () => {} });
