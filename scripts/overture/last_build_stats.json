@@ -20,11 +20,12 @@
  "dropped_junk_person_name_generic": 1,
  "dropped_junk_foreign_script": 2,
  "dropped_centroid_stack": 121,
- "dropped_coarse_coordinates": 21,
- "dropped_mixed_stack": 16,
+ "dropped_mixed_stack": 15,
+ "dropped_coarse_coordinates": 19,
+ "dropped_same_group_stack": 1,
  "dropped_near_duplicate_200m": 6,
- "kept": 2030,
+ "kept": 2032,
  "tiles": 149,
  "categories": 68,
- "bytes": 285076
+ "bytes": 285375
 }

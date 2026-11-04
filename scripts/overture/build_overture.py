@@ -161,6 +161,34 @@ def coarse(x):
     """True for a coordinate on a 0.01° or 1/60° grid (as printed with 4 decimals)"""
     return abs(x * 100 - round(x * 100)) < 1e-3 or abs(x * 60 - round(x * 60)) < 3.1e-3
 
+HOSPITAL = re.compile(r'مشفى|مستشفى|hospital', re.I)
+# Overture also files single doctors, clinics and labs under 'hospital' – those are not exempt
+NOT_HOSPITAL = re.compile(r'(^|\s)(ال)?(دكتور|دكتورة|د\.|عيادة|مخبر|مختبر)|\b(dr|doctor|clinic|lab|laboratory)\b', re.I)
+def is_hospital(r):
+    """real hospitals are exempt from the stack/coarse-coordinate rules (their location still helps; privacy rules stay)"""
+    if HOSPITAL.search(r[3]): return True
+    return r[4] == 'hospital' and not NOT_HOSPITAL.search(r[3])
+
+def stack_filter(rows, max_same=2):
+    """QA P3 stacks. A point carrying unrelated places (different category groups) is a geocoder fallback → drop them;
+    coordinates on a coarse grid (0.01° or 1 arc-minute) are a town/district centroid → drop; a point with more than
+    `max_same` places of one group keeps only the best `max_same`. Hospitals are exempt from all three.
+    Returns (kept, {rule: count})."""
+    grp, cnt = {}, {'mixed_stack': 0, 'coarse_coordinates': 0, 'same_group_stack': 0}
+    for r in rows:
+        grp.setdefault((r[1], r[2]), set()).add(group_of(r[4])[0])
+    out, at = [], {}
+    for r in rows:
+        if is_hospital(r): out.append(r); continue
+        if len(grp[(r[1], r[2])]) > 1: cnt['mixed_stack'] += 1; continue
+        if coarse(r[1]) and coarse(r[2]): cnt['coarse_coordinates'] += 1; continue
+        at.setdefault((r[1], r[2]), []).append(r)
+    for rs in at.values():
+        best = sorted(rs, key=lambda r: (sum(1 for x in r[5:9] if x), r[9], len(r[3]), r[0]), reverse=True)[:max_same]
+        cnt['same_group_stack'] += len(rs) - len(best); out += best
+    out.sort(key=lambda r: r[0])
+    return out, cnt
+
 def dist_m(a, b):
     return math.hypot((a[2] - b[2]) * 111320, (a[1] - b[1]) * 111320 * math.cos(math.radians(a[2])))
 
@@ -330,16 +358,9 @@ def main():
         if at[(r[1], r[2])] > 3: drop('centroid_stack'); continue
         keep.append(r)
     keep, nd = near_dups(keep)
-    # QA P3 stacks: a point carrying unrelated places (different category groups) is a geocoder fallback → drop them all;
-    # coordinates on a coarse grid (0.01° or 1 arc-minute) are a town/district centroid, not a shop location
-    grp = {}
-    for r in keep: grp.setdefault((r[1], r[2]), set()).add(group_of(r[4])[0])
-    keep2 = []
-    for r in keep:
-        if len(grp[(r[1], r[2])]) > 1: drop('mixed_stack'); continue
-        if coarse(r[1]) and coarse(r[2]): drop('coarse_coordinates'); continue
-        keep2.append(r)
-    keep = keep2
+    keep, sc = stack_filter(keep)
+    for k, v in sc.items():
+        if v: st['dropped_' + k] = st.get('dropped_' + k, 0) + v
     if nd: st['dropped_near_duplicate_200m'] = nd
     cats = sorted({r[4] for r in keep})
     ci = {k: i for i, k in enumerate(cats)}

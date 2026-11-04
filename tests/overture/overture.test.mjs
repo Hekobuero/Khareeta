@@ -208,3 +208,12 @@ test('QA P3 data: no junk names, no webmail/tracking links, no near-duplicates, 
   for (const r of rows) { const k = r[0] + ',' + r[1]; at.set(k, [...(at.get(k) || []), ix.groups[r[4]][0]]); }
   for (const [k, g] of at) assert.equal(new Set(g).size, 1, `mixed stack at ${k}`);
 });
+
+test('hospitals survive the stack/coarse rules; at most 2 places per point; moadna id kept', () => {
+  const names = rows.map(r => r[3]);
+  for (const n of ['مشفى إدلب الوطني', 'مشفى الرازي', 'الهيئة العامة لمشفى مصياف الوطني']) assert.ok(names.includes(n), n);
+  const at = new Map();
+  for (const r of rows) at.set(r[0] + ',' + r[1], (at.get(r[0] + ',' + r[1]) || 0) + 1);
+  for (const [k, c] of at) assert.ok(c <= 2, `${c} places at ${k}`);
+  assert.ok(rows.some(r => r.slice(6).includes('https://moadna.com/doctorprofile?id=68ca4e6aba9276ad2630dfe7')));
+});
