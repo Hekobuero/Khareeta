@@ -48,7 +48,7 @@ Live: https://khareeta.app/ (custom domain via the root `CNAME` file; the old ht
 | Street-level images | [Panoramax](https://panoramax.fr) federation API | open, key-free |
 | Weather & elevation | [Open-Meteo](https://open-meteo.com) (CC BY 4.0) | key-free, non-commercial use |
 | Terrain / hillshade / 3D terrain | [Mapterhorn](https://mapterhorn.com) | open terrain tiles, key-free |
-| Usage statistics (optional) | [Supabase](https://supabase.com) project `ihqcgjndnjxxgeqheoei` (insert-only for visitors, RLS) | anonymous, no IP stored, no raw search text; the map works fully if it is unreachable |
+| Usage statistics (optional) | [Supabase](https://supabase.com) project `lqanalmwztxdonrrrgqi` (insert-only for visitors, RLS) | anonymous, no IP stored, no raw search text; the map works fully if it is unreachable |
 | Coarse country for statistics | `tiles.openfreemap.org/cdn-cgi/trace` (Cloudflare edge, same host as the tiles) | only the 2-letter country code is kept, never the IP |
 
 Libraries and assets (self-hosted in `vendor/`, `fonts/`, `sprites/`): MapLibre GL JS 5 (BSD-3-Clause),

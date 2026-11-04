@@ -5,7 +5,7 @@
 --  props.utm_medium/utm_campaign/utm_content/utm_term on visit + funnel events, props.stage on 'install',
 --  props.dm = display mode on 'visit') and in the existing utm_source / referrer / session_id columns.
 -- No new columns, no new event types (the kh_type_ok check stays as it is). Safe to re-run.
--- Run in the Supabase SQL editor (project ihqcgjndnjxxgeqheoei) after supabase.sql.
+-- Run in the Supabase SQL editor (project lqanalmwztxdonrrrgqi) after supabase.sql.
 -- =====================================================================
 
 create index if not exists kh_events_ch_idx on public.kh_events ((props->>'ch'), created_at desc);
