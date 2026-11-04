@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { normT, tName, tAlt, lineLabel, searchLines, sortLines, linesAtStop, stopCounts, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl, TRANSIT_CITIES } from '../../js/transit-core.js';
+import { normT, tName, tAlt, lineLabel, shortRef, searchLines, sortLines, linesAtStop, stopCounts, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl, TRANSIT_CITIES } from '../../js/transit-core.js';
 
 const root = new URL('../../', import.meta.url);
 const read = p => readFileSync(new URL(p, root), 'utf8');
@@ -26,7 +26,10 @@ test('names follow the UI language with fallbacks', () => {
   assert.equal(tName(D.lines[0], 'ar'), 'مزة - باب توما');
   assert.equal(tName(D.lines[1], 'de'), 'خط الجامعة');
   assert.equal(tAlt(D.stops[0], 'en'), 'باب توما');
-  assert.equal(lineLabel(D.lines[2], 'en'), '#12');
+  assert.equal(lineLabel(D.lines[2], 'en'), '');
+  assert.equal(lineLabel({ id: 7, ref: 'Mezzeh Jabal - Karajat' }, 'en'), 'Mezzeh Jabal - Karajat');
+  assert.equal(lineLabel({ id: 8, ref: '12' }, 'en'), '');
+  assert.equal(shortRef('12'), '12'); assert.equal(shortRef('B 104'), 'B 104'); assert.equal(shortRef('1 الدائري الجنوبي'), ''); assert.equal(shortRef(''), '');
   assert.equal(lineLabel({ id: 1, from: 'A', to: 'B' }, 'en'), 'A → B');
 });
 test('search by ref, name, from/to and stop name; exact ref first', () => {
@@ -87,4 +90,37 @@ test('wiring: SW precaches + caches transit, i18n EN/AR/DE, layer off by default
   const src = read('js/transit.js') + read('js/transit-core.js') + read('scripts/transit/build_transit.py');
   assert.doesNotMatch(src, /google|mapbox\.com|here\.com|bing|apple\.com|api[_-]?key/i);
   assert.ok(existsSync(new URL('CNAME', root)));
+});
+
+test('polish: city download caches transit, unnamed label in EN/AR/DE, no "#id" titles, short-ref badge', () => {
+  const rd = f => readFileSync(new URL('../../' + f, import.meta.url), 'utf8');
+  const off = rd('js/offline.js'), tr = rd('js/transit.js'), i18n = rd('js/i18n.js'), css = rd('css/app.css');
+  assert.match(off, /if \(!res\.aborted\) await cacheTransit\(city\.id\)/);
+  assert.match(off, /caches?Api\.open\('kh-transit'\)|cacheApi\.open\('kh-transit'\)/);
+  assert.equal(i18n.split('trNoName: ').length - 1, 3);
+  assert.ok(!/'#' \+ l\.id/.test(rd('js/transit-core.js')));
+  assert.match(tr, /badgeRef\(l\.ref\) \|\|/);
+  assert.match(css, /\.tr-ref\{max-width:64px;[^}]*text-overflow:ellipsis/);
+  for (const c of TRANSIT_CITIES) for (const l of JSON.parse(rd(`data/transit/${c}.json`)).lines) assert.ok(l.geom.some(g => g.length > 1), `${c} ${l.id} has a path`);
+});
+
+test('polish 2: number badge, city fit centre, purge transit, empty lines dropped', async () => {
+  const core = await import('../../js/transit-core.js');
+  assert.equal(core.badgeRef('1 الدائري الجنوبي'), '1');
+  assert.equal(core.badgeRef('12'), '12');
+  assert.equal(core.badgeRef('Mezzeh Jabal - Karajat'), '');
+  assert.equal(core.badgeRef('1234567 x'), '');
+  const fb = core.cityFitBounds('damascus', [36.12, 33.36, 36.48, 33.62]);
+  assert.ok(Math.abs((fb[0][0] + fb[1][0]) / 2 - 36.3065) < 1e-9 && Math.abs((fb[0][1] + fb[1][1]) / 2 - 33.5115) < 1e-9);
+  const { purgeCity } = await import('../../js/cities.js');
+  const deleted = []; const mk = keys => ({ delete: async k => { deleted.push(k.url || k); return true; }, keys: async () => keys.map(url => ({ url })) });
+  const api = { delete: async () => true, open: async n => n === 'kh-transit' ? mk(['https://x/data/transit/index.json', 'https://x/data/transit/aleppo.json', 'https://x/data/transit/damascus.json']) : mk([]) };
+  await purgeCity(api, 'aleppo', []);
+  assert.deepEqual(deleted, ['https://x/data/transit/aleppo.json']);
+  const fs = await import('node:fs');
+  for (const c of ['damascus', 'aleppo']) {
+    const d = JSON.parse(fs.readFileSync(new URL(`../../data/transit/${c}.json`, import.meta.url)));
+    for (const l of d.lines) assert.ok(l.name || l.name_ar || l.name_en || (l.stops || []).length, `${c} ${l.id}`);
+  }
+  assert.match(fs.readFileSync(new URL('../../js/transit.js', import.meta.url), 'utf8'), /fitArea\(cityFitBounds/);
 });

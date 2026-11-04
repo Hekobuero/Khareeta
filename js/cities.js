@@ -48,6 +48,8 @@ export const unmarkCity = u => u.replace(/([?&])kh-city=1(&|$)/, (m, a, b) => (b
 export async function purgeCity(cachesApi, id, keys) {
   await cachesApi.delete(CITY_CACHE + id);
   const c = await cachesApi.open('kh-tiles'); for (const k of keys) await c.delete(k);
+  // the city's servis/bus lines (stored by cacheTransit on download); index.json stays, it is shared by all cities
+  try { const tc = await cachesApi.open('kh-transit'); for (const k of await tc.keys()) if (new RegExp(`/data/transit/${id}\\.json$`).test(k.url || k)) await tc.delete(k); } catch {}
 }
 export const cityName = (city, lang) => city.name[lang] || city.name.en;
 

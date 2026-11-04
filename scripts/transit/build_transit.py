@@ -110,7 +110,7 @@ def build(city, raw):
     for m in masters:
         for mem in m.get('members', []):
             if mem['type'] == 'relation': master_of[mem['ref']] = m
-    stops, stop_ix, lines = [], {}, []
+    stops, stop_ix, lines, dropped, dropped_empty = [], {}, [], 0, 0
     def is_stop(n, role):
         t = n.get('tags', {})
         return role.startswith(('stop', 'platform')) or t.get('public_transport') in ('platform', 'stop_position') or t.get('highway') == 'bus_stop'
@@ -121,6 +121,10 @@ def build(city, raw):
         info = {k: v for k, v in info.items() if v}
         geom = chain([ways[mem['ref']] for mem in r.get('members', []) if mem['type'] == 'way' and mem['ref'] in ways and not mem.get('role', '').startswith('platform')])
         geom = [dp(g, TOL_M) for g in geom]
+        if not any(len(g) > 1 for g in geom): dropped += 1; continue  # no drawable path in OSM → not shown (stops not added either)
+        if not any(info.get(k) for k in ('name', 'name_ar', 'name_en')) and not any(
+                mem['type'] == 'node' and mem['ref'] in nodes and is_stop(nodes[mem['ref']], mem.get('role', '')) for mem in r.get('members', [])):
+            dropped_empty += 1; continue  # neither a name nor a stop → nothing useful to show (e.g. 20148905)
         sids = []
         for mem in r.get('members', []):
             if mem['type'] != 'node' or mem['ref'] not in nodes: continue
@@ -144,7 +148,7 @@ def build(city, raw):
         'osm_base': raw.get('osm3s', {}).get('timestamp_osm_base'),
         'counts': {'routes': len(lines), 'route_masters': len(masters), 'stops': len(stops),
                    'by_mode': {m: sum(1 for l in lines if l['mode'] == m) for m in sorted({l['mode'] for l in lines})},
-                   'with_geometry': sum(1 for l in lines if l['geom']), 'with_stops': sum(1 for l in lines if l['stops'])},
+                   'with_geometry': sum(1 for l in lines if l['geom']), 'dropped_no_path': dropped, 'dropped_unnamed_no_stops': dropped_empty, 'with_stops': sum(1 for l in lines if l['stops'])},
         'lines': lines, 'stops': stops,
     }
 
