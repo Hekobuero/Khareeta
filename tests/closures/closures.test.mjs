@@ -2,8 +2,8 @@
 // fetch is ALWAYS mocked – nothing reaches the production Supabase project.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { readFileSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -169,6 +169,29 @@ test('P1: point/place events are held back and dropped when a report sheet opens
   for (const f of ['js/report.js', 'js/closures.js']) { const src = readFileSync(root + f, 'utf8'); assert.match(src, /reportQuiet\(Infinity\)/, f); assert.match(src, /reportQuietOff\(\)/, f); }
 });
 
+test('P1: no event with the real install_id has a client_ts within ±60 s of a report (all types, incl. search/layer)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW + 10e6 });
+  localStorage.removeItem('kh.aq'); A.reportQuiet(0);
+  const T0 = Date.now();
+  // T-90 s: a search (outside the window, may go out), T-15 s: search + layer, T-3 s: whats_here
+  A.track('search', { n: 1 }); t.mock.timers.tick(75e3);
+  A.track('search', { n: 2 }); A.track('layer', { l: 'sat' }); t.mock.timers.tick(12e3);
+  A.track('whats_here', {}); t.mock.timers.tick(3e3);
+  const Topen = Date.now(); A.reportQuiet(Infinity); // report form opens
+  assert.equal(A.track('search', { n: 3 }), false); assert.equal(A.track('layer', { l: 'x' }), false); // during the form
+  t.mock.timers.tick(20e3); const Treport = Date.now(); // report sent
+  A.reportQuietOff(); t.mock.timers.tick(30e3);
+  assert.equal(A.track('search', { n: 4 }), false); // after the form, still quiet
+  t.mock.timers.tick(31e3 + A.HOLD_MS * 2);
+  A.track('search', { n: 5 }); t.mock.timers.tick(A.HOLD_MS + 1); // much later: counted again
+  const evs = JSON.parse(localStorage.getItem('kh.aq') || '[]').concat(A._queue()).filter(e => e.install_id && e.install_id !== 'anon');
+  for (const e of evs) for (const T of [Topen, Treport]) assert.ok(Math.abs(Date.parse(e.client_ts) - T) > 60e3, `${e.type} ${e.client_ts} too close to the report`);
+  const nums = new Set(evs.filter(e => e.type === 'search').map(e => e.props.n));
+  assert.ok(nums.has(1) && nums.has(5) && !nums.has(2) && !nums.has(3) && !nums.has(4), [...nums].join());
+  assert.ok(T0 < Topen);
+  A.reportQuiet(0); localStorage.removeItem('kh.aq');
+});
+
 test('P2: note PII filter (emails, phones Latin + Arabic-Indic, URLs, @handles)', () => {
   for (const s of ['call 0933 123 456', '+963 11 222 3333', '٠٩٣٣١٢٣٤٥٦', '۰۹۳۳ ۱۲۳ ۴۵۶', 'mail a.b@x.org', 'see https://x.io/a', 'www.example.com', 't.me/somebody', 'ask @ahmad_1', 'اتصل @سامر'])
     { assert.equal(C.hasPII(s), true, s); assert.equal(C.buildClosureReport('closed', s, 33.5, 36.3).err, 'pii', s); }
@@ -194,6 +217,16 @@ test('P3: Arabic plurals via Intl.PluralRules + reworded strings', async () => {
   I.setLang('en'); assert.equal(C.plural('en', 1, { one: '1 x', other: '{n} xs' }), '1 x'); assert.equal(C.plural('en', 4, { one: '1 x', other: '{n} xs' }), '4 xs');
 });
 
+test('P3: PII filter keeps dates (Latin + Arabic-Indic), still catches phones next to them', () => {
+  for (const d of ['٢٠٢٦/١١/٠٤', '2026 11 04', '2026-11-04', '04.11.2026', 'مغلق حتى ٢٠٢٦/١١/٠٤']) { assert.equal(C.hasPII(d), false, d); assert.equal(C.stripPII(d), d); assert.equal(C.buildClosureReport('closed', d, 33.5, 36.3).ok, true, d); }
+  for (const p of ['0933 12 34 56', '+963 2026 11 04', '٠٩٣٣١٢٣٤٥٦', '2026/11/04 0933123456']) assert.equal(C.hasPII(p), true, p);
+});
+test('P3: view migration guards the numeric casts of la/lo with a regex', () => {
+  const sql = readFileSync(root + 'supabase/migrations/20261105_reports_view_closures.sql', 'utf8');
+  for (const k of ['la', 'lo']) { assert.match(sql, new RegExp(`case when props->>'${k}' ~ '[^']+' then \\(props->>'${k}'\\)::numeric end`)); }
+  assert.doesNotMatch(sql.replace(/case when[^\n]*?end/g, ''), /\(props->>'l[ao]'\)::numeric/);
+});
+
 test('P2: snapToRoad works in metres (zoom-independent), refuses > 60 m, name from transportation_name', async () => {
   const CL = await import('../../js/closures.js');
   const road = { sourceLayer: 'transportation', properties: { class: 'primary' }, geometry: { type: 'LineString', coordinates: [[36.28, 33.51], [36.30, 33.51]] } };
@@ -213,8 +246,27 @@ test('P2: snapToRoad works in metres (zoom-independent), refuses > 60 m, name fr
   // only line name: fallback to the transportation feature's own name
   const m = mapAt(16); m.queryRenderedFeatures = () => [{ ...road, properties: { name: 'Baghdad St' } }];
   assert.equal(CL.snapToRoad(m, 36.29, 33.51).road, 'Baghdad St');
+  // label not rendered in the box: name read from the source tiles via querySourceFeatures(source, transportation_name)
+  const m2 = mapAt(16); const asked = [];
+  m2.queryRenderedFeatures = () => [{ ...road, source: 'openmaptiles' }];
+  m2.querySourceFeatures = (sid, o) => { asked.push([sid, o.sourceLayer]); return [label]; };
+  assert.equal(CL.snapToRoad(m2, 36.29, 33.51).road, 'Al-Thawra St');
+  assert.deepEqual(asked, [['openmaptiles', 'transportation_name']]);
   const src = readFileSync(root + 'js/closures.js', 'utf8');
   assert.match(src, /item\.snapped !== false/); assert.match(src, /clE_noroad/);
+});
+
+test('P3: CLI: --hours without a value and broken JSON give a friendly error, nothing written', () => {
+  const d = mkdtempSync(join(tmpdir(), 'clx-'));
+  writeFileSync(join(d, 'r.json'), JSON.stringify([{ id: 5, props: { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 } }]));
+  writeFileSync(join(d, 'a.json'), JSON.stringify({ 5: {} })); writeFileSync(join(d, 'bad.json'), '{ "5": { hours: 4 ');
+  const out = join(d, 'o.json'), cli = root + 'scripts/closures/export-approved.mjs';
+  for (const [args, re] of [[['--reports', join(d, 'r.json'), '--approve', join(d, 'a.json'), '--hours'], /--hours needs a value/],
+    [['--reports', join(d, 'r.json'), '--approve', join(d, 'bad.json')], /bad\.json is not valid JSON/]]) {
+    const r = spawnSync(process.execPath, [cli, ...args, '--out', out], { encoding: 'utf8' });
+    assert.equal(r.status, 1); assert.match(r.stderr, /^Nothing was written\./); assert.match(r.stderr, re); assert.doesNotMatch(r.stderr, /at .*\.mjs:\d+/);
+    assert.equal(existsSync(out), false);
+  }
 });
 
 test('P3: CLI prints a friendly error (no stack) for non-neutral notes and hours 0', () => {

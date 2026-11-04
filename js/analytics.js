@@ -144,28 +144,35 @@ const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => m
 // ----- queue -----
 let q = lsGet(QKEY, []);
 const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
-// Reports must not be linkable to normal usage events. Events about a point/place the user looks at are therefore held
-// back for HOLD_MS before they are queued; opening a report sheet drops the held ones (reportQuiet), and none are
-// recorded while a report sheet is open or for QUIET_MS after a report was sent.
-export const POINT_TYPES = new Set(['place_view', 'whats_here', 'share', 'directions_open', 'route', 'measure']);
+// Reports must not be linkable to normal usage events by time. Therefore EVERY usage event except the session's
+// 'visit' is held back for HOLD_MS before it is queued (keeping its original timestamp); opening a report sheet drops
+// everything held plus anything queued in the last QUIET_MS (nothing is flushed early), and no event at all is recorded
+// while a report sheet is open or for QUIET_MS after it closed / the report was sent. Result: no event carrying the
+// real install id has a client_ts within ±QUIET_MS of a report.
+export const POINT_TYPES = new Set(['place_view', 'whats_here', 'share', 'directions_open', 'route', 'measure']); // kept for callers; all types are held now
+const HOLD_EXEMPT = new Set(['visit']);
 export const HOLD_MS = 60e3, QUIET_MS = 60e3;
 let held = [], quietUntil = 0;
-/** Call when a report sheet opens (ms = how long to stay quiet; Infinity until the next call) and after sending. */
-export function reportQuiet(ms = QUIET_MS, now = Date.now()) { for (const h of held) clearTimeout(h.tm); held = []; quietUntil = Math.max(quietUntil, now + ms); }
+/** Call when a report sheet opens (ms = how long to stay quiet; Infinity until reportQuietOff) and after sending. */
+export function reportQuiet(ms = QUIET_MS, now = Date.now()) {
+  for (const h of held) clearTimeout(h.tm); held = [];
+  try { q = lsGet(QKEY, q).filter(ev => ev.type === 'visit' || !(Date.parse(ev.client_ts) > now - QUIET_MS)); lsSet(QKEY, q); } catch {}
+  quietUntil = Math.max(quietUntil, now + ms);
+}
 export const reportQuietOff = (now = Date.now()) => { quietUntil = Math.min(quietUntil, now + QUIET_MS); };
 export const _heldCount = () => held.length;
-// leaving the page: queue what is held unless a report is open / was just sent (then it is dropped)
-function releaseHeld() { const h = held; held = []; for (const x of h) { clearTimeout(x.tm); if (Date.now() >= quietUntil) enqueue(x.type, x.props); } }
+export const _queue = () => q.slice();
+// leaving the page: queue what is held unless a report is open / was just closed (then it is dropped)
+function releaseHeld() { const h = held; held = []; for (const x of h) { clearTimeout(x.tm); if (Date.now() >= quietUntil) enqueue(x.type, x.props, x.ts); } }
 export function track(type, props = {}) {
   if (OFF || !ALLOWED.has(type)) return false;
-  if (POINT_TYPES.has(type)) {
-    if (Date.now() < quietUntil) return false;
-    const h = { type, props, tm: setTimeout(() => { held = held.filter(x => x !== h); if (Date.now() >= quietUntil) enqueue(type, props); }, HOLD_MS) };
-    held.push(h); return true;
-  }
-  return enqueue(type, props);
+  const now = Date.now();
+  if (now < quietUntil) return false;
+  if (HOLD_EXEMPT.has(type)) return enqueue(type, props, now);
+  const h = { type, props, ts: now, tm: setTimeout(() => { held = held.filter(x => x !== h); if (Date.now() >= quietUntil) enqueue(type, props, now); }, HOLD_MS) };
+  held.push(h); return true;
 }
-function enqueue(type, props) {
+function enqueue(type, props, ts = Date.now()) {
   if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sessionId) return; sessionStorage.setItem('kh.visit', sessionId); } catch {} }
   try {
     const pr = { ...props };
@@ -176,7 +183,7 @@ function enqueue(type, props) {
     if (type === 'visit' || pr.f) { for (const k of UTM_KEYS) if (ATT[k]) pr[k] = ATT[k]; }
     if (type === 'visit') pr.dm = displayMode();
     const ev = {
-      client_ts: new Date().toISOString(), install_id: installId, session_id: sessionId, type, lang: getLang(),
+      client_ts: new Date(ts).toISOString(), install_id: installId, session_id: sessionId, type, lang: getLang(),
       device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
       country: geo.country || null, city: geo.city || null, geo_src: geo.geo_src || null,
       lat_r: geo.geo_src === 'gps' ? geo.lat_r : null, lon_r: geo.geo_src === 'gps' ? geo.lon_r : null,

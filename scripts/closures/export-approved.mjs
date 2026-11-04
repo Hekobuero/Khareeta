@@ -15,12 +15,17 @@ for (let i = 0; i < args.length; i++) { const a = args[i]; if (a.startsWith('--'
 const out = opt.out || new URL('../../data/closures.json', import.meta.url).pathname;
 const now = opt.now ? Date.parse(opt.now) : Date.now();
 function fail(msg) { console.error('Nothing was written. ' + msg); process.exit(1); }
-const read = f => JSON.parse(readFileSync(f, 'utf8'));
+function read(f) {
+  let txt;
+  try { txt = readFileSync(f, 'utf8'); } catch (e) { fail(`Cannot read ${f} (${e.code || e.message}).`); }
+  try { return JSON.parse(txt); } catch (e) { fail(`${f} is not valid JSON (${e.message}). Export the rows again or fix the file.`); }
+}
 const doc = existsSync(out) ? read(out) : { schema: 1, closures: [] };
 let add = [];
 if (!opt.prune) {
   if (!opt.reports || !opt.approve) { console.error('need --reports <file> and --approve <file> (or --prune)'); process.exit(2); }
   const rows = read(opt.reports), approve = read(opt.approve);
+  if (opt.hours === true) fail('--hours needs a value, e.g. --hours 48.');
   const defHours = opt.hours === undefined ? 48 : Number(opt.hours);
   if (!Number.isFinite(defHours) || defHours <= 0) fail(`--hours must be a positive number of hours (got ${JSON.stringify(opt.hours)}).`);
   try { add = rowsToEntries(Array.isArray(rows) ? rows : rows.rows || [], approve, now, defHours); }

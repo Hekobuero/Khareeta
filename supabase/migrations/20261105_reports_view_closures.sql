@@ -15,7 +15,8 @@ select id, created_at,
        props->>'src' as source,       -- osm | ov
        props->>'pn' as place_name,
        props->>'rd' as road_name,     -- closures only
-       (props->>'la')::numeric as lat, (props->>'lo')::numeric as lon,
+       case when props->>'la' ~ '^-?[0-9]{1,3}(\.[0-9]{1,8})?$' then (props->>'la')::numeric end as lat,  -- guard: a malformed value must not break the whole view
+       case when props->>'lo' ~ '^-?[0-9]{1,3}(\.[0-9]{1,8})?$' then (props->>'lo')::numeric end as lon,
        props->>'n'  as new_name, props->>'c' as category,
        props->>'f'  as wrong_field,
        props->>'lk' as link_kind, props->>'u' as link_url,

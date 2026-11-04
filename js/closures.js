@@ -100,13 +100,16 @@ export function snapToRoad(map, lon, lat) {
     let best = null;
     for (const f of fs) {
       if (f.sourceLayer !== 'transportation') continue;
-      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline([lon, lat], l); if (!n.pt) continue; const d = haversine([lon, lat], n.pt); if (d <= SNAP_M && (!best || d < best.d)) best = { pt: n.pt, d, name: nm(f) }; }
+      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline([lon, lat], l); if (!n.pt) continue; const d = haversine([lon, lat], n.pt); if (d <= SNAP_M && (!best || d < best.d)) best = { pt: n.pt, d, name: nm(f), src: f.source }; }
     }
     if (!best) return { lon, lat, road: '', snapped: false };
-    // name of the closest labelled street line near the snapped point
-    let lbl = null;
-    for (const f of fs) {
-      if (f.sourceLayer !== 'transportation_name' || !nm(f)) continue;
+    // name of the closest labelled street line near the snapped point: read from the source tiles (querySourceFeatures,
+    // no screen box), so names whose label is not rendered/placed right now are still found
+    let lbl = null, named = [];
+    try { named = map.querySourceFeatures(best.src, { sourceLayer: 'transportation_name' }); } catch {}
+    if (!named.length) named = fs.filter(f => f.sourceLayer === 'transportation_name');
+    for (const f of named) {
+      if (!nm(f)) continue;
       for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline(best.pt, l); if (n.pt) { const d = haversine(best.pt, n.pt); if (d <= 25 && (!lbl || d < lbl.d)) lbl = { d, name: nm(f) }; } }
     }
     return { lon: best.pt[0], lat: best.pt[1], road: lbl?.name || best.name || '', snapped: true };

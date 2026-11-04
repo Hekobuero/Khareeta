@@ -23,8 +23,13 @@ const PII_RES = [
   new RegExp(`\\+?${D}(?:[\\s\\-./()\\u00A0]*${D}){6,}`, 'gu'),       // phone (7+ digits, any separators)
   /(?:^|[^\p{L}\p{N}_])@[\p{L}\p{N}_.]{2,}/gu,                           // @handle
 ];
-export const hasPII = s => { s = String(s || ''); return PII_RES.some(r => { r.lastIndex = 0; return r.test(s); }); };
-export const stripPII = s => PII_RES.reduce((a, r) => a.replace(r, m => (/^[^@]/.test(m) && m.includes('@') && !m.includes('.') ? m[0] : '') + '…'), String(s || '')).replace(/\s+/g, ' ').trim();
+// dates (2026/11/04, 2026 11 04, ٢٠٢٦/١١/٠٤, 04.11.2026) are not phone numbers: masked before the checks, restored after
+const DATE_RE = new RegExp(`(?<!\\p{N}[\\s./-]?)(?:${D}{4}[\\s./-]${D}{1,2}[\\s./-]${D}{1,2}|${D}{1,2}[\\s./-]${D}{1,2}[\\s./-]${D}{4})(?![\\s./-]?\\p{N})`, 'gu');
+const maskDates = s => { const keep = []; return { s: s.replace(DATE_RE, m => { keep.push(m); return '\uE000' + 'abcdefghijklmnopqrstuvwxyz'[Math.min(keep.length - 1, 25)] + '\uE001'; }), keep }; };
+const unmask = (s, keep) => s.replace(/\uE000([a-z])\uE001/g, (_, c) => keep[c.charCodeAt(0) - 97] ?? '');
+export const hasPII = s => { s = maskDates(String(s || '')).s; return PII_RES.some(r => { r.lastIndex = 0; return r.test(s); }); };
+export const stripPII = s => { const m = maskDates(String(s || '')); return unmask(stripRaw(m.s), m.keep); };
+const stripRaw = s => PII_RES.reduce((a, r) => a.replace(r, m => (/^[^@]/.test(m) && m.includes('@') && !m.includes('.') ? m[0] : '') + '…'), String(s || '')).replace(/\s+/g, ' ').trim();
 
 /** Build the anonymous props payload. Returns { ok, props } or { ok:false, err: kind|pos|size }. */
 export function buildClosureReport(kind, note, lat, lon, road) {
