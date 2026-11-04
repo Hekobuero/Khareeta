@@ -186,7 +186,7 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
    on touch devices every text field/select gets at least 16px (AR stays at its 17px). No viewport zoom lock (a11y). */
 @media (hover:none),(pointer:coarse){
   input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:max(16px,var(--k-text-body))!important}
-  .vsel-row .vsel{padding-block:10px} /* keeps the voice row height at 16px text */
+  .vsel-row .vsel{padding-block:10px;line-height:22px} /* fixed line box: AR (17px, taller glyph metrics) no longer +3px in WebKit */ /* keeps the voice row height at 16px text */
 }
 .stop .ib{width:34px;height:34px}
 .addstop{font-size:var(--k-text-sub);color:var(--k-accent);font-weight:600;padding:2px 32px;text-align:start}
@@ -437,6 +437,8 @@ button,a,[role=button],summary{touch-action:manipulation}
 .pnote{margin:0 var(--k-gutter) 8px;font-size:var(--k-text-sub)}
 /* place sheet: inline links (phone, website, e-mail, OSM) get a ≥44px tap height */
 .igroup .val a{display:inline-flex;align-items:center;min-height:44px;margin-block:-10px;max-width:100%}
+.hours-tz-short{color:var(--k-text-2);font-size:var(--k-text-sub)}
+.irow .val small.hours-tz-short{display:inline}
 /* ---- place photos (Wikimedia Commons): fixed 4:3 boxes, attribution under each photo ---- */
 .pphotos{display:flex;gap:var(--k-space-2);overflow-x:auto;padding:4px var(--k-gutter) 4px;scrollbar-width:none;scroll-snap-type:x mandatory;scroll-padding-inline:var(--k-gutter);touch-action:pan-x}
 .pphotos::-webkit-scrollbar{display:none}
