@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { socialLink, normPhone, website } from '../../js/links.js';
-import { tilesFor, ovActive, ovItem, ovFeature, ovCatLabel, OV_BBOX } from '../../js/overture-data.js';
+import { tilesFor, ovActive, ovItem, ovFeature, ovCatLabel, OV_BBOX, OV_SY, OV_CATS, inSyria, touchesSyria, ovReport, ovHidden, OV_HIDE_KEY } from '../../js/overture-data.js';
 
 const DIR = new URL('../../data/overture/', import.meta.url);
 const ix = JSON.parse(readFileSync(new URL('index.json', DIR)));
@@ -26,9 +26,10 @@ test('rows: inside Syria, in their tile, valid shape', () => {
   for (const [k, t] of Object.entries(tiles)) {
     const [x, y] = k.split('_').map(Number);
     for (const r of t.f) {
-      assert.ok(r.length >= 4 && r.length <= 8);
-      const [lon, lat, name, ci] = r;
-      assert.ok(lon >= OV_BBOX[0] && lon <= OV_BBOX[2] && lat >= OV_BBOX[1] && lat <= OV_BBOX[3]);
+      assert.ok(r.length >= 5 && r.length <= 9);
+      const [lon, lat, id, name, ci] = r;
+      assert.match(id, /^[0-9a-f]{12}$/);
+      assert.ok(inSyria(lon, lat), `${name} outside Syria`);
       assert.equal(Math.floor(lon * 10), x); assert.equal(Math.floor(lat * 10), y);
       assert.ok(typeof name === 'string' && name.length > 0);
       assert.ok(Number.isInteger(ci) && ix.cats[ci]);
@@ -48,10 +49,10 @@ test('no non-business categories', () => {
 test('links pass js/links.js validation', () => {
   let bad = 0, n = 0;
   for (const r of rows) {
-    if (r[4]) { n++; if (!normPhone(r[4])) bad++; }
-    if (r[6]) { n++; if (!socialLink('facebook', r[6])) bad++; }
-    if (r[7]) { n++; if (!socialLink('instagram', r[7])) bad++; }
-    if (r[5]) assert.match(r[5], /^https?:\/\//i);
+    if (r[5]) { n++; if (!normPhone(r[5])) bad++; }
+    if (r[7]) { n++; if (!socialLink('facebook', r[7])) bad++; }
+    if (r[8]) { n++; if (!socialLink('instagram', r[8])) bad++; }
+    if (r[6]) assert.match(r[6], /^https?:\/\//i);
   }
   assert.ok(bad / n < 0.02, `${bad}/${n} invalid`); // the sheet drops the rest via links.js
 });
@@ -67,10 +68,10 @@ test('tilesFor / ovActive', () => {
   assert.equal(ovActive(true, 16, [13.3, 52.5, 13.5, 52.6]), false);
 });
 test('ovItem builds an unverified, OSM-free place item', () => {
-  const r = rows.find(r => r[4] && r[6]);
+  const r = rows.find(r => r[5] && r[7]);
   const it = ovItem(r, ix, 'k');
-  assert.equal(it.ov, true); assert.equal(it.full, true); assert.equal(it.osm_type, undefined);
-  assert.equal(it.tags.phone, r[4]); assert.equal(it.tags['contact:facebook'], r[6]);
+  assert.equal(it.ov, true); assert.equal(it.full, true); assert.equal(it.osm_type, undefined); assert.equal(it.ovId, r[2]);
+  assert.equal(it.tags.phone, r[5]); assert.equal(it.tags['contact:facebook'], r[7]);
   assert.ok(!('email' in it.tags));
   const f = ovFeature(r, ix, 7);
   assert.deepEqual(f.geometry.coordinates, [r[0], r[1]]); assert.equal(f.properties.i, 7);
@@ -80,8 +81,86 @@ test('category labels in EN/AR/DE', () => {
   assert.equal(ovCatLabel('restaurant', 'ar'), 'مطعم');
   assert.equal(ovCatLabel('dental_clinic', 'de'), 'Zahnarztpraxis');
   assert.equal(ovCatLabel('some_new_thing', 'en'), 'Some new thing');
+  for (const c of ix.cats) {
+    assert.ok(OV_CATS.includes(c), 'no translation for ' + c);
+    assert.match(ovCatLabel(c, 'ar'), /[\u0600-\u06ff]/, c);
+  }
+  const py = readFileSync(new URL('../../scripts/overture/build_overture.py', import.meta.url), 'utf8');
+  const allow = py.slice(py.indexOf('ALLOW = {'), py.indexOf("AR = '")).match(/'([a-z_]+)'/g).map(x => x.slice(1, -1));
+  for (const c of allow) assert.ok(OV_CATS.includes(c), 'allowlisted category without AR/DE label: ' + c);
 });
 test('i18n strings exist in all languages', async () => {
   const src = readFileSync(new URL('../../js/i18n.js', import.meta.url), 'utf8');
-  for (const k of ['ovLayer', 'ovUnverified', 'ovAttr', 'ovAddOsm', 'cOverture']) assert.equal(src.split(k + ':').length - 1, 3, k);
+  for (const k of ['ovLayer', 'ovUnverified', 'ovAttr', 'ovAddOsm', 'cOverture', 'ovReport', 'ovReportWhy', 'ovR_private', 'ovR_wrong', 'ovR_closed', 'ovReported']) assert.equal(src.split(k + ':').length - 1, 3, k);
+});
+
+// ---- QA 2026-11-04 (PR #16): privacy, data quality, outline, report button ----
+const names = rows.map(r => r[3]);
+const AR = '\u0600-\u06ff';
+test('privacy: QA example names are gone', () => {
+  for (const n of ['منزل خالد أبوشامة', 'امام جامع الروضة', 'عدلاء يونس عبود', 'شاهر الصباغ', 'أبو سعيد']) assert.ok(!names.includes(n), n);
+  assert.ok(!rows.some(r => /terranova/i.test(r[3]) && !String(r[5] || '').startsWith('+963')), 'Kyiv/Beirut Terranova');
+});
+test('privacy: no homes, clerics, kunya or person-only names', () => {
+  for (const n of names) {
+    assert.ok(!/(^|\s)(منزل|بيت|دار)(\s|$)|\b(house of|haus von)\b/i.test(n), 'home: ' + n);
+    assert.ok(!/(^|\s)(ال)?(امام|إمام|شيخ|خطيب)(\s|$)/.test(n), 'cleric: ' + n);
+    assert.ok(!new RegExp(`(^|\\s)(أبو|ابو|أم|ام)\\s*[${AR}]`).test(n), 'kunya: ' + n);
+    assert.ok(!/نقابة|محامي|\blawyers?\b|bar association/i.test(n), 'institution: ' + n);
+  }
+});
+test('privacy: only +963 phones; mobiles only for commercial categories', () => {
+  const py = readFileSync(new URL('../../scripts/overture/build_overture.py', import.meta.url), 'utf8');
+  const landOnly = py.slice(py.indexOf('**{k: False'), py.indexOf("AR = '")).match(/'([a-z_]+)'/g).map(x => x.slice(1, -1));
+  for (const r of rows) {
+    if (!r[5]) continue;
+    const d = r[5].replace(/[^\d+]/g, '');
+    assert.ok(d.startsWith('+963') || d.startsWith('0'), 'foreign phone ' + r[5]);
+    const mob = /^(\+963|0)9\d{8}$/.test(d);
+    if (mob) assert.ok(!landOnly.includes(ix.cats[r[4]]), `mobile on ${ix.cats[r[4]]}: ${r[3]}`);
+  }
+});
+test('quality: no exact duplicates, no centroid stacks, no locality names', () => {
+  const k = new Set(), at = {};
+  for (const r of rows) { const key = r[3] + '|' + r[0] + ',' + r[1]; assert.ok(!k.has(key), key); k.add(key); at[r[0] + ',' + r[1]] = (at[r[0] + ',' + r[1]] || 0) + 1; }
+  for (const [p, c] of Object.entries(at)) assert.ok(c <= 3, `${c} places at ${p}`);
+  for (const n of ['دمشق', 'حلب', 'حمص', 'Damascus', 'Aleppo', 'Syria']) assert.ok(!names.includes(n), n);
+  for (const c of ix.cats) assert.ok(!/locality|neighbo|admin|attorney|law/.test(c), c);
+});
+test('links: no tracking parameters, no m.me', () => {
+  for (const r of rows) for (const u of r.slice(6)) {
+    if (!u) continue;
+    assert.ok(!/[?&](fbclid|utm_[a-z]+|igshid|mibextid)=/i.test(u), u);
+    assert.ok(!/^https?:\/\/(www\.)?m\.me\//i.test(u), u);
+  }
+});
+test('Syria outline: no index load in Beirut or Gaziantep', () => {
+  const v = (lon, lat, d = 0.02) => [lon - d, lat - d, lon + d, lat + d];
+  for (const [lon, lat] of [[35.5, 33.89], [37.38, 37.06], [35.84, 34.43], [36.16, 36.2], [35.93, 31.95]]) {
+    assert.equal(ovActive(true, 15, v(lon, lat)), false, `${lon},${lat}`);
+    assert.deepEqual(tilesFor(v(lon, lat), ix), []);
+  }
+  for (const [lon, lat] of [[36.29, 33.51], [37.16, 36.2], [35.78, 35.52], [35.88, 34.89], [36.72, 34.73], [40.14, 35.33], [41.22, 37.05]])
+    assert.equal(ovActive(true, 15, v(lon, lat)), true, `${lon},${lat}`);
+  assert.deepEqual(OV_SY[0], OV_SY.at(-1));
+  assert.equal(touchesSyria([13.3, 52.5, 13.5, 52.6]), false);
+});
+test('report / remove: hides locally, sends one anonymous event via the mocked track()', () => {
+  const mem = new Map(), store = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+  const sent = [], track = (type, props) => sent.push([type, props]);
+  assert.equal(ovReport('', 'private', { store, track }), false);
+  assert.equal(ovReport('abc123', 'spam', { store, track }), false);
+  assert.equal(sent.length, 0);
+  assert.equal(ovReport('abc123', 'private', { store, track }), true);
+  assert.ok(ovHidden(store).has('abc123'));
+  assert.deepEqual(JSON.parse(mem.get(OV_HIDE_KEY)), ['abc123']);
+  assert.deepEqual(sent, [['layer', { k: 'ov_report', id: 'abc123', r: 'private' }]]);
+  assert.equal(ovReport('def', 'closed', { store }), true); // no analytics → still hidden locally
+  assert.deepEqual([...ovHidden(store)], ['abc123', 'def']);
+  assert.equal(ovHidden({ getItem: () => '{bad' }).size, 0);
+  const an = readFileSync(new URL('../../js/analytics.js', import.meta.url), 'utf8');
+  assert.match(an, /ALLOWED = new Set\([^)]*'layer'/); // 'layer' is an allowed kh_events type
+  const pl = readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8');
+  assert.match(pl, /ovReport\(item\.ovId, b\.dataset\.r, \{ track \}\)/);
+  assert.match(readFileSync(new URL('../../css/app.css', import.meta.url), 'utf8'), /\.ov-report \.abtn\{min-height:44px;min-width:44px\}/);
 });

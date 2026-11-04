@@ -1,6 +1,6 @@
 // Optional "Shops (Overture, unverified)" layer. OSM (js/poi.js) stays primary; this is a muted hollow-dot layer under it.
 // Lazy: nothing is fetched until the layer is on, zoom >= 14 and the view touches Syria; then only the 0.1° tiles in view.
-import { OV_DIR, OV_MINZOOM, tilesFor, ovActive, ovFeature, ovItem } from './overture-data.js';
+import { OV_DIR, OV_MINZOOM, tilesFor, ovActive, ovFeature, ovItem, ovHidden } from './overture-data.js';
 
 const GROUP = {
   light: { food: '#A84F04', shopping: '#8F3B7A', lodging: '#5B43B8', health: '#B8262B', nature: '#1D7342', transport: '#38507D', civic: '#535A63' },
@@ -20,8 +20,8 @@ function loadTile(key) {
 }
 function rebuild(map) {
   const src = map.getSource('kh-ov'); if (!src) return;
-  S.rows = []; S.keys = [];
-  for (const [k, rs] of S.tiles) for (const r of rs) { S.rows.push(r); S.keys.push(k); }
+  S.rows = []; S.keys = []; const hid = ovHidden();
+  for (const [k, rs] of S.tiles) for (const r of rs) if (!hid.has(r[2])) { S.rows.push(r); S.keys.push(k); }
   src.setData({ type: 'FeatureCollection', features: S.rows.map((r, i) => ovFeature(r, S.index, i)) });
 }
 export function addOvLayers(map, dark) {
@@ -53,3 +53,5 @@ export function syncOverture(map, on, onState) {
 }
 export function ovItemAt(i) { const r = S.rows[i]; return r ? ovItem(r, S.index, S.keys[i]) : null; }
 export function ovVisible() { return S.on; }
+// after a report: drop the hidden place from the map right away
+export function ovRefresh(map) { if (S.index) rebuild(map); }
