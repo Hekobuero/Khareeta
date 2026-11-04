@@ -44,6 +44,8 @@ svg text{font-family:Inter,sans-serif}
 .err{color:#d93025;font-size:13.5px;min-height:18px;margin-top:8px}
 .muted{color:var(--fg2);font-size:12.5px}
 .legend{display:flex;gap:14px;font-size:12.5px;color:var(--fg2);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.navt{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}.navt th,.navt td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right}.navt th:first-child,.navt td:first-child{text-align:left}
+.navs{display:inline-block;width:6px;background:var(--blue);vertical-align:bottom;margin-right:1px;border-radius:1px}.navs.s{background:#f9ab00}
 .hidden{display:none!important}
 </style>
 </head>
@@ -66,6 +68,7 @@ svg text{font-family:Inter,sans-serif}
     <button id="reload">↻</button><button id="logout">Sign out</button></header>
   <main>
     <div class="grid" id="kpis"></div>
+    <div class="card" id="navcard"><h2>Navigation: arrivals &amp; reroutes</h2><div id="navstats"></div><p class="muted">Real = GPS trips; Sim = "simulate" button (props.sim). Devices = distinct installs (excl. anon). Needs supabase/migrations/20261104_nav_stats.sql – shows – until applied.</p></div>
     <div class="card"><h2>Users & visits per day</h2><div id="chart"></div><div class="legend"><span><i style="background:#1a73e8"></i>Active users</span><span><i style="background:#1A73E8"></i>New users</span><span><i style="background:#f9ab00"></i>Visits</span><span><i style="background:#d93025"></i>Searches</span><span><i style="background:#8e24aa"></i>Routes</span></div></div>
     <div class="card"><h2>Coarse locations (users who shared GPS, rounded to 0.1°)</h2><div id="map"></div></div>
     <div class="cols" style="margin-top:16px">
@@ -170,6 +173,27 @@ function heat(geo) {
   } else if (map.loaded()) apply(); else map.once('load', apply);
 }
 
+// nav-stats:begin – arrivals/reroutes (real vs simulated). Pure: returns HTML; '–' while d.nav is missing (old RPC).
+function navHtml(nav, days) {
+  const f = v => typeof v === 'number' ? nf(v) : '–';
+  const g = (ev, kind, key) => nav?.[ev]?.[kind]?.[key];
+  const rows = [['nav_arrive', 'Arrivals'], ['reroute', 'Reroutes']].flatMap(([ev0, label]) => { const ev = ev0 === 'nav_arrive' ? 'arrive' : 'reroute'; return [['real', 'real'], ['sim', 'sim']].map(([kind, kl]) => [ev, kind, `${label} (${kl})`]); });
+  let h = '<div class="grid">' + rows.map(([ev, kind, l]) => `<div class="kpi"><span>${l}</span><b>${f(g(ev, kind, 'total'))}</b><span>${f(g(ev, kind, 'devices'))} devices · 7 d: ${f(g(ev, kind, 'last7'))}</span></div>`).join('') + '</div>';
+  const now = new Date(); now.setUTCHours(0, 0, 0, 0);
+  const n = Math.min(days || 30, 30), dayList = [];
+  for (let i = n - 1; i >= 0; i--) dayList.push(new Date(now - i * 864e5).toISOString().slice(0, 10));
+  const map = (ev, kind) => new Map((g(ev, kind, 'daily') || []).map(x => [String(x.day).slice(0, 10), x.n]));
+  const M = rows.map(([ev, kind]) => map(ev, kind));
+  const has = !!nav;
+  const max = Math.max(1, ...M.flatMap(m => [...m.values()]));
+  h += `<table class="navt"><thead><tr><th>Day</th><th>Arrivals real</th><th>Arrivals sim</th><th>Reroutes real</th><th>Reroutes sim</th><th style="text-align:left">Arrivals</th></tr></thead><tbody>`;
+  for (const day of dayList.slice().reverse()) {
+    const v = M.map(m => has ? (m.get(day) || 0) : null);
+    h += `<tr><td>${day}</td>${v.map(x => `<td>${f(x)}</td>`).join('')}<td style="text-align:left"><i class="navs" style="height:${Math.round((v[0] || 0) / max * 14) + 1}px"></i><i class="navs s" style="height:${Math.round((v[1] || 0) / max * 14) + 1}px"></i></td></tr>`;
+  }
+  return h + '</tbody></table>';
+}
+// nav-stats:end
 async function load() {
   if (!sess) return showLogin();
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
@@ -184,6 +208,7 @@ async function load() {
   const k = [['DAU (24 h)', d.dau], ['WAU (7 d)', d.wau], ['MAU (30 d)', d.mau], ['DAU / MAU', d.mau ? Math.round(d.dau / d.mau * 100) + ' %' : '–'], [`Users (${days} d)`, T.users], ['Visits', T.visits], ['Searches', T.searches], ['Routes', T.routes], ['Navigations', T.navigations], ['Place views', T.place_views], ['Offline downloads', T.offline_downloads], ['PWA installs', T.installs]];
   $('#kpis').innerHTML = k.map(([l, v]) => `<div class="kpi"><span>${l}</span><b>${typeof v === 'number' ? nf(v) : esc(v ?? '–')}</b></div>`).join('');
   chart(d.daily || [], days);
+  $('#navstats').innerHTML = navHtml(d.nav, days);
   bars('countries', d.countries || [], FLAG); bars('cities', d.cities || []); bars('referrers', d.referrers || []); bars('utm', d.utm || []);
   bars('langs', d.langs || [], l => LANG[l] || l); bars('devices', d.devices || []); bars('categories', d.categories || []);
   bars('route_modes', d.route_modes || []); bars('types', d.types || []); bars('versions', d.versions || []);
