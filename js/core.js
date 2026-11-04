@@ -1,5 +1,6 @@
 // Shared state + sheet + marker helpers
 import { setPoiSelected } from './poi.js';
+import { pickNameFor } from './names.js';
 import { $, esc } from './util.js';
 import { ic, P } from './icons.js';
 import { t, getLang } from './i18n.js';
@@ -145,18 +146,7 @@ export function initSheetDrag() {
 }
 
 // ---------- names & categories ----------
-export function pickName(tags = {}) {
-  const l = getLang();
-  const ar = tags['name:ar'] || (/[\u0600-\u06FF]/.test(tags.name || '') ? tags.name : '');
-  let primary;
-  if (l === 'ar') primary = ar || tags.name || tags['name:en'];
-  else if (l === 'de') primary = tags['name:de'] || tags['name:en'] || tags.int_name || tags['name:latin'] || tags.name;
-  else primary = tags['name:en'] || tags.int_name || tags['name:latin'] || tags.name;
-  let secondary = '';
-  if (l === 'ar') secondary = tags['name:en'] && tags['name:en'] !== primary ? tags['name:en'] : '';
-  else secondary = ar && ar !== primary ? ar : '';
-  return { primary: primary || '', secondary };
-}
+export function pickName(tags = {}) { return pickNameFor(tags, getLang()); }
 
 const CAT = {
   restaurant: ['Restaurant', 'مطعم', 'Restaurant'], fast_food: ['Fast food', 'وجبات سريعة', 'Schnellimbiss'], cafe: ['Café', 'مقهى', 'Café'],
