@@ -475,6 +475,7 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 .pphotos .ph-empty .ph-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--k-text-3);font-size:var(--k-text-sub);text-align:center;padding:12px}
 .pphotos .ph-cap{font-size:var(--k-text-caption);line-height:1.35;color:var(--k-text-3);overflow-wrap:anywhere}
 .pphotos .ph-cap a{display:inline-flex;align-items:center;min-height:var(--k-tap);color:var(--k-accent);font-weight:500}
+.pphotos .ph-near{font-weight:600;color:var(--k-text-2)}
 .pphotos .ph-cap .skel{display:block;height:12px;margin:16px 0}
 @media (prefers-reduced-motion: reduce){.pphotos .skel-box{animation:none}}
 .ov-report{padding:8px 16px 0}.ov-report .abtn{min-height:44px;min-width:44px}.ov-report .ov-rep{width:100%;height:44px;flex-direction:row;gap:8px}.ov-why{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}.ov-why small{width:100%;color:var(--k-text-2,#666)}.ov-why .abtn{height:44px;flex:1 1 30%}
