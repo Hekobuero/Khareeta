@@ -148,7 +148,7 @@ function sim(t, start) {
   t.mock.timers.reset(); t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: start });
   A._resetPrivacy(); localStorage.removeItem('kh.aq'); sessionStorage.clear();
   const reqs = []; // { at (server time), evs }
-  globalThis.fetch = async (u, o) => { reqs.push({ at: Date.now(), evs: JSON.parse(o.body) }); return { ok: true, status: 201, text: async () => '' }; };
+  globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); reqs.push({ at: Date.now(), url: u, evs: Array.isArray(b) ? b : [b.ev] }); return { ok: true, status: 201, text: async () => '' }; };
   const at = s => start + s * 1000;
   const go = s => { const d = at(s) - Date.now(); if (d > 0) t.mock.timers.tick(d); };
   const check = (extraMarks = []) => {
@@ -230,16 +230,18 @@ test('P1 starvation: usage every minute + continuous navigation → report still
   }
 });
 
-test('P2b: idempotent report: random rid, retry after timeout inserts once; works without the migration', async (t) => {
+test('P2b: idempotent report via RPC kh_report_insert: random rid, retry after timeout inserts once; plain-insert fallback only on "function missing"', async (t) => {
   const S = sim(t, NOW + 70e6);
-  const rows = new Map(); let calls = 0, migrated = true;
+  const rows = new Map(); let calls = 0, migrated = true, rpcErr = null;
   globalThis.fetch = async (u, o) => {
-    calls++; const ev = JSON.parse(o.body)[0], url = new URL(u);
-    if (url.searchParams.get('on_conflict') === 'rid' && !migrated) return { ok: false, status: 400, text: async () => '{"code":"42703","message":"column kh_events.rid does not exist"}' };
-    const dupOk = url.searchParams.get('on_conflict') === 'rid' && /ignore-duplicates/.test(o.headers.Prefer);
-    if (!(dupOk && rows.has(ev.props.rid))) rows.set(ev.props.rid ?? calls, ev);
+    calls++; const url = new URL(u), body = JSON.parse(o.body);
+    if (url.pathname.endsWith('/rpc/kh_report_insert')) {
+      if (rpcErr) return { ok: false, status: rpcErr[0], text: async () => rpcErr[1] };
+      if (!migrated) return { ok: false, status: 404, text: async () => '{"code":"PGRST202","message":"Could not find the function public.kh_report_insert(ev)"}' };
+      if (!rows.has(body.ev.props.rid)) rows.set(body.ev.props.rid, body.ev); // on conflict do nothing
+    } else rows.set('plain' + calls, body[0]);
     if (calls === 1) throw new TypeError('timeout'); // inserted, but the answer is lost
-    return { ok: true, status: 201, text: async () => '' };
+    return { ok: true, status: 204, text: async () => '' };
   };
   const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
   const rid = A._pendingReports()[0].props.rid;
@@ -248,16 +250,68 @@ test('P2b: idempotent report: random rid, retry after timeout inserts once; work
   assert.equal(A._pendingReports().length, 1, 'kept for retry');
   t.mock.timers.tick(A._pendingReports()[0].due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
   assert.equal(rows.size, 1, 'one row despite retry'); assert.equal(A._pendingReports().length, 0);
-  // without the migration: 400 for on_conflict=rid → repeated once without it (best effort), remembered
-  rows.clear(); calls = 1; migrated = false; localStorage.removeItem('kh.noRid');
+  // any other 400 (e.g. a bad body) must NOT fall back to the non-idempotent insert
+  rows.clear(); calls = 1; rpcErr = [400, '{"code":"PGRST102","message":"Empty or invalid json"}']; localStorage.removeItem('kh.noRid');
+  const r3 = A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 });
+  t.mock.timers.tick(r3.due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
+  assert.equal(rows.size, 0, 'no plain insert for an unrelated PGRST error'); assert.equal(localStorage.getItem('kh.noRid'), null); assert.equal(A._pendingReports().length, 1);
+  localStorage.setItem('kh.rq', '[]'); rpcErr = null;
+  // without the migration: 404 PGRST202 → repeated once as plain insert (best effort), remembered
+  rows.clear(); calls = 1; migrated = false;
   const r2 = A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 });
   t.mock.timers.tick(r2.due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
   assert.equal(rows.size, 1); assert.equal(A._pendingReports().length, 0); assert.ok(+localStorage.getItem('kh.noRid') > 0);
   const sql = readFileSync(root + 'supabase/migrations/20261106_kh_events_rid.sql', 'utf8');
-  assert.match(sql, /DO NOT run/); assert.match(sql, /generated always as \(props->>'rid'\) stored/); assert.match(sql, /create unique index[^;]*\(rid\)/i);
+  assert.match(sql, /DO NOT run/); assert.doesNotMatch(sql.replace(/--.*$/gm, ''), /generated always|add column/i, 'no table rewrite');
+  assert.match(sql, /create unique index concurrently if not exists kh_events_rid_uq\s+on public\.kh_events \(\(props->>'rid'\)\)\s+where props->>'rid' is not null;/);
+  assert.match(sql, /security invoker/); assert.match(sql, /on conflict \(\(props->>'rid'\)\) where props->>'rid' is not null do nothing/);
+  assert.ok(sql.indexOf('delete from public.kh_events') < sql.indexOf('create unique index'), 'dedupe before the index');
   localStorage.removeItem('kh.noRid'); S.done();
 });
-
+test('P3: usage events never carry rid', async (t) => {
+  const S = sim(t, NOW + 71e6);
+  A.track('search', { n: 1, rid: 'x' }); S.go(200); await flushAll();
+  const evs = S.reqs.flatMap(r => r.evs); assert.ok(evs.length >= 1); assert.ok(evs.every(e => !('rid' in e.props)));
+  S.done();
+});
+test('P1 stall (rt4): event while the form is open + navigation every 10 s for 20 min → usage resumes ≤61 s after quiet ends, kh.aq drains, no real event ±60 s of the report', async (t) => {
+  const S = sim(t, NOW + 72e6);
+  A.track('visit'); let due = 0, off = 0;
+  for (let s = 0; s <= 1200; s++) {
+    S.go(s);
+    if (s % 10 === 0) A.track(s % 20 ? 'search' : 'reroute', { n: s });
+    if (s === 128) A.reportQuiet(Infinity); // form opens
+    if (s === 180) { A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 }, { rand: () => 0.5 }); due = A._pendingReports()[0].due; A.reportQuietOff(); off = Date.now(); }
+    await new Promise(r => setImmediate(r));
+  }
+  S.go(1300); await flushAll();
+  const { real, reps } = S.check([S.at(128), S.at(180)]);
+  assert.equal(reps.length, 1); assert.ok(reps[0].at <= due + 90e3);
+  const times = S.reqs.filter(r => r.evs.some(e => e.install_id !== 'anon')).map(r => r.at);
+  const firstAfterQuiet = times.find(x => x > off);
+  // quiet ends at off+60 s; the first eligible event (next 10 s tick) is held 60 s, then batched (≤ 8 s)
+  assert.ok(firstAfterQuiet && firstAfterQuiet <= off + 60e3 + 10e3 + 60e3 + 9e3, `usage resumed ${(firstAfterQuiet - off) / 1000}s after the form closed`);
+  const firstAfterRep = times.find(x => x > reps[0].at);
+  assert.ok(firstAfterRep && firstAfterRep <= reps[0].at + 60e3 + 10e3 + 60e3 + 9e3, 'usage resumes after the report quiet');
+  for (let i = 1; i < times.length; i++) if (times[i - 1] > reps[0].at + 61e3 && times[i] < S.at(1200)) assert.ok(times[i] - times[i - 1] < 120e3, 'no long stall later');
+  assert.equal(A._queue().length, 0, 'kh.aq empty again'); assert.equal(JSON.parse(localStorage.getItem('kh.aq') || '[]').length, 0);
+  assert.ok(real.length > 50);
+  S.done();
+});
+test('P1 hide: all eligible events go out in several batches of ≤50 (keepalive budget), not just one', async (t) => {
+  for (let i = 0; i < 10; i++) await new Promise(r => setImmediate(r)); // let the previous test's in-flight sends settle
+  const S = sim(t, NOW + 73e6);
+  for (let i = 0; i < 90; i++) A.track('search', { n: i });
+  S.go(61); await new Promise(r => setImmediate(r)); // all 90 queued (held 60 s), flush timer pending
+  await A.flush({ hide: true }); await new Promise(r => setImmediate(r));
+  assert.ok(S.reqs.length >= 2 && S.reqs.every(r => r.evs.length <= 50)); assert.equal(S.reqs.flatMap(r => r.evs).length, 90, S.reqs.map(r => r.evs.length + ':' + r.evs[0].type).join() + ' q' + A._queue().length + ' held' + A._held() + ' now' + Date.now() + ' st' + S.at(0));
+  assert.equal(A._queue().length, 0); S.done();
+});
+test('transit: city/line fit never zooms out below z12 (Aleppo was z9.4)', () => {
+  const tr = readFileSync(root + 'js/transit.js', 'utf8'), core = readFileSync(root + 'js/core.js', 'utf8');
+  assert.match(tr, /TR_MIN_Z = 12/); assert.doesNotMatch(tr, /map\.fitBounds\(/); assert.equal((tr.match(/minZoom: TR_MIN_Z/g) || []).length, 2);
+  assert.match(core, /cam\.zoom < minZoom/);
+});
 test('P3: offline at due time → sent on the online event; P2a: toast says saved / sent shortly (EN/AR/DE)', async (t) => {
   const S = sim(t, NOW + 80e6);
   const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
@@ -266,7 +320,7 @@ test('P3: offline at due time → sent on the online event; P2a: toast says save
   assert.match(readFileSync(root + 'js/analytics.js', 'utf8'), /addEventListener\('online', \(\) => sendDueReports\(\)\)/);
   const I = await import('../../js/i18n.js');
   const T = I.STR || I.default || null; const src = readFileSync(root + 'js/i18n.js', 'utf8');
-  for (const w of ['saved and will be sent for review shortly', 'حُفظ بلاغك وسيُرسل قريبًا للمراجعة', 'gespeichert, wird in Kürze zur Prüfung gesendet']) assert.ok(src.includes(w), w);
+  for (const w of ['saved and will be sent for review shortly', 'حُفظ بلاغك وسيُرسل قريبًا للمراجعة', 'deine Meldung ist gespeichert und wird in Kürze zur Prüfung gesendet']) assert.ok(src.includes(w), w);
   assert.ok(!/report was sent for review|أُرسل بلاغك للمراجعة|wurde zur Prüfung gesendet/.test(src));
   S.done();
 });

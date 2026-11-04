@@ -172,11 +172,13 @@ export function reportQuiet(ms = QUIET_MS, now = Date.now()) {
   if (!(ms > 0)) return;
   mark(now); dropAround(now);
   lsSet(QUKEY, Math.max(quietUntil(), now + Math.min(ms, OPEN_MS)));
+  reschedule();
 }
-export const reportQuietOff = (now = Date.now()) => { mark(now); dropAround(now); lsSet(QUKEY, Math.min(quietUntil(), now + QUIET_MS)); };
+export const reportQuietOff = (now = Date.now()) => { mark(now); dropAround(now); lsSet(QUKEY, Math.min(quietUntil(), now + QUIET_MS)); reschedule(); };
 export const _heldCount = () => held.length;
+export const _held = () => held.map(h => h.type + '@' + h.ts);
 export const _queue = () => q.slice();
-export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); clearTimeout(timer); timer = null; rsending = false; for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
+export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); rtm = null; clearTimeout(timer); timer = null; timerAt = 0; rsending = false; sending = false; for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
 function hold(x, now = Date.now()) {
   const h = { ...x, tm: null };
   held.push(h);
@@ -214,7 +216,7 @@ export function track(type, props = {}) {
 function enqueue(type, props, ts = Date.now(), sid = sessionId) {
   if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sid) return; if (sid === sessionId) sessionStorage.setItem('kh.visit', sid); } catch {} }
   try {
-    const pr = { ...props };
+    const pr = { ...props }; delete pr.rid; // rid (idempotency key) is for reports only, never on usage events
     if (type === 'locate' && pr.lat != null) { gpsGeo(pr.lat, pr.lon); delete pr.lat; delete pr.lon; }
     for (const k in pr) if (pr[k] == null || (typeof pr[k] === 'string' && pr[k].length > 40)) delete pr[k];
     pr.ch = ATT.chl; // channel_language on every event (props JSON: works without new columns)
@@ -238,10 +240,11 @@ function enqueue(type, props, ts = Date.now(), sid = sessionId) {
 // Reports are anonymous: they NEVER carry the install id, session id or any geo (country/city), whether or not usage
 // analytics is on. Local/dev copies never send (tests intercept fetch themselves with kh.trackDev = 1).
 export const REPORT_DEV_BLOCKED = () => { try { return DEV_HOST && localStorage.getItem('kh.trackDev') !== '1'; } catch { return true; } };
-// Idempotency: a delayed report carries props.rid (random UUID, unrelated to install id / time). With the migration
-// 20261106_kh_events_rid (generated column rid + unique index) the insert uses on_conflict=rid + ignore-duplicates, so a
-// retry after a timeout cannot create a second row. Without the migration the server answers 400 for the unknown
-// column; the insert is then repeated once without on_conflict (best effort) and that is remembered (kh.noRid).
+// Idempotency: a delayed report carries props.rid (random UUID, unrelated to install id / time; usage events never
+// carry one). With the migration 20261106_kh_events_rid (unique expression index on props->>'rid' + RPC
+// kh_report_insert, insert … on conflict do nothing) a retry after a timeout cannot create a second row. PostgREST's
+// on_conflict cannot target an expression index, hence the RPC. Without the migration the RPC answers 404 PGRST202
+// (function not found); only that specific error falls back to one plain insert (best effort), remembered in kh.noRid.
 const NORID = 'kh.noRid';
 export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeout = 12000 } = {}) {
   if (!ALLOWED.has(type)) return { ok: false, why: 'type' };
@@ -259,11 +262,15 @@ export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeo
   const tm = ac && setTimeout(() => ac.abort(), timeout);
   try {
     const idem = !!props?.rid && lsGet(NORID, 0) < Date.now() - 864e5;
-    const post = up => fetchImpl(SB_URL + '/rest/v1/kh_events' + (up ? '?on_conflict=rid' : ''), { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: up ? 'return=minimal,resolution=ignore-duplicates' : 'return=minimal' }, body: JSON.stringify([ev]), signal: ac?.signal });
+    const hdr = { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, sig = ac?.signal;
+    const post = up => up
+      ? fetchImpl(SB_URL + '/rest/v1/rpc/kh_report_insert', { method: 'POST', headers: hdr, body: JSON.stringify({ ev }), signal: sig })
+      : fetchImpl(SB_URL + '/rest/v1/kh_events', { method: 'POST', headers: hdr, body: JSON.stringify([ev]), signal: sig });
     let r = await post(idem);
-    if (idem && r.status === 400) {
+    if (idem && (r.status === 404 || r.status === 400)) {
       let txt = ''; try { txt = await r.text(); } catch {}
-      if (/rid|on_conflict|42703|42P10|PGRST/.test(txt)) { lsSet(NORID, Date.now()); r = await post(false); }
+      // only "migration missing": function not found (PGRST202) / unknown function or column (42883, 42703, PGRST204)
+      if (/"code"\s*:\s*"(PGRST202|42883|42703|PGRST204|42P10)"/.test(txt)) { lsSet(NORID, Date.now()); r = await post(false); }
     }
     try { r.text().catch(() => {}); } catch {}
     return r.ok ? { ok: true } : { ok: false, why: 'http', status: r.status };
@@ -316,26 +323,54 @@ export async function sendDueReports({ fetchImpl = globalThis.fetch } = {}) {
     else if (r.why !== 'type' && r.why !== 'dev') rest.push({ ...it, claim: 0, tries: it.tries + 1, due: Date.now() + (r.why === 'offline' ? 0 : Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random())) });
     lsSet(RQKEY, rest);
   }
-  rsending = false; scheduleReports(); return sent;
+  rsending = false; scheduleReports(); reschedule(); return sent;
 }
 let timer = null, sending = false, leaving = false;
-function schedule(ms = 8000) { if (!timer) timer = setTimeout(() => { timer = null; flush(); }, ms); }
+// The single place that sets the usage flush timer: always clears it and recomputes the next attempt from the current
+// state (quiet period end, pending report due dates). Called on every state change (quiet on/off, report sent,
+// visibility, online), so a stale long timer can never stall delivery. min = earliest delay wanted by the caller.
+let timerAt = 0;
+function reschedule(min = 0, now = Date.now()) {
+  clearTimeout(timer); timer = null; timerAt = 0;
+  if (OFF || !lsGet(QKEY, q).length) return;
+  let at = now + min;
+  const qu = quietUntil();
+  if (qu - now > 10 * QUIET_MS) return; // a report form is open: reportQuietOff() reschedules
+  if (qu > at) at = qu + 1000;
+  for (let i = 0; i < 3; i++) { const rd = reportDueSoon(at); if (!rd) break; at += rd; } // report has priority
+  timerAt = at; timer = setTimeout(() => { timer = null; timerAt = 0; flush(); }, Math.max(0, at - now));
+}
+// new event: start the timer if none is running (a running one is always up to date, see reschedule)
+function schedule(ms = 8000) { if (!timer) reschedule(ms); }
 // Delivery is at-most-once: a batch is removed from the stored queue BEFORE it is sent (so a reload, the SW update
 // reload or a second tab can never send it again) and only put back when the request demonstrably failed.
 // Every request uses keepalive, so it is not cancelled when the page unloads (keepalive bodies are capped at 64 KB).
-export async function flush() {
+export async function flush({ hide = false } = {}) {
   if (sending || !navigator.onLine) return;
   q = lsGet(QKEY, q);
   if (!q.length) return;
   // no usage batch reaches the server while a report form is open or within QUIET_MS of a report insert
   // a report is due within QUIET_MS (or overdue): it has priority – usage batches wait (held, not dropped) until it went out
-  const rd = reportDueSoon(); if (rd) { clearTimeout(timer); timer = null; schedule(rd); return; }
-  const qu = quietUntil(); if (Date.now() < qu) { clearTimeout(timer); timer = null; if (qu - Date.now() < OPEN_MS) schedule(qu - Date.now() + 1000); return; }
+  if (reportDueSoon() || Date.now() < quietUntil()) { reschedule(); return; }
   sending = true; lsSet(FKEY, Date.now());
-  const batch = [];
-  let bytes = 2;
-  for (const ev of q) { const n = JSON.stringify(ev).length + 1; if (batch.length >= 50 || (batch.length && bytes + n > 48000)) break; batch.push(ev); bytes += n; }
-  q = q.slice(batch.length); lsSet(QKEY, q);
+  // visible: one batch per attempt; hiding: every eligible batch at once (keepalive in-flight budget ≈ 64 KB in total,
+  // so at most ~60 KB are fired; anything beyond stays queued for the next visit)
+  const batches = []; let total = 0, i = 0;
+  while (i < q.length) {
+    const batch = []; let bytes = 2;
+    for (; i < q.length; i++) { const n = JSON.stringify(q[i]).length + 1; if (batch.length >= 50 || (batch.length && bytes + n > 48000)) break; batch.push(q[i]); bytes += n; }
+    if (batches.length && total + bytes > 60000) { i -= batch.length; break; }
+    batches.push(batch); total += bytes;
+    if (!hide || total > 60000) break;
+  }
+  q = q.slice(i); lsSet(QKEY, q);
+  const keeps = await Promise.all(batches.map(b => post1(b)));
+  const back = batches.filter((b, k) => keeps[k]).flat();
+  if (back.length) { q = [...back, ...lsGet(QKEY, [])].slice(-MAXQ); lsSet(QKEY, q); }
+  sending = false;
+  if (q.length) reschedule(back.length ? 30000 : 1000);
+}
+async function post1(batch) {
   let keep = false;
   try {
     const r = await fetch(SB_URL + '/rest/v1/kh_events', { method: 'POST', keepalive: true, headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify(batch) });
@@ -349,9 +384,7 @@ export async function flush() {
     // a failure while the page is visible counts as "not sent".
     keep = !leaving && document.visibilityState === 'visible';
   }
-  if (keep) { q = [...batch, ...lsGet(QKEY, [])].slice(-MAXQ); lsSet(QKEY, q); }
-  sending = false;
-  if (q.length) schedule(keep ? 30000 : 1000);
+  return keep;
 }
 export function initAnalytics() {
   scheduleReports(); // pending anonymous reports go out even when usage analytics is off
@@ -359,9 +392,9 @@ export function initAnalytics() {
   if (OFF) return;
   _adoptHeld();
   setTimeout(edgeCountry, 4000);
-  addEventListener('online', () => schedule(2000));
-  addEventListener('pagehide', () => { leaving = true; _onHide(); flush(); });
+  addEventListener('online', () => reschedule(2000));
+  addEventListener('pagehide', () => { leaving = true; _onHide(); flush({ hide: true }); });
   addEventListener('pageshow', () => { leaving = false; _adoptHeld(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { _onHide(); flush(); } else _adoptHeld(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { _onHide(); flush({ hide: true }); } else { _adoptHeld(); reschedule(2000); } });
   if (q.length) schedule(5000);
 }

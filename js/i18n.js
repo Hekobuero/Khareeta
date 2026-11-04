@@ -346,7 +346,7 @@ de: {
   rpSend: "Meldung senden",
   rpSending: "Wird gesendet…",
   rpModerated: "Meldungen sind anonym und werden vor jeder Änderung von Moderatoren geprüft. Sie werden nicht öffentlich angezeigt.",
-  rpThanks: "Danke – gespeichert, wird in Kürze zur Prüfung gesendet.",
+  rpThanks: "Danke – deine Meldung ist gespeichert und wird in Kürze zur Prüfung gesendet.",
   clOpen: "Straßenproblem melden",
   clTitle: "Straßenproblem melden",
   clKind: "Was ist los?",
