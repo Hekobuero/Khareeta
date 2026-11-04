@@ -1,6 +1,8 @@
 // UI strings – English is the default on first load (always), Arabic (RTL) and German selectable.
 const S = {
 en: {
+
+  trLayer: "Lines (Servis & bus)", trLayerSub: "Damascus · Aleppo · from OpenStreetMap", trTitle: "Servis & bus lines", trSearch: "Search line, ref or stop", trNone: "No lines match.", trEmpty: "OpenStreetMap has no mapped lines here yet.", trCount: "{n} lines · {s} stops", trSrc: "From OpenStreetMap – may be incomplete or outdated.", trImprove: "How to add or fix lines on OSM", trStops: "Stops", trNoStops: "No stops mapped for this line.", trFrom: "From", trTo: "To", trRef: "Line", trOperator: "Operator", trServis: "Servis / microbus", trBus: "Bus", trStop: "Stop", trAtStop: "Lines at this stop", trOsmView: "View on OpenStreetMap", trLoadErr: "Line data could not be loaded.", trLowData: "Data saving is on – line data loads only when you open this list.", trCity: "City", trOpenList: "Show lines", trUnnamed: "Unnamed stop", cTransit: "Transit lines",
   rpOpen: "Report a problem",
   rpAddHere: "Add a missing place here",
   rpMissingMenu: "Report a missing place",
@@ -150,6 +152,8 @@ en: {
     ord: ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'], m: '{n} meters', km1: 'one kilometer', km15: 'one and a half kilometers', km: '{n} kilometers' },
 },
 ar: {
+
+  trLayer: "الخطوط (سرفيس وباص)", trLayerSub: "دمشق · حلب · من OpenStreetMap", trTitle: "خطوط السرفيس والباص", trSearch: "ابحث عن خط أو رقم أو موقف", trNone: "لا توجد خطوط مطابقة.", trEmpty: "لا توجد خطوط مرسومة هنا في OpenStreetMap بعد.", trCount: "{n} خط · {s} موقف", trSrc: "من OpenStreetMap – قد تكون ناقصة أو قديمة.", trImprove: "كيف تضيف أو تصحح الخطوط في OSM", trStops: "المواقف", trNoStops: "لا توجد مواقف مرسومة لهذا الخط.", trFrom: "من", trTo: "إلى", trRef: "الخط", trOperator: "المشغّل", trServis: "سرفيس / ميكرو", trBus: "باص", trStop: "موقف", trAtStop: "الخطوط في هذا الموقف", trOsmView: "عرض على OpenStreetMap", trLoadErr: "تعذّر تحميل بيانات الخطوط.", trLowData: "توفير البيانات مفعّل – تُحمّل بيانات الخطوط فقط عند فتح هذه القائمة.", trCity: "المدينة", trOpenList: "عرض الخطوط", trUnnamed: "موقف بلا اسم", cTransit: "خطوط النقل",
   rpOpen: "الإبلاغ عن مشكلة",
   rpAddHere: "إضافة مكان ناقص هنا",
   rpMissingMenu: "الإبلاغ عن مكان ناقص",
@@ -316,6 +320,8 @@ ar: {
     kms: ['', 'كيلومتر واحد', 'كيلومترين', 'ثلاثة كيلومترات', 'أربعة كيلومترات', 'خمسة كيلومترات', 'ستة كيلومترات', 'سبعة كيلومترات', 'ثمانية كيلومترات', 'تسعة كيلومترات', 'عشرة كيلومترات'], km15: 'كيلومتر ونصف', half: ' ونصف', km: '{n} كيلومتر', kmT: '{n} كيلومترًا', kmP: '{n} كيلومترات' },
 },
 de: {
+
+  trLayer: "Linien (Servis & Bus)", trLayerSub: "Damaskus · Aleppo · aus OpenStreetMap", trTitle: "Servis- & Buslinien", trSearch: "Linie, Nummer oder Haltestelle suchen", trNone: "Keine passenden Linien.", trEmpty: "In OpenStreetMap sind hier noch keine Linien erfasst.", trCount: "{n} Linien · {s} Haltestellen", trSrc: "Aus OpenStreetMap – evtl. unvollständig oder veraltet.", trImprove: "So ergänzt oder korrigierst du Linien in OSM", trStops: "Haltestellen", trNoStops: "Für diese Linie sind keine Haltestellen erfasst.", trFrom: "Von", trTo: "Nach", trRef: "Linie", trOperator: "Betreiber", trServis: "Servis / Kleinbus", trBus: "Bus", trStop: "Haltestelle", trAtStop: "Linien an dieser Haltestelle", trOsmView: "Auf OpenStreetMap ansehen", trLoadErr: "Liniendaten konnten nicht geladen werden.", trLowData: "Datensparen ist an – Liniendaten laden erst, wenn du diese Liste öffnest.", trCity: "Stadt", trOpenList: "Linien zeigen", trUnnamed: "Haltestelle ohne Namen", cTransit: "ÖPNV-Linien",
   rpOpen: "Problem melden",
   rpAddHere: "Fehlenden Ort hier melden",
   rpMissingMenu: "Fehlenden Ort melden",
