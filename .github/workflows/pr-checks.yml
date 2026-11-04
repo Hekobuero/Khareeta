@@ -1,8 +1,8 @@
-# PR checks: voice tests, place-info unit tests, lang tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+# PR checks: voice tests, place-info + photos unit tests, lang tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
 name: pr-checks
 on:
   pull_request:
-    branches: [main]
+    # all base branches, so stacked PRs (e.g. on feat/place-info) are checked too
   workflow_dispatch:
 permissions:
   contents: read
@@ -88,6 +88,17 @@ jobs:
           for tz in UTC America/Los_Angeles Asia/Damascus Pacific/Kiritimati; do
             echo "TZ=$tz"; TZ=$tz node --test 'tests/placeinfo/*.test.mjs' || exit 1
           done
+
+  photos-tests:
+    # Pure Node unit tests for js/photos.js (Commons/Wikidata photo sources, attribution parsing, SW cache bounds).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/photos/*.test.mjs'
 
   version:
     runs-on: ubuntu-latest
