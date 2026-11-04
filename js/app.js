@@ -9,6 +9,8 @@ import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilt
 import { addWorldLayers, initWorldPois, WLAYERS } from './world-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
 import { mapIsDark } from './mapstyle.js';
+import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
+import { OV_ATTR_URL, OV_LICENSE_URL } from './overture-data.js';
 import { openPlace, openPoint, weatherRaw, wmo, currentPlace } from './place.js';
 import { showSaved } from './ui.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
@@ -89,7 +91,7 @@ class KAttribution {
     this.m = m;
     const el = this.el = document.createElement('div');
     el.className = 'maplibregl-ctrl kattr k-glass';
-    el.innerHTML = `<div class="kattr-row"><a class="kattr-osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"></a><button type="button" class="kattr-more" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11.1 10.4h1.8V17h-1.8zM12 6.6a1.15 1.15 0 1 1 0 2.3 1.15 1.15 0 0 1 0-2.3z" fill="currentColor"/></svg></button></div><div class="kattr-extra" hidden></div>`;
+    el.innerHTML = `<div class="kattr-row"><a class="kattr-osm" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"></a><span class="kattr-ovn" hidden>,&nbsp;<a href="${OV_ATTR_URL}" target="_blank" rel="noopener">Overture Maps Foundation</a></span><button type="button" class="kattr-more" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="9.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M11.1 10.4h1.8V17h-1.8zM12 6.6a1.15 1.15 0 1 1 0 2.3 1.15 1.15 0 0 1 0-2.3z" fill="currentColor"/></svg></button></div><div class="kattr-ov" hidden></div><div class="kattr-extra" hidden></div>`;
     el.querySelector('.kattr-more').addEventListener('click', () => this.toggle());
     this.upd = () => this.renderExtra();
     m.on('styledata', this.upd); m.on('sourcedata', this.upd);
@@ -107,8 +109,11 @@ class KAttribution {
     if (!this.el) return;
     const a = this.el.querySelector('.kattr-osm'); a.textContent = t('osmAttr'); a.lang = getLang();
     const b = this.el.querySelector('.kattr-more'); b.setAttribute('aria-label', t('mapCredits')); b.title = t('mapCredits');
+    const o = this.el.querySelector('.kattr-ov'); o.lang = getLang();
+    o.innerHTML = `<a href="${OV_LICENSE_URL}" target="_blank" rel="noopener">${esc(t('ovAttr'))}</a>`;
     this.renderExtra();
   }
+  setOverture(on) { const o = this.el?.querySelector('.kattr-ov'); if (o && o.hidden === on) { o.hidden = !on; this.el.querySelector('.kattr-ovn').hidden = !on; (on ? o : this.el.querySelector('.kattr-row')).appendChild(this.el.querySelector('.kattr-more')); this.el.classList.toggle('ov', on); } }
   renderExtra() {
     const srcs = this.m?.getStyle?.()?.sources || {}, seen = new Set(), out = [];
     for (const s of Object.values(srcs)) {
@@ -133,6 +138,12 @@ function startPois() {
   const go = () => loadPois().then(function tryAdd() { if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250); }).catch(e => { poiStarted = false; console.warn('poi data', e); });
   'requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 2000 }) : setTimeout(go, 200);
 }
+// Overture shops layer (optional, unverified): drawn below our OSM POIs, synced on every move
+function ovLayers() { if (!map.isStyleLoaded()) { setTimeout(ovLayers, 250); return; } addOvLayers(map, mapIsDark()); ovSync(); }
+const ovSync = () => syncOverture(map, settings.overture !== false && !navActive(), on => attrib.setOverture(on));
+hooks.overture = ovSync;
+map.on('moveend', ovSync);
+map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
 map.once('idle', startPois); setTimeout(startPois, 5000);
 // outside Syria: live OpenStreetMap POIs for the visible area (world-poi.js)
 function worldLayers() { if (!map.isStyleLoaded() || map.getSource('kh-wpoi')) return; addWorldLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }
@@ -141,6 +152,7 @@ addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
   addWorldLayers(map, mapIsDark());
+  ovLayers();
   if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
   if (App.selName) applySelFilter(App.selName);
@@ -194,6 +206,8 @@ map.on('click', async e => {
     const tags = {}; for (const k of ['name', 'name:ar', 'name:en', 'name:de', 'int_name', 'name:latin', 'brand']) if (p[k]) tags[k] = p[k];
     openPlace({ id: osm_type[0].toUpperCase() + osm_id, osm_type, osm_id, name: pickName(tags).primary, lon: wp[0].geometry.coordinates[0], lat: wp[0].geometry.coordinates[1], tags }, { noFly: true }); return;
   }
+  const ko = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: OV_LAYERS.filter(id => map.getLayer(id)) });
+  if (ko.length) { const it = ovItemAt(ko[0].properties.i); if (it) { openPlace(it, { noFly: true }); return; } }
   const feats = map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
   if (feats.length) {
     const f = feats[0], p = f.properties, ll = f.geometry.type === 'Point' ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
@@ -217,7 +231,7 @@ map.on('click', async e => {
 });
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
-for (const id of [...POI_LAYERS, ...WLAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
+for (const id of [...POI_LAYERS, ...WLAYERS, ...OV_LAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 // long-press ("what's here") for touch devices
 {
   let tm = null, sx = 0, sy = 0;

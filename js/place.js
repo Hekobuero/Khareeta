@@ -4,6 +4,8 @@ import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
+import { ovCatLabel, ovReport, OV_ATTR_URL, OV_REASONS } from './overture-data.js';
+import { ovRefresh } from './overture.js';
 import { App, openSheet, setSheet, closeSheet, setSelMarker, pickName, catLabel, catIcon, refPoint, sheetState, mapPadding, fitTo } from './core.js';
 import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
@@ -64,7 +66,7 @@ export function toggleSave(item, kind = 'fav') {
   if (kind !== 'fav') list = list.filter(s => s.kind !== kind);
   const ex = list.find(s => s.id === item.id && s.kind === kind);
   if (ex && kind === 'fav') list = list.filter(s => s !== ex);
-  else list.unshift({ id: item.id, osm_type: item.osm_type, osm_id: item.osm_id, name: item.name, sub: item.sub, lon: item.lon, lat: item.lat, tags: slimTags(item.tags), kind, coord: item.coord });
+  else list.unshift({ id: item.id, osm_type: item.osm_type, osm_id: item.osm_id, name: item.name, sub: item.sub, lon: item.lon, lat: item.lat, tags: slimTags(item.tags), kind, coord: item.coord, ov: item.ov, ovId: item.ovId, ovCat: item.ovCat, full: item.full });
   lsSet('kh.saved', list);
   return !ex;
 }
@@ -169,7 +171,7 @@ function render(item, tg, loading) {
   const nm = pickName(tg);
   const title = nm.primary || item.name || t('whatsHere');
   const second = nm.secondary && nm.secondary !== title ? nm.secondary : '';
-  const cat = item.coord ? t('droppedPin') : catLabel(tg);
+  const cat = item.coord ? t('droppedPin') : item.ov ? ovCatLabel(item.ovCat, getLang()) : catLabel(tg);
   const st = ohStatus(tg.opening_hours);
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
   const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
@@ -194,7 +196,8 @@ function render(item, tg, loading) {
   rows.push(irow(t('coordinates'), `<span dir="ltr">${esc(plusEncode(item.lat, item.lon))}</span><small dir="ltr">${fmtCoord(item.lat, item.lon)}</small>`, `<button class="ib" id="pCopy" aria-label="${t('copy')}">${ic('copy', 'sm')}</button>`, 'click'));
   const osmEdit = item.osm_type && item.osm_id ? `https://www.openstreetmap.org/edit?${item.osm_type}=${item.osm_id}` : `https://www.openstreetmap.org/note/new#map=19/${item.lat}/${item.lon}`;
   const osmView = item.osm_type && item.osm_id ? `https://www.openstreetmap.org/${item.osm_type}/${item.osm_id}` : `https://www.openstreetmap.org/#map=18/${item.lat}/${item.lon}`;
-  rows.push(irow(t('suggestEdit'), `<a href="${osmEdit}" target="_blank" rel="noopener">${t('editOsm')}</a> · <a href="${osmView}" target="_blank" rel="noopener">${t('osmLink')}</a>`));
+  if (item.ov) rows.push(irow(t('ovSourceLbl'), `<span class="tag ov-tag">${esc(t('ovUnverified'))}</span> <a href="${OV_ATTR_URL}" target="_blank" rel="noopener">Overture Maps Foundation</a><small>${esc(t('ovHint'))} <a href="${osmEdit}" target="_blank" rel="noopener">${t('ovAddOsm')}</a></small>`));
+  else rows.push(irow(t('suggestEdit'), `<a href="${osmEdit}" target="_blank" rel="noopener">${t('editOsm')}</a> · <a href="${osmView}" target="_blank" rel="noopener">${t('osmLink')}</a>`));
   // facts as tags
   const facts = [];
   if (tg.cuisine) facts.push([ic('cuisine', 'xs'), tg.cuisine.split(';').map(s => s.replace(/_/g, ' ')).join(', ')]);
@@ -231,6 +234,7 @@ function render(item, tg, loading) {
     <h2 class="ptitle" dir="auto">${esc(title)}</h2>
     ${second ? `<p class="psub" dir="auto">${esc(second)}</p>` : ''}
     <p class="psub">${[cat, loc && `<bdi>${esc(loc)}</bdi>`, d].filter(Boolean).map((x, i) => i === 1 ? x : esc(x)).join(' · ')}</p>
+    ${item.ov ? `<p class="psub ov-src"><span class="tag ov-tag">${esc(t('ovUnverified'))}</span> ${esc(t('ovSrcShort'))}</p>` : ''}
     ${statusHtml}
   </div><button class="pclose" id="pClose" aria-label="${t('close')}">${ic('close')}</button></div>
   ${loading && !item.coord ? '<div style="padding:0 16px"><div class="skel" style="width:40%"></div></div>' : ''}
@@ -245,6 +249,8 @@ function render(item, tg, loading) {
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
+  ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic('flag')}<span>${esc(t('ovReport'))}</span></button>
+    <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
   <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
   <div id="pPano"></div>
   <div id="pNearby"></div>
@@ -272,6 +278,15 @@ function render(item, tg, loading) {
   body.querySelector('#pCopy').onclick = async () => { try { await navigator.clipboard.writeText(plusEncode(item.lat, item.lon) + ' ' + item.lat.toFixed(6) + ',' + item.lon.toFixed(6)); toast(t('copied')); } catch {} };
   body.querySelector('#pHome').onclick = () => { toggleSave({ ...it, name: title }, 'home'); toast(t('savedOk')); };
   body.querySelector('#pWork').onclick = () => { toggleSave({ ...it, name: title }, 'work'); toast(t('savedOk')); };
+  const rep = body.querySelector('#pOvRep');
+  if (rep) {
+    const why = body.querySelector('#pOvWhy');
+    rep.onclick = () => { const open = why.hidden; why.hidden = !open; rep.setAttribute('aria-expanded', String(open)); };
+    why.querySelectorAll('button[data-r]').forEach(b => b.onclick = () => {
+      if (!ovReport(item.ovId, b.dataset.r, { track })) return;
+      ovRefresh(App.map); closeSheet(); toast(t('ovReported'), 3500);
+    });
+  }
   if (item._extras) applyExtras(item._extras);
   if (!item._eta && !item._etaTried) { item._etaTried = true; driveEta(item).then(v => { if (!v || cur !== item) return; item._eta = v; const e = $('#pEta'); if (e) e.textContent = fmtDur(v); }).catch(() => {}); }
 }

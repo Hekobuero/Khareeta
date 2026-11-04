@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1421';
+const VERSION = '20261104-1406';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -32,6 +32,8 @@ const SHELL_FILES = [
   'js/place.js',
   'js/photos.js',
   'js/poi.js',
+  'js/overture.js',
+  'js/overture-data.js',
   'js/route.js',
   'js/search.js',
   'js/suggest.js',
@@ -210,6 +212,20 @@ async function poiUpdate() {
   } catch {}
 }
 
+// ----- Overture shops layer (data/overture/): own cache kh-ov, at most MAX_OV entries (oldest dropped) -----
+// index: network first (offline → cached); tiles: cache first, keyed by ?v=<dv>, so a new data version refetches.
+const OV = 'kh-ov', MAX_OV = 150;
+const isOv = p => /\/data\/overture\/(index|t-?\d+_-?\d+)\.json$/.test(p);
+async function ovTrim(c) { const ks = await c.keys(); for (const k of ks.slice(0, Math.max(0, ks.length - MAX_OV))) await c.delete(k); }
+async function ovFetch(req, e) {
+  const c = await caches.open(OV), isIx = /\/index\.json$/.test(new URL(req.url).pathname);
+  if (!isIx) { const h = await c.match(req.url); if (h) return h; }
+  try {
+    const r = await fetch(req, isIx ? { cache: 'no-cache' } : undefined);
+    if (r.ok) e.waitUntil(c.put(req.url, r.clone()).then(() => ovTrim(c)));
+    return r;
+  } catch (err) { const h = await c.match(req.url); if (h) return h; throw err; }
+}
 const isAsset = p => /\/(fonts\/[^/]+\.woff2|sprites\/[^/]+|data\/(poi\/)?[^/]+\.json|icons\/[^/]+\.(png|svg)|favicon[^/]*)$/.test(p) && !p.endsWith('/icons/og-image.png');
 const assetKey = u => { const x = new URL(u); x.search = ''; x.hash = ''; return x.href; };
 async function swr(req, e) {
@@ -269,6 +285,7 @@ self.addEventListener('fetch', e => {
     if (/\/(robots\.txt|sitemap\.xml)$/.test(url.pathname) || url.pathname.endsWith('/icons/og-image.png')) return;
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
+    if (isOv(url.pathname)) return e.respondWith(ovFetch(req, e));
     if (isPoi(url.pathname)) return e.respondWith(poiFetch(req, e));
     if (isAsset(url.pathname)) return e.respondWith(swr(req, e));
     return e.respondWith(caches.match(req, { ignoreSearch: true }).then(h => h || fetch(req).then(r => { if (r.ok) { const cl = r.clone(); caches.open(SHELL).then(c => c.put(req, cl)); } return r; })));

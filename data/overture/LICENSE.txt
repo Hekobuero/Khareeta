@@ -1,0 +1,21 @@
+Khareeta – "Shops (Overture, unverified)" layer data (data/overture/*.json)
+
+Source: Overture Maps Foundation, Places theme, release 2026-10-21.0
+        https://overturemaps.org · https://docs.overturemaps.org/attribution/
+Attribution: © OpenStreetMap contributors, Overture Maps Foundation
+
+Licence: Community Data License Agreement – Permissive, Version 2.0 (CDLA-Permissive-2.0)
+         https://cdla.dev/permissive-2-0/
+
+Foursquare: every record with a Foursquare source (licensed Apache-2.0 within Overture) has been REMOVED
+by scripts/overture/build_overture.py, so no Apache-2.0 NOTICE applies to these files.
+
+Processing (scripts/overture/build_overture.py, reproducible): Syria only, confidence >= 0.7, business
+categories only, person-like names removed, e-mail addresses never exported, entries that duplicate a bundled
+OpenStreetMap POI (similar name within 50 m) removed, trimmed to name/category/phone/website/Facebook/Instagram.
+Entries are unverified; OpenStreetMap remains Khareeta's primary data source.
+
+CDLA-Permissive-2.0 summary of terms (full text at the URL above):
+1. You may use, modify and share the data. 2. When sharing the data you must make the licence text or a
+link to it available. 3. Results of computational use are not restricted. 4. The data is provided "as is",
+without warranty or liability.
