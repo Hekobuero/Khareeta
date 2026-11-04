@@ -182,6 +182,12 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
 .stop input{min-width:0;height:44px;border-radius:12px;border:0;background:var(--k-surface-2);color:var(--k-text);padding:0 14px;font-size:var(--k-text-body);outline:0}
 .stop input.me{color:var(--k-accent)}
 .stop input:focus{box-shadow:0 0 0 2px var(--k-accent)}
+/* iOS Safari zooms into any focused field below 16px. html is 15px (callout), so 1rem = 15px in EN/DE:
+   on touch devices every text field/select gets at least 16px (AR stays at its 17px). No viewport zoom lock (a11y). */
+@media (hover:none),(pointer:coarse){
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:max(16px,var(--k-text-body))!important}
+  .vsel-row .vsel{padding-block:10px} /* keeps the voice row height at 16px text */
+}
 .stop .ib{width:34px;height:34px}
 .addstop{font-size:var(--k-text-sub);color:var(--k-accent);font-weight:600;padding:2px 32px;text-align:start}
 .dir-modes{display:flex;padding:3px;margin-top:12px;background:var(--k-surface-2);border-radius:12px}
