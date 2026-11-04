@@ -533,3 +533,4 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 .tr-city{margin:8px var(--k-gutter) 4px}
 .tr-empty{padding:12px 0;color:var(--k-text-2);font-size:var(--k-text-callout)}
 .tr-line-open #trPill{display:none}
+.tr-ref{max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;line-height:26px;text-align:center}

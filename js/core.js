@@ -41,7 +41,7 @@ export function fitTo(bounds, pad, opts = {}) {
   if (cur.left + cur.right + r.left + r.right > W - 60) { r.left = r.right = 0; }
   // opts.minZoom: never zoom out further than this (a city bbox would otherwise end up at ~z9); keep the bounds' centre
   const { minZoom, ...o } = opts;
-  if (minZoom != null) { const cam = m.cameraForBounds(bounds, { padding: r, maxZoom: o.maxZoom }); if (cam && cam.zoom < minZoom) { m.easeTo({ center: cam.center, zoom: minZoom, bearing: cam.bearing ?? m.getBearing(), duration: o.duration ?? 500 }); return; } }
+  if (minZoom != null) { const cam = m.cameraForBounds(bounds, { padding: r, maxZoom: o.maxZoom }); if (cam && cam.zoom < minZoom) { const lb = maplibregl.LngLatBounds.convert(bounds).getCenter(); m.easeTo({ center: lb, zoom: minZoom, offset: [(r.left - r.right) / 2, (r.top - r.bottom) / 2] /* bounds' centre in the middle of the free area (above the sheet), at any zoom */, bearing: cam.bearing ?? m.getBearing(), duration: o.duration ?? 500 }); return; } }
   m.fitBounds(bounds, { ...o, padding: r });
 }
 let padWait = false;
