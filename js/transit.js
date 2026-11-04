@@ -5,7 +5,7 @@ import { esc, settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, fitTo } from './core.js';
-import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
+import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, badgeRef, cityFitBounds, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
 
 export const TR_LAYERS = ['kh-tr-line', 'kh-tr-sel-case', 'kh-tr-sel', 'kh-tr-stop'];
 const S = { index: null, ix: null, data: {}, city: null, sel: null, q: '' };
@@ -72,7 +72,7 @@ export function toggleTransit(map) {
 }
 const srcNote = () => `<p class="tr-src">${ic('info')}<span>${esc(t('trSrc'))} <a href="${OSM_WIKI_URL}" target="_blank" rel="noopener">${esc(t('trImprove'))}</a> · <span dir="ltr">© OpenStreetMap contributors (ODbL)</span></span></p>`;
 const modeLbl = m => t(m === 'bus' ? 'trBus' : 'trServis');
-const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(l.ref || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
+const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(badgeRef(l.ref) || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
 
 export async function openLines(map) {
   if (!transitOn()) { settings.transit = true; saveSettings(); }
@@ -84,7 +84,7 @@ function listHtml(d) {
   const lang = getLang(), res = sortLines(searchLines(d, S.q));
   if (!d.lines.length) return `<p class="tr-empty">${esc(t('trEmpty'))}</p>`;
   if (!res.length) return `<p class="tr-empty">${esc(t('trNone'))}</p>`;
-  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? `${l.stops.length} ${t('trStops')}` : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
+  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? `${l.stops.length} ${t('trStops')}` : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
 }
 function renderList(map) {
   const d = S.cur, lang = getLang(), cities = Object.keys(S.index?.cities || {});
@@ -103,7 +103,7 @@ function renderList(map) {
   body.onclick = async e => {
     const c = e.target.closest('[data-c]');
     if (c && c.dataset.c !== S.city) {
-      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) fitTo([[b[0], b[1]], [b[2], b[3]]], { top: 30, bottom: 30, left: 30, right: 30 }, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 500 }); renderList(map); } catch { toast(t('trLoadErr')); }
+      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) fitArea(cityFitBounds(S.city, b), 500); renderList(map); } catch { toast(t('trLoadErr')); }
       return;
     }
     const li = e.target.closest('[data-l]'); if (li) showLine(map, +li.dataset.l);
@@ -113,18 +113,22 @@ function renderList(map) {
 // so these are total insets; left/right are symmetric, so LTR and RTL frame the same.
 export const TR_MIN_Z = 12; // a whole city / long line must not zoom out to ~z9 (Aleppo was 9.4)
 const trSheetClosed = () => document.body.classList.remove('tr-line-open');
-function fitLine(map, bb) {
-  const sh = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || Math.round(innerHeight * 0.5);
-  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh + 72, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 600 });
+// Shared by the city switch and a selected line: the bottom inset is the visible sheet, so on iPhone the city /
+// line lands above the sheet (city switch used 30px and ended at z8.75 under the sheet); minZoom keeps it ≥ z12.
+function fitArea(bb, duration = 600) {
+  const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')); // 0 on desktop (side panel)
+  const sh = Number.isFinite(v) ? v : Math.round(innerHeight * 0.5);
+  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh ? sh + 72 : 40, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration });
 }
+const fitLine = (map, bb) => fitArea(bb, 600);
 export function showLine(map, id, fly = true) {
   const d = S.cur, l = d?.lines.find(x => x.id === id); if (!l) return;
   const lang = getLang(); S.sel = id; draw(map);
   const bb = lineBounds(l, d);
   const alt = tAlt(l, lang), row = (k, v) => v ? `<div class="irow"><div class="iv"><label>${esc(t(k))}</label><div class="val" dir="auto">${esc(v)}</div></div></div>` : '';
   const stops = (l.stops || []).map((i, n) => { const s = d.stops[i]; return `<button class="irow click tr-stop" data-s="${i}"><span class="tr-dot">${n + 1}</span><div class="iv"><div class="val" dir="auto">${esc(tName(s, lang) || t('trUnnamed'))}</div>${tAlt(s, lang) ? `<label dir="auto">${esc(tAlt(s, lang))}</label>` : ''}</div></button>`; }).join('');
-  const html = `<div class="phead"><div style="display:flex;gap:10px;align-items:flex-start">${refBadge(l)}<div><h2 class="ptitle" dir="auto">${esc(lineLabel(l, lang))}</h2>
-    ${alt ? `<p class="psub" dir="auto">${esc(alt)}</p>` : ''}<p class="psub">${esc(modeLbl(l.mode))}${l.ref ? ` · ${esc(t('trRef'))} <bdi>${esc(l.ref)}</bdi>` : ''}</p></div></div>
+  const html = `<div class="phead"><div style="display:flex;gap:10px;align-items:flex-start">${refBadge(l)}<div><h2 class="ptitle" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</h2>
+    ${alt ? `<p class="psub" dir="auto">${esc(alt)}</p>` : ''}<p class="psub">${esc(modeLbl(l.mode))}${shortRef(l.ref) ? ` · ${esc(t('trRef'))} <bdi>${esc(shortRef(l.ref))}</bdi>` : ''}</p></div></div>
     <button class="pclose" id="trBack" aria-label="${t('back')}">${ic('close')}</button></div>
     <div class="arow"><button class="abtn" id="trAll">${ic('back')}<span>${esc(t('trTitle'))}</span></button><a class="abtn" href="${osmUrl('relation', l.id)}" target="_blank" rel="noopener">${ic('web')}<span>${esc(t('trOsmView'))}</span></a></div>
     <div class="igroup">${row('trFrom', l.from)}${row('trTo', l.to)}${row('trOperator', l.operator)}</div>
@@ -146,7 +150,7 @@ export function showStop(map, i) {
     <button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
     <div class="arow"><a class="abtn" href="${osmUrl('node', s.id)}" target="_blank" rel="noopener">${ic('web')}<span>${esc(t('trOsmView'))}</span></a></div>
     <div class="dlabel">${esc(t('trAtStop')).toUpperCase()} · ${ls.length}</div>
-    <div class="igroup">${ls.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang))}</div><label>${esc(modeLbl(l.mode))}</label></div></button>`).join('')}</div>
+    <div class="igroup">${ls.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc(modeLbl(l.mode))}</label></div></button>`).join('')}</div>
     ${srcNote()}<div style="height:16px"></div>`;
   const body = openSheet(html, 'half', null); App.sheetKind = 'transit';
   body.querySelector('#trClose').onclick = () => { S.sel = null; draw(map); closeSheet(); };

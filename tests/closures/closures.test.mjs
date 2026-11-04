@@ -309,7 +309,7 @@ test('P1 hide: all eligible events go out in several batches of ≤50 (keepalive
 });
 test('transit: city/line fit never zooms out below z12 (Aleppo was z9.4)', () => {
   const tr = readFileSync(root + 'js/transit.js', 'utf8'), core = readFileSync(root + 'js/core.js', 'utf8');
-  assert.match(tr, /TR_MIN_Z = 12/); assert.doesNotMatch(tr, /map\.fitBounds\(/); assert.equal((tr.match(/minZoom: TR_MIN_Z/g) || []).length, 2);
+  assert.match(tr, /TR_MIN_Z = 12/); assert.doesNotMatch(tr, /map\.fitBounds\(/); assert.equal((tr.match(/minZoom: TR_MIN_Z/g) || []).length, 1); assert.match(tr, /fitArea\(cityFitBounds/); assert.match(tr, /fitLine = \(map, bb\) => fitArea/); // one shared fit (city switch + line)
   assert.match(core, /cam\.zoom < minZoom/);
 });
 test('P3: offline at due time → sent on the online event; P2a: toast says saved / sent shortly (EN/AR/DE)', async (t) => {

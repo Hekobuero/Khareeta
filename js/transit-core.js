@@ -22,11 +22,20 @@ export function tAlt(o, lang) { // the other script, when different
   const p = tName(o, lang), q = lang === 'ar' ? (o.name_en || o.name) : (o.name_ar || o.name);
   return q && q !== p ? q : '';
 }
+// Only short refs ("12", "B4", "١٥") fit a badge; long ones are usually names stuffed into ref=*.
+export const REF_MAX = 6;
+export function shortRef(ref) { const r = String(ref ?? '').trim(); return r && [...r].length <= REF_MAX ? r : ''; }
+// City centre for the city switch (bbox centres fall south of the old towns, e.g. Damascus → al-Midan)
+export const CITY_CENTER = { damascus: [36.3065, 33.5115], aleppo: [37.1595, 36.2005] };
+// Bounds for the city switch: the bbox, re-centred on the city centre (same half-extent), so a min-zoom fit lands on the centre
+export function cityFitBounds(id, b) { const c = CITY_CENTER[id]; if (!c) return [[b[0], b[1]], [b[2], b[3]]]; const hw = (b[2] - b[0]) / 2, hh = (b[3] - b[1]) / 2; return [[c[0] - hw, c[1] - hh], [c[0] + hw, c[1] + hh]]; }
+// Badge text: a short ref as is, else the leading number of a long ref ('1 الدائري الجنوبي' → '1'), else ''
+export function badgeRef(ref) { const r = shortRef(ref); if (r) return r; const m = String(ref ?? '').trim().match(/^\d+/); return m && m[0].length <= REF_MAX ? m[0] : ''; }
 export function lineLabel(l, lang) {
   const n = tName(l, lang);
   if (n) return n;
   if (l.from || l.to) return [l.from, l.to].filter(Boolean).join(' → ');
-  return l.ref ? String(l.ref) : '#' + l.id;
+  return l.ref && !shortRef(l.ref) ? String(l.ref) : ''; // long OSM refs (often a full name) become the title; '' = unnamed (UI: trNoName)
 }
 // search lines by ref / names / from / to / operator / served stop names
 export function searchLines(data, q) {

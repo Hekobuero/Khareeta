@@ -8,9 +8,10 @@
    "minibus": 1
   },
   "with_geometry": 13,
+  "dropped_no_path": 0,
   "with_stops": 12,
-  "bytes": 17007,
-  "gzip_bytes": 4844,
+  "bytes": 17027,
+  "gzip_bytes": 4863,
   "osm_base": "2026-11-04T20:19:14Z"
  },
  "aleppo": {
@@ -21,9 +22,10 @@
    "bus": 29
   },
   "with_geometry": 29,
+  "dropped_no_path": 0,
   "with_stops": 21,
-  "bytes": 40252,
-  "gzip_bytes": 8716,
+  "bytes": 40272,
+  "gzip_bytes": 8737,
   "osm_base": "2026-11-04T20:17:10Z"
  }
 }
