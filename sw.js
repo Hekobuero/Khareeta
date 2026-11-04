@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1237';
+const VERSION = '20261104-1242';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -230,7 +230,8 @@ async function photoFetch(req, e) {
   if (img) { const hit = await c.match(req.url); if (hit) return hit; }
   try {
     const r = await (img ? fetch(req) : Promise.race([fetch(req), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
-    if (r.ok && r.status === 200 && r.type !== 'opaque') e.waitUntil(c.delete(req.url).then(() => c.put(req.url, r.clone())).then(() => photoTrim(c, img ? isPhotoImg : isPhotoApi, img ? MAX_PHOTO_IMG : MAX_PHOTO_API)).catch(() => {}));
+    // Clone synchronously, before the page gets r and consumes its body (a later r.clone() throws "body used").
+    if (r.ok && r.status === 200 && r.type !== 'opaque') { const cl = r.clone(); e.waitUntil(c.delete(req.url).then(() => c.put(req.url, cl)).then(() => photoTrim(c, img ? isPhotoImg : isPhotoApi, img ? MAX_PHOTO_IMG : MAX_PHOTO_API)).catch(() => {})); }
     return r;
   } catch (err) { const hit = await c.match(req.url); if (hit) return hit; throw err; }
 }

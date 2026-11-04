@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { commonsFile, commonsCategory, validQid, photoSources, p18Files, imageInfoUrl, categoryUrl, wikidataUrl, parseImageInfo, plain, loadPhotos, THUMB_W } from '../../js/photos.js';
+import { commonsFile, commonsCategory, validQid, photoSources, p18Files, imageInfoUrl, categoryUrl, wikidataUrl, parseImageInfo, plain, loadPhotos, THUMB_W, photoTags, LICENSE_HOSTS } from '../../js/photos.js';
 
 test('commonsFile: accepts only Wikimedia Commons', () => {
   assert.equal(commonsFile('File:Umayyad Mosque.jpg'), 'File:Umayyad Mosque.jpg');
@@ -61,7 +61,7 @@ test('p18Files: skips deprecated and junk', () => {
 
 test('plain: strips markup and entities', () => {
   assert.equal(plain('<a href="//commons.wikimedia.org/wiki/User:X">Jane &amp; Joe</a>\n<span>Doe</span>'), 'Jane & Joe Doe');
-  assert.equal(plain('<script>x</script>ok'), 'x ok');
+  assert.equal(plain('<script>x</script>ok'), 'ok');
   assert.equal(plain(undefined), '');
 });
 
@@ -127,4 +127,54 @@ test('service worker: photo cache is bounded and precaches photos.js', () => {
   assert.ok(re.test('https://thumb.wikimedia.org/wikipedia/commons/thumb/0/05/T.jpg/500px-T.jpg'));
   assert.ok(re.test('https://upload.wikimedia.org/wikipedia/commons/0/05/T.jpg'));
   assert.ok(!re.test('https://example.com/wikipedia/commons/x.jpg'));
+});
+
+// ---- QA round 2 (PR #13) ----
+test('service worker: photo response is cloned before the page consumes it (kh-photos gets filled)', async () => {
+  const sw = readFileSync(new URL('../../sw.js', import.meta.url), 'utf8');
+  const src = sw.slice(sw.indexOf('const PHOTOS ='), sw.indexOf("self.addEventListener('fetch'"));
+  const store = new Map();
+  const cache = { match: async u => store.get(u), put: async (u, r) => { store.set(u, await r.text()); }, delete: async u => store.delete(u), keys: async () => [...store.keys()].map(url => ({ url })) };
+  // Response whose clone() throws once the body was read – like the real Fetch API.
+  const mkRes = body => { let used = false; const r = { ok: true, status: 200, type: 'cors', text: async () => { used = true; return body; }, clone() { if (used) throw new TypeError('body used'); return mkRes(body); } }; return r; };
+  const fn = new Function('caches', 'fetch', 'setTimeout', src + '; return photoFetch;');
+  const photoFetch = fn({ open: async () => cache }, async () => mkRes('IMG'), setTimeout);
+  const url = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/400px-X.jpg';
+  const waits = [];
+  const r = await photoFetch({ url }, { waitUntil: p => waits.push(p) });
+  await r.text(); // page consumes the body first
+  await Promise.all(waits);
+  assert.equal(store.get(url), 'IMG');
+});
+
+test('licence and page links: only known hosts', () => {
+  const j = { query: { pages: [
+    { title: 'File:A.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/a.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:A.jpg', extmetadata: { LicenseShortName: { value: 'CC BY-SA 4.0' }, LicenseUrl: { value: 'https://creativecommons.org/licenses/by-sa/4.0' } } }] },
+    { title: 'File:B.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/b.jpg', descriptionurl: 'https://commons.wikimedia.org/wiki/File:B.jpg', extmetadata: { LicenseShortName: { value: 'Custom' }, LicenseUrl: { value: 'https://evil.example/licence' } } }] },
+    { title: 'File:C.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/c.jpg', descriptionurl: 'https://meta.wikimedia.org/wiki/File:C.jpg' }] },
+  ] } };
+  const l = parseImageInfo(j);
+  assert.equal(l.length, 2);
+  assert.equal(l[0].licenseUrl, 'https://creativecommons.org/licenses/by-sa/4.0');
+  assert.equal(l[1].licenseUrl, null);
+  assert.equal(l[1].license, 'Custom');
+  assert.ok(l.every(p => new URL(p.page).hostname === 'commons.wikimedia.org'));
+  assert.deepEqual(LICENSE_HOSTS.slice().sort(), ['creativecommons.org', 'gnu.org', 'opensource.org', 'wikimedia.org', 'wikipedia.org']);
+});
+
+test('plain: drops script/style content; commonsFile rejects http', () => {
+  assert.equal(plain('<style>.a{color:red}</style>Jane <script>alert(1)</script>Doe'), 'Jane Doe');
+  assert.equal(plain('A<script type="x">bad'), 'A');
+  assert.equal(commonsFile('http://commons.wikimedia.org/wiki/File:A.jpg'), null);
+  assert.equal(commonsFile('http://upload.wikimedia.org/wikipedia/commons/a/ab/A.jpg'), null);
+});
+
+test('photoTags: only photo keys (remembered for offline deep links)', () => {
+  assert.deepEqual(photoTags({ name: 'X', wikidata: ' Q1 ', image: '', phone: '1' }), { wikidata: 'Q1' });
+});
+
+test('css: skeleton caption reserves the real caption height (no CLS)', () => {
+  const css = readFileSync(new URL('../../css/app.css', import.meta.url), 'utf8');
+  const m = css.match(/\.pphotos \.ph-cap \.skel\{[^}]*height:(\d+)px;margin:(\d+)px 0/);
+  assert.ok(m); assert.equal(+m[1] + 2 * +m[2], 44);
 });

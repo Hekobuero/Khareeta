@@ -9,7 +9,21 @@ import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
-import { photoSources, loadPhotos } from './photos.js';
+import { photoSources, loadPhotos, photoTags } from './photos.js';
+// Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
+const PHK = 'kh.phtags', PH_MAX = 200;
+const phRead = () => { try { return JSON.parse(localStorage.getItem(PHK)) || {}; } catch { return {}; } };
+function withPhotoTags(item, tg) {
+  const id = item.osm_type && item.osm_id ? item.osm_type[0] + item.osm_id : null;
+  const own = photoTags(tg);
+  if (!id) return tg;
+  const m = phRead();
+  if (Object.keys(own).length) {
+    if (JSON.stringify(m[id]) !== JSON.stringify(own)) { delete m[id]; m[id] = own; const ks = Object.keys(m); ks.slice(0, Math.max(0, ks.length - PH_MAX)).forEach(k => delete m[k]); try { localStorage.setItem(PHK, JSON.stringify(m)); } catch {} }
+    return tg;
+  }
+  return m[id] ? { ...m[id], ...tg } : tg;
+}
 
 let cur = null, token = 0;
 const navActiveSafe = () => document.body.classList.contains('nav');
@@ -208,7 +222,7 @@ function render(item, tg, loading) {
     ${fourth}
   </div>
   ${contactRow}
-  ${!settings.lowData && photoSources(tg).any ? photoBox() : ''}
+  ${!settings.lowData && photoSources(withPhotoTags(item, tg)).any ? photoBox() : ''}
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
@@ -255,6 +269,7 @@ async function extras(item, tg, my, phase) {
     jobs.push(nearby(item).then(n => ex.nearby = n).catch(() => {}));
     if (!settings.lowData) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
   } else if (!settings.lowData) {
+    tg = withPhotoTags(item, tg);
     if (photoSources(tg).any) jobs.push(loadPhotos(tg, u => fetchJSON(u, {}, 8000)).then(p => {
       ex.photos = p;
       if (p.error === 'offline') addEventListener('online', () => { if (my === token && cur === item) extras(item, tg, my, true); }, { once: true });

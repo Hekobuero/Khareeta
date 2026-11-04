@@ -17,7 +17,7 @@ export function commonsFile(v) {
   let m = v.match(/^(?:File|Image):(.+)$/i);
   if (m) return IMG.test(m[1]) ? 'File:' + normTitle(m[1]) : null;
   let u; try { u = new URL(v); } catch { return null; }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  if (u.protocol !== 'https:') return null; // http image tags are rejected (no mixed content, no downgrade)
   const h = u.hostname.toLowerCase(), p = dec(u.pathname);
   let name = null;
   if (h === 'commons.wikimedia.org' || h === 'commons.m.wikimedia.org') {
@@ -57,9 +57,15 @@ export const categoryUrl = cat => `${API}?action=query&generator=categorymembers
 
 // HTML from extmetadata → plain text (no markup reaches the DOM).
 export function plain(html) {
-  return String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/\s+/g, ' ').trim();
+  return String(html || '').replace(/<(script|style)\b[^>]*>[\s\S]*?(<\/\1\s*>|$)/gi, ' ').replace(/<!--[\s\S]*?(-->|$)/g, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/\s+/g, ' ').trim();
 }
 const httpsOnly = (u, hosts) => { if (!u) return null; try { const x = new URL(u, 'https://commons.wikimedia.org/'); return x.protocol === 'https:' && (!hosts || hosts.some(h => x.hostname === h || x.hostname.endsWith('.' + h))) ? x.href : null; } catch { return null; } };
+
+// Licence links only to known licence hosts; anything else is shown as plain text.
+export const LICENSE_HOSTS = ['creativecommons.org', 'wikimedia.org', 'wikipedia.org', 'gnu.org', 'opensource.org'];
+// Only the photo-relevant tags (remembered per place so an offline deep link can still show cached photos).
+export const PHOTO_KEYS = ['image', 'wikimedia_commons', 'wikidata'];
+export function photoTags(tg = {}) { const o = {}; for (const k of PHOTO_KEYS) if (typeof tg[k] === 'string' && tg[k].trim()) o[k] = tg[k].trim().slice(0, 500); return o; }
 
 // Commons API (formatversion=2) → [{ title, thumb, width, height, page, artist, license, licenseUrl, alt }]
 export function parseImageInfo(j, order = []) {
@@ -68,14 +74,14 @@ export function parseImageInfo(j, order = []) {
     const ii = p.imageinfo[0], md = ii.extmetadata || {}, val = k => md[k] && md[k].value;
     if (ii.mime && !/^image\/(jpeg|png|webp|gif|tiff|svg\+xml)$/.test(ii.mime)) return null;
     const thumb = httpsOnly(ii.thumburl || ii.url, ['upload.wikimedia.org', 'thumb.wikimedia.org']);
-    const page = httpsOnly(ii.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(p.title)}`, ['wikimedia.org']);
+    const page = httpsOnly(ii.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(p.title)}`, ['commons.wikimedia.org']);
     if (!thumb || !page) return null;
     const tw = ii.thumbwidth || THUMB_W, th = ii.thumbheight || Math.round(THUMB_W * 3 / 4);
     return {
       title: p.title, thumb, width: tw, height: th, page,
       artist: plain(val('Artist')).slice(0, 120) || null,
       license: plain(val('LicenseShortName')).slice(0, 60) || null,
-      licenseUrl: httpsOnly(plain(val('LicenseUrl')) || '', null),
+      licenseUrl: httpsOnly(plain(val('LicenseUrl')) || '', LICENSE_HOSTS),
       alt: (plain(val('ObjectName')) || p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '')).slice(0, 140),
     };
   }).filter(Boolean);

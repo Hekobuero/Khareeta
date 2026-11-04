@@ -442,5 +442,5 @@ button,a,[role=button],summary{touch-action:manipulation}
 .pphotos .ph-empty .ph-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--k-text-3);font-size:var(--k-text-sub);text-align:center;padding:12px}
 .pphotos .ph-cap{font-size:var(--k-text-caption);line-height:1.35;color:var(--k-text-3);overflow-wrap:anywhere}
 .pphotos .ph-cap a{display:inline-flex;align-items:center;min-height:var(--k-tap);color:var(--k-accent);font-weight:500}
-.pphotos .ph-cap .skel{display:block;height:12px}
+.pphotos .ph-cap .skel{display:block;height:12px;margin:16px 0}
 @media (prefers-reduced-motion: reduce){.pphotos .skel-box{animation:none}}
