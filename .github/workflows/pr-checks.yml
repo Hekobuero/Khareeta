@@ -120,16 +120,22 @@ jobs:
           cache: npm
           cache-dependency-path: tests/voice/package-lock.json
       - run: npm ci
-      - name: Install WebKit (+ system deps)
+      - name: Install WebKit + Chromium (+ system deps)
         timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            timeout 300 npx playwright install --with-deps webkit && exit 0
+            timeout 300 npx playwright install --with-deps webkit chromium && exit 0
             echo "::warning::playwright webkit install attempt $i failed/stalled, retrying"
             rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
           done
           exit 1
       - run: node ios-webkit.test.js
+        timeout-minutes: 5
+      - name: iPhone zoom (pinch/double-tap/buttons, no page overflow)
+        run: node ios-zoom.test.js
+        timeout-minutes: 5
+      - name: Sheet drag (Chromium real touch + WebKit pointer/mouse)
+        run: node sheet-drag.test.js
         timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()
