@@ -487,7 +487,7 @@ function beginNav(r, sim, coords) {
   wake();
   for (const ev of USER_MOVE) App.map.on(ev, onDrag);
   navVoiceStart(); // the single start prompt comes from navPrompt() on the first fix, in the chosen spoken variant
-  if (sim) simulate(r);
+  if (sim || !('geolocation' in navigator)) simulate(r);
   else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   // camera on the user's position (follow mode), facing along the route from the nearest point – never the destination/overview
   const near = nearestOnLine(start, r.coords, N.cum), rb = near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : 0;
