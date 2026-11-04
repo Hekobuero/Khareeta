@@ -199,10 +199,17 @@ de: {
 }};
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];
-// Start language: a manual choice (localStorage kh.lang) always wins; otherwise Arabic browsers (ar, ar-SY, …) start in AR,
-// everything else in EN. DE is never auto-selected. Same rule as the pre-paint script in index.html (no LTR flash).
-export function autoLang() { try { const n = (navigator.languages && navigator.languages[0]) || navigator.language || ''; return /^ar(-|_|$)/i.test(n) ? 'ar' : 'en'; } catch { return 'en'; } }
-let lang = autoLang();
+// Start language: a manual choice (localStorage kh.lang) always wins; otherwise the first entry of navigator.languages
+// (fallback navigator.language) whose primary subtag is de/en/ar (de-AT, ar-SY, en-GB …); none -> EN.
+// Same rule as the pre-paint script in index.html (no LTR flash).
+export function pickLang(list, saved) {
+  if (saved && S[saved]) return saved;
+  for (const n of list || []) { const p = String(n || '').toLowerCase().split(/[-_]/)[0]; if (S[p]) return p; }
+  return 'en';
+}
+export function autoLang() { try { return pickLang(navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]); } catch { return 'en'; } }
+let lang = 'en';
+try { lang = autoLang(); } catch {}
 try { const s = localStorage.getItem('kh.lang'); if (s && S[s]) lang = s; } catch {}
 export function getLang() { return lang; }
 export function setLang(l) { if (!S[l]) return; lang = l; try { localStorage.setItem('kh.lang', l); } catch {} applyDir(); }
