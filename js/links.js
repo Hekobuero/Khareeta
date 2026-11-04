@@ -17,6 +17,7 @@ export function normPhone(raw) {
   else if (!plus && !d.startsWith(CC) && d.length >= 6 && d.length <= 8) return { tel: d, display: d }; // short/local number
   if (d.startsWith(CC + '0')) d = CC + d.slice(4); // +963 (0)11 …
   if (d.length < 8 || d.length > 15) return null;
+  if (d.startsWith(CC) && (d.length < 3 + 8 || d.length > 3 + 9)) return null; // Syrian national numbers: 8–9 digits
   return { tel: '+' + d, display: fmtIntl(d) };
 }
 function fmtIntl(d) {
@@ -44,7 +45,7 @@ export function safeUrl(v) {
   if (!/^[a-z][a-z0-9+.-]*:/i.test(s)) s = 'https://' + s;
   let u; try { u = new URL(s); } catch { return null; }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(u.hostname) && !/^xn--/.test(u.hostname)) return null;
+  if (!/^[a-z0-9.-]+\.([a-z]{2,}|xn--[a-z0-9-]{2,})$/i.test(u.hostname)) return null; // URL() already punycodes IDN hosts
   if (u.username || u.password) return null;
   return u;
 }
@@ -82,6 +83,8 @@ export function socialLink(kind, v) {
         const nm = segs.length > 2 ? segs[1] : last.replace(/-?\d{8,20}$/, '');
         return id ? { href: c.base + id, label: nm.replace(/-/g, ' ').slice(0, 40) || 'Facebook' } : null;
       }
+      // new FB share links (/share/<id>/, /share/p/<id>/) are real page/post links: keep them on facebook.com
+      if (/^share$/i.test(segs[0] || '') && segs.length <= 3 && /^[A-Za-z0-9]{6,40}$/.test(segs[segs.length - 1] || '')) return { href: c.base + segs.map(encodeURIComponent).join('/') + '/', label: 'Facebook' };
     }
     h = segs[0] || null;
     if (h && /^(share|sharer|home\.php|login|groups|watch|reel|p|stories|explore|joinchat|s)$/i.test(h)) return null;

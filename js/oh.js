@@ -25,10 +25,13 @@ export function parseOH(input) {
 function parse(str) {
   str = str.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[–—−]/g, '-').replace(/\s+/g, ' ').trim();
   if (!str || str.length > 400) return null;
-  str = str.replace(/"[^"]*"/g, ' ').trim() // comments
+  // quoted comments ("summer only", "by appointment") make the times unreliable: keep them for the UI (uncertain)
+  const notes = [];
+  str = str.replace(/"([^"]*)"/g, (_, c) => { if (c.trim()) notes.push(c.trim()); return ' '; }).replace(/\s+/g, ' ').trim()
     .replace(/\b(mon|tue|wed|thu|fri|sat|sun)\b/gi, x => x.slice(0, 2)) // "Sat-Thu" → "Sa-Th" (common mistake)
     .replace(/^ph\s*,\s*/i, ''); // "PH,Mo-Su …"
-  if (/^24\/(7|24)$/i.test(str)) return { always: true, week: full() };
+  const note = notes.length ? notes.join(' · ').slice(0, 120) : null;
+  if (/^24\/(7|24)$/i.test(str)) return { always: true, week: full(), note };
   const week = Array.from({ length: 7 }, () => null);
   // rule separators: ";" and "||" always (";" overrides earlier rules for the same days), "," only when the
   // previous part ends with a time/off and the next one starts with a weekday/PH (additive rule)
@@ -59,13 +62,15 @@ function parse(str) {
     timePart = timePart.replace(/\s+open$/i, '');
     const ranges = [];
     for (const tr of timePart.split(/\s*,\s*/)) {
-      const mm = tr.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\+?$/) || tr.match(/^(\d{1,2}):(\d{2})\+$/);
+      // "09:00+" = open end (closing time unknown), "18:00-02:00+" = closes at 02:00 or later: both flagged `oe`
+      const mm = tr.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})(\+?)$/) || tr.match(/^(\d{1,2}):(\d{2})(\+)$/);
       if (!mm) return null;
-      const a = +mm[1] * 60 + +mm[2];
-      let b = mm[3] !== undefined ? +mm[3] * 60 + +mm[4] : 1440;
+      const a = +mm[1] * 60 + +mm[2], oe = (mm[5] ?? mm[3]) === '+';
+      let b = mm[4] !== undefined ? +mm[3] * 60 + +mm[4] : 1440;
       if (a >= 1440 || +mm[2] > 59 || (mm[4] !== undefined && +mm[4] > 59) || b > 2880) return null;
-      if (b <= a) b += 1440; // past midnight
-      ranges.push([a, b]);
+      if (mm[4] !== undefined && b <= a) b += 1440; // past midnight
+      if (b <= a) b = a + 1; // "23:59+" edge case
+      ranges.push(oe ? [a, b, 1] : [a, b]);
     }
     ranges.sort((x, y) => x[0] - y[0]);
     days.forEach(d => week[d] = add && week[d] ? week[d].concat(ranges).sort((x, y) => x[0] - y[0]) : ranges.slice());
@@ -73,8 +78,8 @@ function parse(str) {
   }
   if (!any) return null;
   const w = week.map(x => x || []);
-  const always = w.every(x => x.length === 1 && x[0][0] === 0 && x[0][1] >= 1440);
-  return { always, week: w };
+  const always = w.every(x => x.length === 1 && x[0][0] === 0 && x[0][1] >= 1440 && !x[0][2]);
+  return { always, week: w, note };
 }
 function full() { return Array.from({ length: 7 }, () => [[0, 1440]]); }
 function dayList(s) {
@@ -94,29 +99,36 @@ export function damascusNow(date = new Date()) {
   return { dow: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
 
-// Status at `date`: { open, always, soon, closes: {min, inDays}, opens: {min, inDays, dow} } (times local Syrian)
+const asOH = input => typeof input === 'string' ? parseOH(input)
+  : input && typeof input === 'object' && Array.isArray(input.week) && input.week.length === 7 ? input : null;
+
+// Status at `date`: { open, always, soon, openEnd, closes: {min, inDays}, opens: {min, inDays, dow}, note }
+// (times local Syrian). openEnd: the current range has no known end ("09:00+") → closes is null, never "soon".
+// note: a quoted OSM comment ("summer only") – the state is then uncertain and the UI must not claim it for sure.
 export function ohState(input, date = new Date()) {
-  const oh = typeof input === 'string' ? parseOH(input) : input;
+  const oh = asOH(input);
   if (!oh) return null;
-  if (oh.always) return { open: true, always: true, soon: false, closes: null, opens: null };
+  const note = oh.note || null;
+  if (oh.always) return { open: true, always: true, soon: false, openEnd: false, closes: null, opens: null, note };
   const { dow, min } = damascusNow(date);
   const iv = [];
   for (let k = -1; k <= 7; k++) {
     const d = ((dow + k) % 7 + 7) % 7;
-    for (const [a, b] of oh.week[d]) iv.push([k * 1440 + a, k * 1440 + b]);
+    for (const [a, b, oe] of oh.week[d]) iv.push([k * 1440 + a, k * 1440 + b, oe]);
   }
   iv.sort((x, y) => x[0] - y[0]);
   const cur = iv.find(([a, b]) => a <= min && min < b);
   if (cur) {
-    let end = cur[1], grew = true;
-    while (grew) { grew = false; for (const [a, b] of iv) if (a <= end && b > end) { end = b; grew = true; } }
-    if (end - min >= 7 * 1440) return { open: true, always: true, soon: false, closes: null, opens: null };
-    return { open: true, always: false, soon: end - min <= 60, closes: { min: ((end % 1440) + 1440) % 1440, inDays: Math.floor(end / 1440) }, opens: null };
+    let end = cur[1], oe = !!cur[2], grew = true;
+    while (grew) { grew = false; for (const [a, b, o] of iv) if (a <= end && b > end) { end = b; oe = !!o; grew = true; } }
+    if (end - min >= 7 * 1440 && !oe) return { open: true, always: true, soon: false, openEnd: false, closes: null, opens: null, note };
+    if (oe) return { open: true, always: false, soon: false, openEnd: true, closes: null, opens: null, since: ((cur[0] % 1440) + 1440) % 1440, note };
+    return { open: true, always: false, soon: end - min <= 60, openEnd: false, closes: { min: ((end % 1440) + 1440) % 1440, inDays: Math.floor(end / 1440) }, opens: null, note };
   }
   const next = iv.find(([a]) => a > min);
-  if (!next) return { open: false, always: false, soon: false, closes: null, opens: null };
+  if (!next) return { open: false, always: false, soon: false, openEnd: false, closes: null, opens: null, note };
   const inDays = Math.floor(next[0] / 1440);
-  return { open: false, always: false, soon: false, closes: null, opens: { min: next[0] - inDays * 1440, inDays, dow: (dow + inDays) % 7 } };
+  return { open: false, always: false, soon: false, openEnd: false, closes: null, opens: { min: next[0] - inDays * 1440, inDays, dow: (dow + inDays) % 7 }, note };
 }
 
 // Week starts Saturday in Arabic (Syrian calendar, weekend Fri/Sat), Monday in EN/DE.
@@ -124,13 +136,13 @@ export function weekOrder(lang) { return lang === 'ar' ? [6, 0, 1, 2, 3, 4, 5] :
 
 export function hhmm(m) { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
 
-// Rows for the week view: [{ dow, ranges: [[a,b]…] (b may be >1440 = past midnight), closed, allDay, today }]
+// Rows for the week view: [{ dow, ranges: [[a,b,oe?]…] (b may be >1440 = past midnight, oe = open end), closed, allDay, today }]
 export function ohWeek(input, lang, date = new Date()) {
-  const oh = typeof input === 'string' ? parseOH(input) : input;
+  const oh = asOH(input);
   if (!oh) return null;
   const today = damascusNow(date).dow;
   return weekOrder(lang).map(d => {
     const r = oh.week[d];
-    return { dow: d, ranges: r, closed: !r.length, allDay: r.length === 1 && r[0][0] === 0 && r[0][1] >= 1440, today: d === today };
+    return { dow: d, ranges: r, closed: !r.length, allDay: r.length === 1 && r[0][0] === 0 && r[0][1] >= 1440 && !r[0][2], today: d === today };
   });
 }

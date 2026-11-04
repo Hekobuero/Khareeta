@@ -1,4 +1,4 @@
-// Unit tests for the place-detail helpers (no dependencies): node --test tests/placeinfo/
+// Unit tests for the place-detail helpers (no dependencies): node --test tests/placeinfo/*.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseOH, ohState, ohWeek, weekOrder, damascusNow, hhmm } from '../../js/oh.js';
@@ -20,7 +20,7 @@ test('parseOH: common rules', () => {
   assert.deepEqual(week('Fr-Mo 10:00-12:00')[3], []);
   assert.deepEqual(week('18:00-02:00')[3], [[1080, 1560]]); // past midnight
   assert.deepEqual(week('Sa-Th 10:00-25:00; Fr 11:00-25:00')[5], [[660, 1500]]);
-  assert.deepEqual(week('Mo-Su 10:00+')[1], [[600, 1440]]);
+  assert.deepEqual(week('Mo-Su 10:00+')[1], [[600, 1440, 1]]); // open end flagged
 });
 test('parseOH: tolerant forms', () => {
   assert.deepEqual(week('Sat-Thu 09:00-21:00')[6], [[540, 1260]]);
@@ -112,4 +112,39 @@ test('socials(): contact:* and short keys, only valid ones, website that is a pr
   assert.deepEqual(socials({ website: 'https://www.facebook.com/WinnereCafeOfficial/' }).map(x => x.href), ['https://www.facebook.com/WinnereCafeOfficial']);
   assert.deepEqual(socials({ name: 'x' }), []);
   for (const x of s) assert.match(x.href, /^https:\/\/(www\.facebook\.com|www\.instagram\.com|wa\.me|t\.me)\/[A-Za-z0-9._\-\/?=%]+$/);
+});
+
+// QA P2/P3 follow-ups
+test('open end "09:00+" is open-ended, never a 00:00 closing', () => {
+  const s = ohState('Mo-Fr 09:00+', at('2026-11-03T12:00:00')); // Tue 12:00 Damascus
+  assert.equal(s.open, true); assert.equal(s.openEnd, true); assert.equal(s.closes, null); assert.equal(s.soon, false);
+  const s2 = ohState('Mo-Fr 18:00-02:00+', at('2026-11-03T19:00:00')); // Tue 19:00
+  assert.equal(s2.open, true); assert.equal(s2.openEnd, true);
+});
+test('quoted comments are kept as a note (uncertain state)', () => {
+  const p = parseOH('Mo-Fr 08:00-16:00 "summer only"');
+  assert.ok(p); assert.equal(p.note, 'summer only');
+  assert.equal(ohState(p, at('2026-11-03T12:00:00')).note, 'summer only');
+});
+test('ohState / ohWeek never throw on junk input', () => {
+  for (const v of [null, undefined, 5, {}, { week: 3 }, [], '"only a comment"', 'garbage']) {
+    assert.doesNotThrow(() => ohState(v)); assert.doesNotThrow(() => ohWeek(v, 'en'));
+  }
+  assert.equal(ohState({ week: 3 }), null);
+});
+test('+963 numbers with wrong length are rejected', () => {
+  assert.equal(normPhone('+963 11 2345'), null);
+  assert.equal(normPhone('+963 944 123 456 789'), null);
+  assert.equal(normPhone('+963 944 123 456').tel, '+963944123456');
+  assert.equal(normPhone('011 234 5678').tel, '+963112345678');
+});
+test('facebook.com/share links are kept, sharer is not', () => {
+  assert.equal(socialLink('facebook', 'https://www.facebook.com/share/1AbCdEf9xY/').href, 'https://www.facebook.com/share/1AbCdEf9xY/');
+  assert.equal(socialLink('facebook', 'https://www.facebook.com/sharer/sharer.php?u=x'), null);
+  assert.equal(socialLink('facebook', 'https://evil.com/share/1AbCdEf9xY/'), null);
+});
+test('IDN websites are accepted (punycode host)', () => {
+  const u = safeUrl('https://موقع.سوريا');
+  assert.ok(u); assert.match(u.hostname, /^xn--.*\.xn--/);
+  assert.ok(safeUrl('https://xn--mgbh0fb.xn--ogbpf8fl/'));
 });

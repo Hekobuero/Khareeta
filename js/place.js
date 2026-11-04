@@ -19,22 +19,23 @@ const tagCache = new Map();
 async function loadTags(item) {
   const key = item.osm_type + item.osm_id;
   if (tagCache.has(key)) return tagCache.get(key);
-  let tags = null, ll = null, addr = null, parts = null;
+  let tags = null, ll = null, addr = null, parts = null, thin = false;
   // Nominatim lookup returns all tags (extratags + namedetails) and a formatted address
   try {
     const j = await nominatim(`lookup?osm_ids=${item.osm_type[0].toUpperCase()}${item.osm_id}&format=jsonv2&extratags=1&namedetails=1&addressdetails=1&accept-language=${getLang()}`);
     if (j[0]) {
       tags = Object.assign({}, j[0].extratags, j[0].namedetails, { [j[0].category]: j[0].type }); ll = [+j[0].lon, +j[0].lat];
+      thin = !j[0].extratags || !Object.keys(j[0].extratags).length; // Nominatim without extratags → ask Overpass too
       const a = j[0].address || {};
       addr = [a.road ? a.road + (a.house_number ? ' ' + a.house_number : '') : null, a.neighbourhood || a.quarter || a.suburb, a.city || a.town || a.village || a.municipality].filter(Boolean).join(', ');
       parts = { nb: a.neighbourhood || a.quarter || a.suburb, city: a.city || a.town || a.village || a.municipality };
     }
   } catch {}
-  if (!tags) {
+  if (!tags || thin) {
     try {
       const j = await overpass(`[out:json][timeout:12];${item.osm_type}(${item.osm_id});out tags center 1;`, 12000);
       const el = j.elements[0];
-      if (el) { tags = el.tags || {}; ll = [el.lon ?? el.center?.lon, el.lat ?? el.center?.lat]; }
+      if (el) { tags = Object.assign({}, tags, el.tags || {}); if (!ll) ll = [el.lon ?? el.center?.lon, el.lat ?? el.center?.lat]; }
     } catch {}
   }
   const r = tags ? { tags, ll, addr, parts } : null;
@@ -93,8 +94,23 @@ export async function openPlace(item, opts = {}) {
   }
   extras(item, item.tags || {}, my, false);
   if (item.coord || !item.osm_type || item.full) { extras(item, item.tags || {}, my, true); return; }
+  await loadDetails(item, my);
+}
+// Full OSM tags (Nominatim → Overpass) → re-render the sheet when they arrive; offline → note + retry on "online".
+async function loadDetails(item, my) {
   const r = await loadTags(item);
   if (my !== token || cur !== item) return;
+  if (!r) {
+    // offline / Nominatim+Overpass both failed (e.g. deep link while offline): graceful state, retry when back online
+    render(item, item.tags || {}, false);
+    const n = document.createElement('p'); n.className = 'pnote muted'; n.id = 'pNoData'; n.setAttribute('role', 'status');
+    n.textContent = t(navigator.onLine === false ? 'detailsOffline' : 'detailsFailed');
+    $('.phead')?.after(n);
+    extras(item, item.tags || {}, my, true);
+    const retry = () => { if (my === token && cur === item) { $('#pNoData')?.remove(); loadDetails(item, my); } };
+    addEventListener('online', retry, { once: true });
+    return;
+  }
   if (r) { item.tags = Object.assign({}, item.tags, r.tags); if (r.parts) item.addrParts = r.parts; if (r.addr && !addrFromTags(item.tags)) item.sub = r.addr; if (r.ll && r.ll[0] != null && !item.lon) { item.lon = r.ll[0]; item.lat = r.ll[1]; } }
   render(item, item.tags, false);
   extras(item, item.tags, my, true);
@@ -133,7 +149,7 @@ function render(item, tg, loading) {
     const tbl = ohTable(tg.opening_hours);
     const td = tbl && (tbl.find(r => r.today) || tbl[0]);
     rows.push(tbl
-      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl" aria-label="${esc(t('showWeek'))}"><div class="iv"><label>${t('hours')}</label><div class="val"><bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
+      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
       : irow(t('hours'), `<bdi class="oh-raw">${esc(String(tg.opening_hours).slice(0, 300))}</bdi>`));
   }
   phones.forEach(p => rows.push(irow(t('phone'), `<a href="tel:${esc(p.tel)}" dir="ltr">${esc(digits(p.display))}</a>`)));

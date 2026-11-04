@@ -422,3 +422,6 @@ button,a,[role=button],summary{touch-action:manipulation}
 #pHours .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard)}#pHours.open .chev{transform:rotate(180deg)}
 .hours-tz{margin-top:4px}
 .oh-raw{white-space:pre-wrap}
+.pnote{margin:0 var(--k-gutter) 8px;font-size:var(--k-text-sub)}
+/* place sheet: inline links (phone, website, e-mail, OSM) get a ≥44px tap height */
+.igroup .val a{display:inline-flex;align-items:center;min-height:44px;margin-block:-10px;max-width:100%}
