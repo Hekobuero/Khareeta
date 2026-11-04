@@ -32,7 +32,7 @@ export function openReport(item, type) {
       <div class="rp-f"><label for="rpKind">${esc(t('rpKind'))}</label><select id="rpKind">${LINK_KINDS.map(k => `<option value="${k}">${esc(t(k === 'website' ? 'website' : k))}</option>`).join('')}</select></div>
       <div class="rp-f"><label for="rpUrl">${esc(t('rpUrl'))}</label><input id="rpUrl" type="url" inputmode="url" dir="ltr" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://"><small>${esc(t('rpUrlHint'))}</small></div>`;
     fields += `<div class="rp-f"><label for="rpNote">${esc(t(cur === 'wrong' ? 'rpNoteWrong' : 'rpNote'))}</label><textarea id="rpNote" dir="auto" rows="3" maxlength="300"></textarea></div>`;
-    const html = `<div class="phead"><div><h2 class="ptitle">${esc(t('rpTitle'))}</h2>${hdrName}</div><button class="pclose" id="rpClose" aria-label="${esc(t('close'))}">${ic('close')}</button></div>
+    const html = `<div class="phead"><div><h2 class="ptitle">${esc(t(cur === 'missing' ? 'rpTitleMissing' : 'rpTitle'))}</h2>${hdrName}</div><button class="pclose" id="rpClose" aria-label="${esc(t('close'))}">${ic('close')}</button></div>
       ${seg}<form class="rp" id="rpForm" novalidate>${fields}
       <p class="rp-err" id="rpErr" role="alert" hidden></p>
       <button class="rp-send" id="rpSend" type="submit">${esc(t('rpSend'))}</button>

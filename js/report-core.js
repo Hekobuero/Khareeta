@@ -12,6 +12,13 @@ export const LINK_HOSTS = {
   whatsapp: ['wa.me', 'api.whatsapp.com', 'whatsapp.com', 'www.whatsapp.com', 'chat.whatsapp.com', 'wa.link'],
   telegram: ['t.me', 'telegram.me', 'www.telegram.me'],
 };
+// "wa.me.evil.com", "t.me.x.io", "fb.me.login.ru": a known social host used as a sub-domain prefix of another host
+const SOCIAL_PREFIX = host => Object.values(LINK_HOSTS).flat().some(h => host.startsWith(h + '.'));
+// tracking parameters stripped from suggested links (they identify the sharer, not the place)
+const TRACK_RE = /^(utm_.*|fbclid|gclid|dclid|msclkid|mc_eid|mc_cid|igsh|igshid|si|ref|ref_src|ref_url|mibextid|rdid|share_url|_ga|_gl|yclid|twclid|ttclid|s|feature)$/i;
+export function stripTracking(u) { for (const k of [...u.searchParams.keys()]) if (TRACK_RE.test(k)) u.searchParams.delete(k); if (![...u.searchParams.keys()].length) u.search = ''; return u; }
+/** Escape user-supplied report text before showing it in any HTML (moderation tools etc.). */
+export const escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const BRANDS = ['facebook', 'instagram', 'whatsapp', 'telegram', 'fb', 'wa'];
 const lev = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
@@ -22,6 +29,7 @@ export function lookalike(rawHost, host) {
   if (/(^|\.)xn--/.test(host)) return 'idn';
   const all = Object.values(LINK_HOSTS).flat();
   if (all.includes(host)) return null;
+  if (SOCIAL_PREFIX(host)) return 'brand';
   const labels = host.split('.');
   for (const l of labels.slice(0, -1)) {
     for (const b of BRANDS) {
@@ -54,7 +62,7 @@ export function checkLink(input, kind) {
   } else if (Object.values(LINK_HOSTS).flat().includes(host)) {
     return { ok: false, err: 'kind' }; // a social link entered as "website" – pick the right type
   }
-  u.hash = '';
+  u.hash = ''; stripTracking(u);
   return { ok: true, url: u.href.slice(0, 200), kind, host };
 }
 

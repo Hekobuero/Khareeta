@@ -106,3 +106,26 @@ test('no secrets, no Meta scraping, sw precaches the new modules', () => {
   assert.match(sw, /'js\/report\.js'/); assert.match(sw, /'js\/report-core\.js'/);
 });
 test.after(() => { globalThis.fetch = realFetch; });
+
+test('links: social host used as subdomain prefix is rejected; tracking params stripped', () => {
+  for (const u of ['https://wa.me.evil.com/x', 'https://t.me.evil.io/x', 'https://fb.me.login.ru/x', 'https://instagram.com.phish.net/a'])
+    assert.equal(C.checkLink(u, 'website').ok, false, u);
+  assert.equal(C.checkLink('https://wa.me.evil.com/x', 'website').err, 'lookalike');
+  assert.equal(C.checkLink('https://www.instagram.com/cafe/?igsh=abc&utm_source=ig', 'instagram').url, 'https://www.instagram.com/cafe/');
+  assert.equal(C.checkLink('https://facebook.com/cafe?fbclid=X&id=7&utm_medium=s', 'facebook').url, 'https://facebook.com/cafe?id=7');
+  assert.equal(C.checkLink('https://t.me/cafe?si=zz', 'telegram').url, 'https://t.me/cafe');
+  assert.equal(C.checkLink('https://example.com/menu?utm_campaign=a&gclid=b', 'website').url, 'https://example.com/menu');
+  assert.equal(C.escHtml('<a href="x">&\'</a>'), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;');
+});
+
+test('sendNow payload is anonymous: install_id anon, no session, no geo', async () => {
+  let body;
+  const props = C.buildReport('missing', { name: 'Cafe', cat: 'cafe' }, { lat: 33.5, lon: 36.3 }).props;
+  await A.sendNow('layer', props, { fetchImpl: async (u, o) => { body = o.body; return { ok: true, status: 201, text: async () => '' }; } });
+  const [ev] = JSON.parse(body);
+  assert.equal(ev.install_id, 'anon'); assert.equal(ev.session_id, null);
+  assert.equal(ev.country, null); assert.equal(ev.city, null); assert.equal(ev.geo_src, null);
+  const sql = readFileSync(new URL('../../supabase/migrations/20261104_reports_view.sql', import.meta.url), 'utf8');
+  const view = sql.slice(sql.indexOf('create view'));
+  assert.doesNotMatch(view.replace(/--.*$/gm, ''), /install_id|session_id|country/);
+});
