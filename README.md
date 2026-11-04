@@ -194,6 +194,6 @@ so and links to the [OSM public-transport wiki](https://wiki.openstreetmap.org/w
   (in data-saving mode only when the list is opened) and cached by the service worker in `kh-transit` (works offline afterwards).
   Downloading a city for offline use (Settings › Offline maps) also stores that city's line data in `kh-transit`.
 - Display rules: only refs of ≤ 6 characters are shown as a badge (long OSM `ref=*` values are usually names and become the title);
-  lines without name/from/to/ref show "Unnamed line"; relations without any drawable way are dropped at build time.
+  lines without name/from/to/ref show "Unnamed line"; relations without any drawable way are dropped at build time, as are lines with neither a name nor a stop. The badge shows a ref of ≤ 6 characters, else the leading number of a long ref (`1 الدائري الجنوبي` → `1`), else B/S. Deleting a downloaded city also removes its cached lines.
 - Names are shown exactly as tagged in OSM and never edited here. Some stop names carry historical/political wording – e.g. the Aleppo
   stop `موقف مدرسة الاعداد الحزبي` ("party preparation school"): Khareeta shows it neutrally as-is; corrections belong in OSM itself.

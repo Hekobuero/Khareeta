@@ -5,7 +5,7 @@ import { esc, settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, fitTo } from './core.js';
-import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
+import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, badgeRef, cityFitBounds, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
 
 export const TR_LAYERS = ['kh-tr-line', 'kh-tr-sel-case', 'kh-tr-sel', 'kh-tr-stop'];
 const S = { index: null, ix: null, data: {}, city: null, sel: null, q: '' };
@@ -72,7 +72,7 @@ export function toggleTransit(map) {
 }
 const srcNote = () => `<p class="tr-src">${ic('info')}<span>${esc(t('trSrc'))} <a href="${OSM_WIKI_URL}" target="_blank" rel="noopener">${esc(t('trImprove'))}</a> · <span dir="ltr">© OpenStreetMap contributors (ODbL)</span></span></p>`;
 const modeLbl = m => t(m === 'bus' ? 'trBus' : 'trServis');
-const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(shortRef(l.ref) || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
+const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(badgeRef(l.ref) || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
 
 export async function openLines(map) {
   if (!transitOn()) { settings.transit = true; saveSettings(); }
@@ -103,7 +103,7 @@ function renderList(map) {
   body.onclick = async e => {
     const c = e.target.closest('[data-c]');
     if (c && c.dataset.c !== S.city) {
-      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) fitTo([[b[0], b[1]], [b[2], b[3]]], { top: 30, bottom: 30, left: 30, right: 30 }, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 500 }); renderList(map); } catch { toast(t('trLoadErr')); }
+      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) fitArea(cityFitBounds(S.city, b), 500); renderList(map); } catch { toast(t('trLoadErr')); }
       return;
     }
     const li = e.target.closest('[data-l]'); if (li) showLine(map, +li.dataset.l);
@@ -113,10 +113,14 @@ function renderList(map) {
 // so these are total insets; left/right are symmetric, so LTR and RTL frame the same.
 export const TR_MIN_Z = 12; // a whole city / long line must not zoom out to ~z9 (Aleppo was 9.4)
 const trSheetClosed = () => document.body.classList.remove('tr-line-open');
-function fitLine(map, bb) {
-  const sh = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || Math.round(innerHeight * 0.5);
-  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh + 72, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 600 });
+// Shared by the city switch and a selected line: the bottom inset is the visible sheet, so on iPhone the city /
+// line lands above the sheet (city switch used 30px and ended at z8.75 under the sheet); minZoom keeps it ≥ z12.
+function fitArea(bb, duration = 600) {
+  const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')); // 0 on desktop (side panel)
+  const sh = Number.isFinite(v) ? v : Math.round(innerHeight * 0.5);
+  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh ? sh + 72 : 40, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration });
 }
+const fitLine = (map, bb) => fitArea(bb, 600);
 export function showLine(map, id, fly = true) {
   const d = S.cur, l = d?.lines.find(x => x.id === id); if (!l) return;
   const lang = getLang(); S.sel = id; draw(map);

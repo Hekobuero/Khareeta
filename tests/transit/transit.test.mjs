@@ -99,7 +99,28 @@ test('polish: city download caches transit, unnamed label in EN/AR/DE, no "#id" 
   assert.match(off, /caches?Api\.open\('kh-transit'\)|cacheApi\.open\('kh-transit'\)/);
   assert.equal(i18n.split('trNoName: ').length - 1, 3);
   assert.ok(!/'#' \+ l\.id/.test(rd('js/transit-core.js')));
-  assert.match(tr, /shortRef\(l\.ref\) \|\|/);
+  assert.match(tr, /badgeRef\(l\.ref\) \|\|/);
   assert.match(css, /\.tr-ref\{max-width:64px;[^}]*text-overflow:ellipsis/);
   for (const c of TRANSIT_CITIES) for (const l of JSON.parse(rd(`data/transit/${c}.json`)).lines) assert.ok(l.geom.some(g => g.length > 1), `${c} ${l.id} has a path`);
+});
+
+test('polish 2: number badge, city fit centre, purge transit, empty lines dropped', async () => {
+  const core = await import('../../js/transit-core.js');
+  assert.equal(core.badgeRef('1 الدائري الجنوبي'), '1');
+  assert.equal(core.badgeRef('12'), '12');
+  assert.equal(core.badgeRef('Mezzeh Jabal - Karajat'), '');
+  assert.equal(core.badgeRef('1234567 x'), '');
+  const fb = core.cityFitBounds('damascus', [36.12, 33.36, 36.48, 33.62]);
+  assert.ok(Math.abs((fb[0][0] + fb[1][0]) / 2 - 36.3065) < 1e-9 && Math.abs((fb[0][1] + fb[1][1]) / 2 - 33.5115) < 1e-9);
+  const { purgeCity } = await import('../../js/cities.js');
+  const deleted = []; const mk = keys => ({ delete: async k => { deleted.push(k.url || k); return true; }, keys: async () => keys.map(url => ({ url })) });
+  const api = { delete: async () => true, open: async n => n === 'kh-transit' ? mk(['https://x/data/transit/index.json', 'https://x/data/transit/aleppo.json', 'https://x/data/transit/damascus.json']) : mk([]) };
+  await purgeCity(api, 'aleppo', []);
+  assert.deepEqual(deleted, ['https://x/data/transit/aleppo.json']);
+  const fs = await import('node:fs');
+  for (const c of ['damascus', 'aleppo']) {
+    const d = JSON.parse(fs.readFileSync(new URL(`../../data/transit/${c}.json`, import.meta.url)));
+    for (const l of d.lines) assert.ok(l.name || l.name_ar || l.name_en || (l.stops || []).length, `${c} ${l.id}`);
+  }
+  assert.match(fs.readFileSync(new URL('../../js/transit.js', import.meta.url), 'utf8'), /fitArea\(cityFitBounds/);
 });
