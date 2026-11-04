@@ -54,10 +54,24 @@ test('admin renders new payload', () => {
   const h = ctx.navHtml(nav, 7);
   assert.match(h, /<b>1,234<\/b><span>87 devices · 7 d: 40/);
   assert.match(h, /<b>9<\/b>/);
-  assert.match(h, new RegExp(`<td>${today}</td><td>5</td><td>2</td><td>1</td><td>0</td>`));
+  assert.match(h, new RegExp(`<td title="${today}">${today.slice(5).replace('-', '/')}</td><td>5</td><td>2</td><td>1</td><td>0</td>`));
   assert.doesNotMatch(h, /<b>–<\/b>/);
 });
 
 test('admin.html wires navHtml into load()', () => {
   assert.match(html, /\$\('#navstats'\)\.innerHTML = navHtml\(d\.nav, days\)/);
+});
+
+test('P3 #25: kh_nav_stats has its own kh_is_admin() check; migration DO NOT run', () => {
+  const fn = sql.slice(sql.indexOf('create or replace function public.kh_nav_stats'), sql.indexOf('create or replace function public.kh_dashboard'));
+  assert.match(fn, /if not public\.kh_is_admin\(\) then raise exception 'not authorized' using errcode = '42501'/);
+  assert.match(fn, /security invoker set search_path = pg_catalog, public/); assert.match(sql, /DO NOT run/);
+});
+test('P3 #25: isSim is true when there is no geolocation (simulate() runs)', () => {
+  assert.match(route, /N\.isSim = !!sim \|\| !\('geolocation' in navigator\);/);
+  assert.match(route, /if \(sim \|\| !\('geolocation' in navigator\)\) simulate\(r\);/);
+});
+test('P3 #25: 30-day nav table scrolls inside its card and uses a short date', () => {
+  assert.match(html, /\.tscroll\{overflow-x:auto/); assert.match(html, /<div class="tscroll"><table class="navt">/); assert.match(html, /<\/tbody><\/table><\/div>/);
+  assert.match(html, /\$\{short\(day\)\}/);
 });

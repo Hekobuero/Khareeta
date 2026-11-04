@@ -4,7 +4,7 @@
 import { esc, settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
-import { App, openSheet, closeSheet, fitTo } from './core.js';
+import { App, openSheet, closeSheet, fitTo, desktop } from './core.js';
 import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, badgeRef, cityFitBounds, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
 
 export const TR_LAYERS = ['kh-tr-line', 'kh-tr-sel-case', 'kh-tr-sel', 'kh-tr-stop'];
@@ -80,22 +80,29 @@ export async function openLines(map) {
   const d = S.cur; if (!d) return;
   S.sel = null; draw(map); renderList(map);
 }
+// "13 stops" with real plural forms (AR: موقف واحد / موقفان / 3–10 مواقف / 11–99 موقفًا / 100+ موقف)
+export function stopsN(n, lang = getLang()) {
+  const cat = new Intl.PluralRules(lang).select(n), k = 'trStopsN_' + cat, v = t(k, { n });
+  return v !== k ? v : t('trStopsN_other', { n });
+}
 function listHtml(d) {
   const lang = getLang(), res = sortLines(searchLines(d, S.q));
   if (!d.lines.length) return `<p class="tr-empty">${esc(t('trEmpty'))}</p>`;
   if (!res.length) return `<p class="tr-empty">${esc(t('trNone'))}</p>`;
-  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? `${l.stops.length} ${t('trStops')}` : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
+  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? stopsN(l.stops.length) : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
 }
 function renderList(map) {
   const d = S.cur, lang = getLang(), cities = Object.keys(S.index?.cities || {});
-  const cname = c => (lang === 'ar' ? S.index.cities[c].name_ar : S.index.cities[c].name);
+  // UI language names (EN/AR/DE) from i18n; the data file's name/name_ar only as a fallback for new cities
+  const cname = c => { const k = 'trC_' + c, v = t(k); return v !== k ? v : (lang === 'ar' ? S.index.cities[c].name_ar : S.index.cities[c].name); };
   const html = `<div class="phead"><div><h2 class="ptitle">${esc(t('trTitle'))}</h2>
-    <p class="psub">${esc(t('trCount', { n: d.lines.length, s: d.stops.length }))}</p></div><button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
+    <p class="psub">${esc(t('trCount', { n: d.lines.length, s: d.stops.length }).replace(/[\d,.٬]+\s+\S+$/, stopsN(d.stops.length)))}</p></div><button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
     <div class="seg tr-city" role="group" aria-label="${esc(t('trCity'))}">${cities.map(c => `<button data-c="${c}" class="${c === S.city ? 'on' : ''}" aria-pressed="${c === S.city}">${esc(cname(c))}</button>`).join('')}</div>
     <div class="tr-q"><input id="trQ" type="search" dir="auto" placeholder="${esc(t('trSearch'))}" value="${esc(S.q)}" autocomplete="off"></div>
     ${srcNote()}
     <div class="igroup" id="trList">${listHtml(d)}</div><div style="height:16px"></div>`;
-  const body = openSheet(html, 'half', () => { if (App.sheetKind === 'transit') {} });
+  const body = openSheet(html, 'half', trSheetClosed);
+  document.body.classList.add('tr-line-open'); // pill would cover the zoom buttons while the list sheet is open
   App.sheetKind = 'transit';
   body.querySelector('#trClose').onclick = () => closeSheet();
   const q = body.querySelector('#trQ');
@@ -116,6 +123,8 @@ const trSheetClosed = () => document.body.classList.remove('tr-line-open');
 // Shared by the city switch and a selected line: the bottom inset is the visible sheet, so on iPhone the city /
 // line lands above the sheet (city switch used 30px and ended at z8.75 under the sheet); minZoom keeps it ≥ z12.
 function fitArea(bb, duration = 600) {
+  // desktop: the sheet is a side panel (already in the map padding) – equal extra inset on every side keeps the line / city centred in the free area
+  if (desktop()) { const map = App.map, c = map.getPadding(), e = 60; fitTo(bb, { top: c.top + e, bottom: c.bottom + e, left: c.left + e, right: c.right + e }, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration }); return; }
   const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')); // 0 on desktop (side panel)
   const sh = Number.isFinite(v) ? v : Math.round(innerHeight * 0.5);
   fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh ? sh + 72 : 40, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration });

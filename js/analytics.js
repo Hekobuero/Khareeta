@@ -299,7 +299,19 @@ function scheduleReports(now = Date.now()) {
   clearTimeout(rtm); const l = lsGet(RQKEY, []); if (!l.length) return;
   rtm = setTimeout(() => sendDueReports(), Math.max(0, Math.min(...l.map(x => x.due)) - now));
 }
-export async function sendDueReports({ fetchImpl = globalThis.fetch } = {}) {
+// Cross-tab exclusivity: the Web Locks API (navigator.locks, atomic across tabs of the origin) – a tab that does not get
+// the lock right away skips; the holder sends. Fallback without Web Locks: claim with a random token in localStorage,
+// wait a random 30–150 ms and only send the entries that still carry OUR token (last writer wins, the others back off).
+const LOCK = 'kh-report-send';
+export async function sendDueReports(opts = {}) {
+  if (rsending) return 0;
+  const lk = globalThis.navigator?.locks;
+  if (lk && typeof lk.request === 'function') return lk.request(LOCK, { ifAvailable: true }, l => l ? sendDueLocked(opts, true) : 0);
+  return sendDueLocked(opts, false);
+}
+// HTTP status / PostgREST error that will not succeed on retry (constraint, bad input, permission …): drop the report
+const retryable = r => r.why === 'network' || r.why === 'offline' || (r.why === 'http' && (r.status >= 500 || r.status === 429 || r.status === 408));
+async function sendDueLocked({ fetchImpl = globalThis.fetch } = {}, locked) {
   if (rsending) return 0;
   const now = Date.now(), l = lsGet(RQKEY, []).filter(x => x.exp > now);
   // claimed by a tab that is sending right now (or died while sending: retried after 2 min, rid keeps it idempotent)
@@ -311,16 +323,22 @@ export async function sendDueReports({ fetchImpl = globalThis.fetch } = {}) {
   const lf = +lsGet(FKEY, 0) || 0;
   if (now - lf < QUIET_MS || sending) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), Math.max(1000, lf + QUIET_MS - now + 1000)); return 0; }
   rsending = true;
-  const ids = new Set(due.map(x => x.id));
-  lsSet(RQKEY, l.map(x => ids.has(x.id) ? { ...x, claim: now } : x));
+  const ids = new Set(due.map(x => x.id)), tok = rid();
+  lsSet(RQKEY, l.map(x => ids.has(x.id) ? { ...x, claim: now, ct: tok } : x));
+  let mine = due;
+  if (!locked) {
+    await new Promise(r => setTimeout(r, 30 + Math.random() * 120));
+    const cur = new Map(lsGet(RQKEY, []).map(x => [x.id, x]));
+    mine = due.filter(x => cur.get(x.id)?.ct === tok);
+  }
   let sent = 0;
-  for (const it of due) {
+  for (const it of mine) {
     reportQuiet(QUIET_MS); // server insert time ≈ now: drop/suppress usage events ±60 s around it
     const r = await sendNow(it.type, it.props, { fetchImpl });
     reportQuiet(QUIET_MS);
     const rest = lsGet(RQKEY, []).filter(x => x.id !== it.id); // success: the stored report is deleted right away
     if (r.ok) sent++;
-    else if (r.why !== 'type' && r.why !== 'dev') rest.push({ ...it, claim: 0, tries: it.tries + 1, due: Date.now() + (r.why === 'offline' ? 0 : Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random())) });
+    else if (retryable(r)) rest.push({ ...it, claim: 0, ct: null, tries: it.tries + 1, due: Date.now() + (r.why === 'offline' ? 0 : Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random())) });
     lsSet(RQKEY, rest);
   }
   rsending = false; scheduleReports(); reschedule(); return sent;
