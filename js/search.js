@@ -229,6 +229,7 @@ export function showResultList(res, title, fit = true) {
 
 // ---------- categories: bundled POIs (multi-select + open now), live Overpass as supplement ----------
 let catSeq = 0;
+export const CAT_FIT_M = 15000; // fit the map only to category results within 15 km of the view centre
 export function cancelCategory() { catSeq++; if (getFilter().cats.size) { setFilter(App.map, []); } document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); }
 export function toggleChip(key) {
   const cats = new Set(getFilter().cats);
@@ -241,13 +242,16 @@ export async function applyChips(cats, openNow, fit = true) {
   setFilter(App.map, cats, openNow);
   document.querySelectorAll('.chip[data-cat]').forEach(c => c.classList.toggle('on', cats.includes(c.dataset.cat)));
   if (!cats.length) { clearMarkers(); closeSheet(); return; }
+  // Outside Syria the bundled POIs are all far away – never jump there (P1: a chip in Berlin flew to Syria);
+  // search live OSM (Overpass) in the current view instead, worldwide, without moving the map.
+  if (!inSyria(...center())) { searchCategoryLive(cats[cats.length - 1]); return; }
   track('category', { cat: cats.join(',') });
   showFilterSheet(fit);
 }
 export function filterActive() { return getFilter().cats.size > 0; }
 export function showFilterSheet(fit = false) {
   const f = getFilter(), cats = [...f.cats];
-  const ref = refPoint(), r = filterResults(ref, 80);
+  const ref = center(), r = filterResults(ref, 80); // the current map view, not the GPS position or Syria
   clearMarkers();
   const res = r.list.map(rec => Object.assign(poiRow(rec), { d: rec.d }));
   const title = cats.map(k => t(k)).join(' · ');
@@ -268,8 +272,9 @@ export function showFilterSheet(fit = false) {
   });
   $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
   $('#fLive').onclick = () => searchCategoryLive(cats[0]);
-  if (fit && res.length) {
-    const near = res.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
+  const nearView = res.filter(x => x.d < CAT_FIT_M);
+  if (fit && nearView.length) { // only fit to results near the current view – never to POIs in another city / country
+    const near = nearView.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
     if (App.me && haversine(App.me, [near[0].lon, near[0].lat]) < 20000) b.extend(App.me);
     const mp = mapPadding();
     fitTo(b, { top: mp.top + 30, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 30, left: mp.left + 40, right: mp.right + 40 }, { maxZoom: 15.5, duration: 600 });

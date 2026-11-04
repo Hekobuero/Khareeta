@@ -380,7 +380,7 @@ function showRouteSheet() {
   const warn = near.length ? `<div class="cl-warn" role="status">${ic('warning', 'sm')}<span>${esc(plural(getLang(), near.length, Object.fromEntries(['zero', 'one', 'two', 'few', 'many', 'other'].map(c => [c, t('clRW_' + c)]).filter(([c, v]) => v && v !== 'clRW_' + c))))}: ${[...new Set(near.map(c => t('clK_' + c.kind)))].map(esc).join(', ')}</span></div>` : '';
   const html = `${warn}
     ${R.routes.map((rt, i) => `<div class="rcard ${i === R.sel ? 'on' : ''}" data-i="${i}" role="button" aria-pressed="${i === R.sel}"><div style="flex:1;min-width:0"><div class="rt">${fmtDur(rt.duration)}</div><div class="rd">${fmtDist(rt.distance)}${rt.summary ? ' · ' + t('via', { r: '<bdi>' + esc(rt.summary) + '</bdi>' }) : ''} · ${t('eta')} ${arrive(rt.duration)}</div>${tag(rt)}</div><button class="gobtn" data-go="${i}">${t('go')}</button></div>`).join('')}
-    <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
+    <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button>${navDev() ? `<button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button>` : ''}<button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
     <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
     <div class="steps list">${r.steps.map((s, i) => `<div class="srow" data-s="${i}"><div class="sic">${ic(stepIcon(s))}</div><div class="st"><div class="t1" style="white-space:normal" dir="auto">${esc(instr(s))}</div><div class="t2">${s.distance > 0 && s.type !== 'arrive' ? fmtDist(s.distance) : ''}</div></div></div>`).join('')}</div>
     <div class="dfoot">${r.engine === 'OSRM' ? 'Routing: OSRM · FOSSGIS (routing.openstreetmap.de)' : 'Routing: Valhalla · FOSSGIS (valhalla1.openstreetmap.de)'} · © OpenStreetMap contributors</div>`;
@@ -425,7 +425,7 @@ export function initRouteMapEvents() {
 }
 
 // ---------------- live navigation ----------------
-const N = { watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 0, follow: true, spoken: {}, marker: null, pos: null, speed: 0, hdg: 0, moved: false, anchor: null };
+const N = { startSeq: 0, compass: null, compassT: 0, prev: null, watch: null, sim: null, cum: null, stepIdx: 0, off: 0, lastReroute: 0, follow: true, spoken: {}, marker: null, pos: null, speed: 0, hdg: 0, moved: false, anchor: null };
 // Navigation start (P2): until the user has really moved (≥ MOVE_M from the first accurate fix) the HUD stays on the
 // depart step ("Head east on …"), no maneuver/U-turn is announced and off-route/rerouting is off. Fixes with an
 // accuracy worse than ACC_OK m only move the puck – they never advance steps, speak or count as off-route.
@@ -440,29 +440,69 @@ function navArrowEl() {
 }
 const NAV_HIDE = ['label-housenumber'];
 function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); setPoiVisible(App.map, !hide); }
+// Simulation only for tests / developers: ?dev=1 or localStorage kh.dev = '1'
+export function navDev() { try { return /[?&]dev=1(&|$)/.test(location.search) || localStorage.getItem('kh.dev') === '1'; } catch { return false; } }
+// P1: navigation always starts at the user's GPS position. The position (and on iOS the compass) is requested
+// synchronously inside the tap on "Go" (iOS Safari / PWA only prompt after a user gesture). Denied / unavailable /
+// timeout → a clear message, no navigation from a wrong position.
+export const NAV_GEO_OPTS = { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 };
 export function startNav(sim = false) {
   if (settings.voice !== false) unlockSpeech(); // must run synchronously inside the tap on "Go" (iOS Safari)
   const r = R.routes[R.sel]; if (!r) return;
-  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
-  track('nav_start', { mode: R.mode, sim });
+  if (sim && navDev()) return beginNav(r, true, null);
+  if (!('geolocation' in navigator)) return navLocNeeded();
+  requestCompass();
+  const seq = ++N.startSeq; toast(t('locating'), 2500);
+  navigator.geolocation.getCurrentPosition(p => { if (seq === N.startSeq && !R.active) beginNav(r, false, p.coords); },
+    () => { if (seq === N.startSeq) navLocNeeded(); }, NAV_GEO_OPTS);
+}
+function navLocNeeded() { track('nav_loc_needed', {}); toast(t('navLocNeeded'), 7000); }
+// compass for walking slowly / standing: webkitCompassHeading (iOS, permission inside the tap) or absolute alpha
+function onOrient(e) {
+  const h = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? (360 - e.alpha) % 360 : null);
+  if (h != null && !isNaN(h)) { N.compass = h; N.compassT = Date.now(); }
+}
+function requestCompass() {
+  const D = globalThis.DeviceOrientationEvent; if (!D) return;
+  const on = () => { removeEventListener('deviceorientationabsolute', onOrient); removeEventListener('deviceorientation', onOrient); addEventListener('ondeviceorientationabsolute' in globalThis ? 'deviceorientationabsolute' : 'deviceorientation', onOrient); };
+  try { if (typeof D.requestPermission === 'function') D.requestPermission().then(st => { if (st === 'granted') on(); }).catch(() => {}); else on(); } catch {}
+}
+// heading: GPS course when moving, else compass (fresh), else the bearing between the last positions, else the route
+export function navHeading({ heading, speed, compass, compassAge, prev, p, routeBearing, last }) {
+  if (heading != null && !isNaN(heading) && speed > 1) return heading;
+  if (compass != null && compassAge < 3000) return compass;
+  if (prev && haversine(prev, p) >= 4) return bearing(prev, p);
+  return routeBearing ?? last ?? 0;
+}
+function beginNav(r, sim, coords) {
+  const start = coords ? [coords.longitude, coords.latitude] : r.coords[0];
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim || !('geolocation' in navigator); N.pos = null; N.prev = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
+  track('nav_start', { mode: R.mode, sim: N.isSim });
   $('#dirPanel').classList.add('hidden'); closeSheet();
   $('#navHud').classList.remove('hidden');
   App.meMarker?.getElement().classList.add('hidden');
   R.markers.forEach(m => m.getElement().classList.add('hidden'));
   drawRoutes(0); setNavLayers(true);
-  N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(r.coords[0]).addTo(App.map);
+  N.marker = new maplibregl.Marker({ element: navArrowEl(), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(start).addTo(App.map);
   wake();
-  App.map.on('dragstart', onDrag);
+  for (const ev of USER_MOVE) App.map.on(ev, onDrag);
   navVoiceStart(); // the single start prompt comes from navPrompt() on the first fix, in the chosen spoken variant
-  if (sim || !('geolocation' in navigator)) simulate(r);
+  if (sim) simulate(r);
   else N.watch = navigator.geolocation.watchPosition(p => onPos([p.coords.longitude, p.coords.latitude], p.coords.heading, p.coords.speed, p.coords.accuracy), () => toast(t('locErr')), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
-  App.map.easeTo({ center: r.coords[0], pitch: 58, zoom: 17, bearing: bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]), padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
-  renderHud(r.coords[0]);
+  // camera on the user's position (follow mode), facing along the route from the nearest point – never the destination/overview
+  const near = nearestOnLine(start, r.coords, N.cum), rb = near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : 0;
+  N.hdg = coords ? navHeading({ heading: coords.heading, speed: coords.speed, compass: N.compass, compassAge: Date.now() - (N.compassT || 0), routeBearing: rb }) : bearing(r.coords[0], r.coords[Math.min(3, r.coords.length - 1)]);
+  App.map.easeTo({ center: start, pitch: 58, zoom: camZoom(coords?.speed || 0), bearing: N.hdg, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 }, duration: 900 });
+  renderHud(start);
+  if (coords) setTimeout(() => { if (R.active && !N.pos) onPos(start, coords.heading, coords.speed, coords.accuracy); }, 950);
 }
 function wake() { try { navigator.wakeLock?.request('screen').then(l => N.wake = l).catch(() => {}); } catch {} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && R.active && (!N.wake || N.wake.released)) wake(); });
 let recT = null;
-function onDrag() { N.follow = false; renderHud(N.pos, N.lastDist, N.lastRemain); clearTimeout(recT); recT = setTimeout(() => { if (R.active && !N.follow) { N.follow = true; if (N.pos) onPos(N.pos, N.hdg, N.speed, 5); } }, 10000); }
+// a pan / pinch / rotate by hand stops follow mode until "Re-center" is tapped (programmatic easeTo has no originalEvent)
+const USER_MOVE = ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'];
+function onDrag(e) { if (e && e.type !== 'dragstart' && !e.originalEvent) return; if (!N.follow) return; N.follow = false; renderHud(N.pos, N.lastDist, N.lastRemain); }
+export const navState = () => ({ follow: N.follow, hdg: N.hdg, pos: N.pos, isSim: N.isSim, active: R.active });
 function simulate(r) {
   let d = 0; const speed = R.mode === 'car' ? 22 : R.mode === 'bike' ? 6 : 1.6;
   const total = N.cum[N.cum.length - 1];
@@ -495,8 +535,8 @@ function onPos(p, heading, speed, acc) {
   const good = acc == null || acc <= NAV_ACC_OK;
   if (good && !N.moved) { if (!N.anchor) N.anchor = p; else if (haversine(N.anchor, p) >= NAV_MOVE_M) N.moved = true; }
   const near = nearestOnLine(p, r.coords, N.cum);
-  const hdg = heading != null && !isNaN(heading) && speed > 1 ? heading : (near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : N.hdg);
-  N.hdg = hdg;
+  const hdg = navHeading({ heading, speed, compass: N.compass, compassAge: Date.now() - (N.compassT || 0), prev: N.prev, p, routeBearing: near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : null, last: N.hdg });
+  N.hdg = hdg; if (!N.prev || haversine(N.prev, p) >= 4) N.prev = p;
   const shown = near.dist < 30 ? near.point : p;
   moveArrow(shown, hdg);
   // off-route: > 40 m for 3 fixes in a row (§4.6)
@@ -569,6 +609,7 @@ function renderHud(p, distTo, remain) {
   const rc = $('#navRecenter');
   rc.classList.toggle('hidden', N.follow);
   rc.innerHTML = `${ic('navigation')}<span>${t('recenter')}</span>`;
+  rc.setAttribute('aria-label', t('recenter'));
   rc.onclick = () => { N.follow = true; clearTimeout(recT); if (N.pos) onPos(N.pos, N.hdg, N.speed || 0, 5); else renderHud(); };
 }
 // floating speaker button (Apple-Maps style, DESIGN §4.8 map controls): tap = mute / unmute; unmuting plays a test announcement
@@ -593,7 +634,8 @@ export function stopNav() {
   if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);
   N.marker?.remove(); N.marker = null; N.wake?.release?.(); N.wake = null; N.arrived = false;
   stopSpeaking({ reset: true });
-  App.map.off('dragstart', onDrag);
+  for (const ev of USER_MOVE) App.map.off(ev, onDrag);
+  removeEventListener('deviceorientationabsolute', onOrient); removeEventListener('deviceorientation', onOrient); N.compass = null;
   App.meMarker?.getElement().classList.remove('hidden');
   R.markers.forEach(m => m.getElement().classList.remove('hidden'));
   setNavLayers(false);
