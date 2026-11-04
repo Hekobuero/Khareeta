@@ -13,7 +13,8 @@ import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
 import { openClosureReport, snapToRoad } from './closures.js';
-import { photoSources, loadPhotos, photoTags } from './photos.js';
+import { photoSources, loadPhotos, photoTags, geoEligible, photoEmptyKey } from './photos.js';
+const hasPhotoSrc = (item, tg) => photoSources(tg).any || (navigator.onLine !== false && item.lat != null && geoEligible(tg));
 // Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
 const PHK = 'kh.phtags', PH_MAX = 200;
 const phRead = () => { try { return JSON.parse(localStorage.getItem(PHK)) || {}; } catch { return {}; } };
@@ -247,7 +248,7 @@ function render(item, tg, loading) {
     ${fourth}
   </div>
   ${contactRow}
-  ${!settings.lowData && photoSources(withPhotoTags(item, tg)).any ? photoBox() : ''}
+  ${!settings.lowData && hasPhotoSrc(item, withPhotoTags(item, tg)) ? photoBox() : ''}
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
@@ -310,7 +311,7 @@ async function extras(item, tg, my, phase) {
     if (!settings.lowData) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
   } else if (!settings.lowData) {
     tg = withPhotoTags(item, tg);
-    if (photoSources(tg).any) jobs.push(loadPhotos(tg, u => fetchJSON(u, {}, 8000)).then(p => {
+    if (hasPhotoSrc(item, tg)) jobs.push(loadPhotos(tg, u => fetchJSON(u, {}, 8000), { lat: item.lat, lon: item.lon }).then(p => {
       ex.photos = p;
       if (p.error === 'offline') addEventListener('online', () => { if (my === token && cur === item) extras(item, tg, my, true); }, { once: true });
     }).catch(() => ex.photos = { photos: [], error: 'offline' }));
@@ -369,11 +370,12 @@ function photoEmpty(key) {
 function fillPhotos(box, res) {
   box.removeAttribute('aria-busy');
   const list = res.photos || [];
-  if (!list.length) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(res.error === 'offline' || navigator.onLine === false ? 'photoOffline' : 'photoNone'); return; }
+  if (!list.length) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(photoEmptyKey(res.error)); return; }
   box.dataset.state = 'ok';
+  if (list.length > 1) box.setAttribute('aria-label', t('photosCount', { n: list.length }));
   box.innerHTML = list.map(ph => `<figure class="ph">
-    <a class="ph-box" href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(t('photoOpen'))}: ${esc(ph.alt)}"><img src="${esc(ph.thumb)}" alt="${esc(ph.alt)}" width="${+ph.width}" height="${+ph.height}" loading="lazy" decoding="async" crossorigin="anonymous" referrerpolicy="no-referrer"></a>
-    <figcaption class="ph-cap" dir="auto"><bdi>${esc(ph.artist ? t('photoBy', { a: ph.artist }) : t('photoUnknown'))}</bdi>${ph.license ? ` · ${ph.licenseUrl ? `<a href="${esc(ph.licenseUrl)}" target="_blank" rel="noopener noreferrer license"><bdi dir="ltr">${esc(ph.license)}</bdi></a>` : `<bdi dir="ltr">${esc(ph.license)}</bdi>`}` : ''} · <a href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer">${esc(t('photoSource'))}</a></figcaption>
+    <a class="ph-box" href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(t('photoOpen'))}: ${esc(ph.alt)}"><img src="${esc(ph.thumb)}"${ph.srcset ? ` srcset="${esc(ph.srcset)}" sizes="240px"` : ''} alt="${esc(ph.alt)}" width="${+ph.width}" height="${+ph.height}" loading="lazy" decoding="async" crossorigin="anonymous" referrerpolicy="no-referrer"></a>
+    <figcaption class="ph-cap" dir="auto">${ph.nearby ? `<span class="ph-near">${esc(t('photoNearby'))}</span> · ` : ''}<bdi>${esc(ph.artist ? t('photoBy', { a: ph.artist }) : t('photoUnknown'))}</bdi>${ph.license ? ` · ${ph.licenseUrl ? `<a href="${esc(ph.licenseUrl)}" target="_blank" rel="noopener noreferrer license"><bdi dir="ltr">${esc(ph.license)}</bdi></a>` : `<bdi dir="ltr">${esc(ph.license)}</bdi>`}` : ''} · <a href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer">${esc(t('photoSource'))}</a></figcaption>
   </figure>`).join('');
   box.querySelectorAll('img').forEach(img => img.addEventListener('error', () => {
     img.closest('.ph')?.remove();
