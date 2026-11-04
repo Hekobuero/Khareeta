@@ -61,3 +61,60 @@ export function splitByCell(feats) {
   for (const f of feats) { const [x, y] = f.geometry.coordinates, k = cellKey(cellIdx(x), cellIdx(y)); (by.get(k) || by.set(k, []).get(k)).push(f); }
   return by;
 }
+
+// ---------- backoff (QA P1-1: no endless retries on 429/504) ----------
+export const BACKOFF_BASE = 4000;      // first wait after a failed attempt
+export const BACKOFF_MAX = 300000;     // never wait longer than 5 min between attempts
+export const VIEW_TRIES = 4;           // failed attempts per viewport (cell set) before giving up on it
+export const SESSION_FAILS = 8;        // consecutive failed attempts per session before world POIs pause until reload/online
+/** Retry-After header (seconds or HTTP date) → ms, or 0 */
+export function retryAfterMs(v, now = Date.now()) {
+  if (v == null || v === '') return 0;
+  const s = Number(v); if (Number.isFinite(s)) return Math.max(0, s * 1000);
+  const d = Date.parse(v); return Number.isFinite(d) ? Math.max(0, d - now) : 0;
+}
+/** Exponential backoff gate: 4 s → 8 s → 16 s … ≤ 5 min, honours Retry-After, caps attempts per view and per session,
+ *  and allows the "busy" toast at most once per backoff period. Pure (time passed in) → unit-tested. */
+export class Backoff {
+  constructor(o = {}) { Object.assign(this, { base: BACKOFF_BASE, max: BACKOFF_MAX, viewTries: VIEW_TRIES, sessionFails: SESSION_FAILS }, o); this.fails = 0; this.until = 0; this.toastUntil = 0; this.view = ''; this.viewFails = 0; }
+  /** ms to wait before an attempt for this view (0 = go, Infinity = do not try) */
+  wait(now, view = '') {
+    if (view !== this.view) { this.view = view; this.viewFails = 0; }
+    if (this.fails >= this.sessionFails || this.viewFails >= this.viewTries) return Infinity;
+    return Math.max(0, this.until - now);
+  }
+  /** record a failed attempt; returns { wait, toast } */
+  fail(now, retryAfter = 0) {
+    this.fails++; this.viewFails++;
+    const exp = Math.min(this.max, this.base * 2 ** (this.fails - 1));
+    const wait = Math.min(this.max, Math.max(exp, retryAfter || 0));
+    this.until = now + wait;
+    const toast = now >= this.toastUntil; if (toast) this.toastUntil = now + wait;
+    return { wait, toast };
+  }
+  ok() { this.fails = 0; this.viewFails = 0; this.until = 0; }
+  reset() { this.ok(); this.toastUntil = 0; }
+}
+/** One attempt: the endpoints in sequence, each at most once, starting at `start`. A 429/504 (overloaded) ends the
+ *  attempt at once (the other public instances share the load; hammering them makes it worse). Resolves
+ *  { elements, ep } or throws an Error with .status / .retryAfter (ms). */
+export async function overpassAttempt(q, { fetchFn = fetch, start = 0, timeout = 20000, now = Date.now } = {}) {
+  let last;
+  for (let i = 0; i < OVERPASS_GET.length; i++) {
+    const ep = (start + i) % OVERPASS_GET.length;
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const tm = ctl ? setTimeout(() => ctl.abort(), timeout) : 0;
+    try {
+      const r = await fetchFn(overpassGetUrl(q, ep), ctl ? { signal: ctl.signal } : {});
+      if (!r.ok) {
+        const e = new Error('HTTP ' + r.status); e.status = r.status; e.retryAfter = retryAfterMs(r.headers?.get?.('Retry-After'), now());
+        if (r.status === 429 || r.status === 504 || r.status === 503) throw Object.assign(e, { stop: true });
+        last = e; continue;
+      }
+      const j = await r.json(); if (!j || !Array.isArray(j.elements)) { last = new Error('bad'); continue; }
+      return { elements: j.elements, ep };
+    } catch (e) { if (e.stop) throw e; last = e; }
+    finally { clearTimeout(tm); }
+  }
+  throw last || new Error('overpass');
+}

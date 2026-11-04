@@ -1,12 +1,12 @@
 // Pure name helpers (no DOM): one fallback chain for labels, search results, the POI layer and the place sheet.
 // Places without an Arabic name (foreign shops with only name / name:en / brand) are never hidden.
 //   AR:    name:ar → (Arabic-script name) → name → name:en → brand
-//   EN/DE: name:<lang> → name:en → int_name → name:latin → name → brand
+//   EN/DE: name:<lang> → name:en → int_name → name:latin → name → name:ar → brand
 const AR_RE = /[\u0600-\u06FF]/;
 export function nameChain(lang) {
   if (lang === 'ar') return ['name:ar', 'name', 'name:en', 'brand'];
   const own = lang && lang !== 'en' ? ['name:' + lang] : [];
-  return [...own, 'name:en', 'int_name', 'name:latin', 'name', 'brand'];
+  return [...own, 'name:en', 'int_name', 'name:latin', 'name', 'name:ar', 'brand']; // name:ar-only POIs still get a label
 }
 export function pickNameFor(tags = {}, lang = 'en') {
   tags = tags || {};

@@ -38,8 +38,8 @@ function fromPhoton(f) {
   const p = f.properties, [lon, lat] = f.geometry.coordinates;
   const tags = { name: p.name, [p.osm_key]: p.osm_value };
   if (!p.name && p.brand) tags.brand = p.brand;
-  const sub = [p.street && (p.street + (p.housenumber ? ' ' + p.housenumber : '')), p.district, p.city || p.town || p.village, p.state, p.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i && v !== p.name).join(', ');
-  return { id: (p.osm_type || 'N') + p.osm_id, osm_type: { N: 'node', W: 'way', R: 'relation' }[p.osm_type] || 'node', osm_id: p.osm_id, name: p.name || sub, sub, lon, lat, tags, extent: p.extent, cc: p.countrycode, placeHit: !!p.placeHit };
+  const sub = [p.street && (p.street + (p.housenumber ? ' ' + p.housenumber : '')), p.district, p.city || p.town || p.village, p.state, p.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i && v !== (p.name || p.brand)).join(', ');
+  return { id: (p.osm_type || 'N') + p.osm_id, osm_type: { N: 'node', W: 'way', R: 'relation' }[p.osm_type] || 'node', osm_id: p.osm_id, name: p.name || p.brand || sub, sub, lon, lat, tags, extent: p.extent, cc: p.countrycode, placeHit: !!p.placeHit };
 }
 function fromNominatim(r) {
   const tags = Object.assign({}, r.extratags || {}, r.namedetails || {}, { [r.category || r.class]: r.type });

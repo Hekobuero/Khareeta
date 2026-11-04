@@ -114,6 +114,7 @@ export function loadPois() {
         const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
         if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
         if (brand) props.brand = brand;
+        if (!name && (ar || en)) props.name = ar || en; // name:ar/name:en-only POIs keep a label in every language
         feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
       }
     }
@@ -152,6 +153,7 @@ export async function localItem(osmKey) {
 export function toItem(rec) {
   const tags = Object.assign({}, (TAGS[rec.c] || (() => ({})))(rec.s));
   if (rec.name) tags.name = rec.name; if (rec.ar) tags['name:ar'] = rec.ar; if (rec.en) tags['name:en'] = rec.en;
+  if (!tags.name && (rec.ar || rec.en)) tags.name = rec.ar || rec.en;
   if (rec.oh) tags.opening_hours = rec.oh; if (rec.ph) tags.phone = rec.ph; if (rec.w) tags.website = rec.w; if (rec.st) tags.stars = rec.st;
   if (rec.ex) tags[rec.c === 'food' || rec.c === 'cafe' ? 'cuisine' : 'brand'] = rec.ex;
   const t = { n: 'node', w: 'way', r: 'relation' }[rec.osm[0]], id = +rec.osm.slice(1);

@@ -32,11 +32,12 @@ function settleRank(it, q) {
   if (it.placeHit && arabic(q) !== arabic(it.name) && place !== 'village') return 1;
   return -1;
 }
-// Settlements that match the query first (city > town > village), then everything else by country tier, stable.
+// Settlements that match the query first (city > town > village, then near the view), then everything else by tier, stable.
 export function rank(list, q, box = SY_BBOX) {
   const pr = { city: 0, town: 1, village: 2 };
   const a = list.map((it, i) => ({ it, i, s: settleRank(it, q), c: countryTier(it.cc, it.lon, it.lat, box) }));
-  const set = a.filter(x => x.s >= 0).sort((x, y) => x.c - y.c || x.s - y.s || pr[x.it.tags.place] - pr[y.it.tags.place] || x.i - y.i);
+  // QA P1-2: proximity only breaks ties – a nearby village must never beat the city (حلب from Damascus → Aleppo first)
+  const set = a.filter(x => x.s >= 0).sort((x, y) => x.s - y.s || pr[x.it.tags.place] - pr[y.it.tags.place] || x.c - y.c || x.i - y.i);
   const rest = a.filter(x => x.s < 0).sort((x, y) => x.c - y.c || x.i - y.i);
   return { settlements: set.map(x => x.it), rest: rest.map(x => x.it) };
 }

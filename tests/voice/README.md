@@ -10,7 +10,7 @@ npx playwright install chromium   # once
 npm test                          # ≈ 8 min, exit code 0 = all passed
 ```
 
-- The script starts two small static servers itself, for the repo root (`/`) and a subpath (`/sub/khareeta/`). Their ports are `PORT` and `PORT+1`, with a default of 8765 and 8766. It stops both servers when it's done.
+- The script starts two small static servers itself, for the repo root (`/`) and a subpath (`/sub/khareeta/`). Their ports are `PORT` and `PORT+1` if `PORT` is set (a busy port falls back to a free one), otherwise two free ephemeral ports. It stops both servers when it's done.
 - Set `CHROME=/path/to/chrome` to use a different Chromium.
 - Results go to `out/results.json` and screenshots to `out/shots/`. Both are git-ignored.
 
