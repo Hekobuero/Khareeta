@@ -12,7 +12,7 @@ import { phones as phoneList, website as websiteOf, socials as socialList } from
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
-import { photoSources, loadPhotos, photoTags, geoEligible } from './photos.js';
+import { photoSources, loadPhotos, photoTags, geoEligible, photoEmptyKey } from './photos.js';
 const hasPhotoSrc = (item, tg) => photoSources(tg).any || (navigator.onLine !== false && item.lat != null && geoEligible(tg));
 // Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
 const PHK = 'kh.phtags', PH_MAX = 200;
@@ -368,7 +368,7 @@ function photoEmpty(key) {
 function fillPhotos(box, res) {
   box.removeAttribute('aria-busy');
   const list = res.photos || [];
-  if (!list.length) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(res.error === 'offline' || navigator.onLine === false ? 'photoOffline' : 'photoNone'); return; }
+  if (!list.length) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(photoEmptyKey(res.error)); return; }
   box.dataset.state = 'ok';
   if (list.length > 1) box.setAttribute('aria-label', t('photosCount', { n: list.length }));
   box.innerHTML = list.map(ph => `<figure class="ph">

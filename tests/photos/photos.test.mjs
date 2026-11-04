@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { geoEligible, geoUrl, geoRelevant, isJunkTitle, nameTokens, srcsetFor, MAX_PHOTOS, GEO_RADIUS, GEO_MAX, THUMB_W2 } from '../../js/photos.js';
+import { isGeoJunk, badCategories, tooWide, cleanThumb, photoEmptyKey, MAX_ASPECT, geoEligible, geoUrl, geoRelevant, isJunkTitle, nameTokens, srcsetFor, MAX_PHOTOS, GEO_RADIUS, GEO_MAX, THUMB_W2 } from '../../js/photos.js';
 import { commonsFile, commonsCategory, validQid, photoSources, p18Files, imageInfoUrl, categoryUrl, wikidataUrl, parseImageInfo, plain, loadPhotos, THUMB_W, photoTags, LICENSE_HOSTS } from '../../js/photos.js';
 
 test('commonsFile: accepts only Wikimedia Commons', () => {
@@ -229,8 +229,8 @@ test('loadPhotos: geosearch fills up with relevant nearby photos (marked nearby)
     calls.push(u);
     const q = new URL(u).searchParams;
     if (q.get('generator') === 'geosearch') return { query: { pages: [
-      { ...page('File:Azm Palace courtyard.jpg'), index: 2 }, { ...page('File:Azm Palace map.jpg'), index: 1 },
-      { ...page('File:Random street.jpg'), index: 0 }, { ...page('File:Azm Palace fountain.jpg'), index: 1 }, { ...page('File:Own.jpg'), index: 0 }] } };
+      { ...page('File:Azm Palace courtyard.jpg'), categories: [{ title: 'Category:Azm Palace' }], index: 2 }, { ...page('File:Azm Palace map.jpg'), categories: [{ title: 'Category:Azm Palace' }], index: 1 },
+      { ...page('File:Random street.jpg'), categories: [{ title: 'Category:Azm Palace' }], index: 0 }, { ...page('File:Azm Palace fountain.jpg'), categories: [{ title: 'Category:Azm Palace' }], index: 1 }, { ...page('File:Own.jpg'), categories: [{ title: 'Category:Azm Palace' }], index: 0 }] } };
     return { query: { pages: q.get('titles').split('|').map(t => page(t)) } };
   };
   const tg = { name: 'Azm Palace', historic: 'palace', image: 'File:Own.jpg' };
@@ -252,4 +252,80 @@ test('i18n: new photo strip texts in EN/AR/DE; SW caches geosearch JSON', () => 
   assert.ok(re.test(geoUrl(33.5, 36.3)));
   const place = readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8');
   assert.match(place, /settings\.lowData/); assert.match(place, /srcset=/); assert.match(place, /loading="lazy"/);
+});
+
+// ---- QA round 2 (PR #23) ----
+const geoPage = (title, cats, idx = 1, w = 4000, h = 3000) => ({ ...page(title), categories: cats.map(c => ({ title: 'Category:' + c })), index: idx,
+  imageinfo: [{ ...page(title).imageinfo[0], width: w, height: h }] });
+test('P2: geosearch drops people/politics by title and by category (al-Bashir example)', async () => {
+  for (const t of ['File:Mohammed al-Bashir at Umayyad Mosque.png', 'File:Bashar al-Assad visits Damascus.jpg', 'File:Protest in Damascus 2011.jpg',
+    'File:Besuch des Präsidenten in Damaskus.jpg', 'File:Visite du ministre à Damas.jpg', 'File:Soldiers near Umayyad Mosque.jpg', 'File:بشار الأسد في دمشق.jpg'])
+    assert.ok(isGeoJunk(t), t);
+  assert.ok(!isGeoJunk('File:Umayyad Mosque courtyard.jpg'));
+  for (const c of ['People of Syria', 'Ahmed al-Sharaa', 'Politicians of Syria', 'Portraits of men', 'Events in Damascus', 'Protests in Syria',
+    'Syrian civil war', 'Military of Syria', 'Visitors to the Umayyad Mosque', 'Aerial photographs of Damascus', 'Maps of Damascus', 'Damascus in 1935'])
+    assert.ok(badCategories([{ title: 'Category:' + c }]), c);
+  assert.ok(badCategories(undefined) && badCategories([]), 'unknown categories → drop (conservative)');
+  assert.ok(!badCategories([{ title: 'Category:Umayyad Mosque' }, { title: 'Category:CC-BY-SA-4.0' }]));
+  const tg = { name: 'الجامع الأموي', 'name:en': 'Umayyad Mosque', amenity: 'place_of_worship', historic: 'yes' };
+  const fetchJSON = async u => new URL(u).searchParams.get('generator') === 'geosearch' ? { query: { pages: [
+    geoPage('File:Mohammed al-Bashir at Umayyad Mosque.png', ['Umayyad Mosque'], 0),
+    geoPage('File:Umayyad Mosque guest 01.jpg', ['People at the Umayyad Mosque'], 1),
+    geoPage('File:Umayyad Mosque no cats.jpg', [], 2),
+    geoPage('File:Umayyad Mosque courtyard.jpg', ['Courtyard of the Umayyad Mosque'], 3)] } } : { query: { pages: [] } };
+  const r = await loadPhotos(tg, fetchJSON, { lat: 33.51, lon: 36.30 });
+  assert.deepEqual(r.photos.map(p => p.title), ['File:Umayyad Mosque courtyard.jpg']);
+  assert.ok(new URL(geoUrl(1, 2)).searchParams.get('prop').includes('categories'));
+});
+test('P3: multilingual junk (EN/AR/DE/FR): maps, coat of arms, aerial, war, old years, Ifpo oblique', () => {
+  for (const t of ['File:Map of Damascus.jpg', 'File:Karte Damaskus.jpg', 'File:Carte de Damas.jpg', 'File:خريطة دمشق.jpg', 'File:Coat of arms of Syria.png',
+    'File:Wappen Syrien.png', 'File:Armoiries de la Syrie.jpg', 'File:شعار دمشق.jpg']) assert.ok(isJunkTitle(t), t);
+  for (const t of ['File:Aerial view Damascus.jpg', 'File:Luftbild Damaskus.jpg', 'File:Damas vue aérienne.jpg', 'File:Ifpo 21331 Damas vue oblique.jpg',
+    'File:Destroyed Umayyad Mosque Aleppo.jpg', 'File:Zerstörte Altstadt.jpg', 'File:Damas détruit guerre.jpg', 'File:Damascus 1930.jpg', 'File:دمشق 1935.jpg',
+    'File:صورة جوية دمشق.jpg', 'File:حرب حلب.jpg']) assert.ok(isGeoJunk(t), t);
+  for (const t of ['File:Damascus Roman Arch 4738.jpg', 'File:Azem Palace 02.jpg']) assert.ok(!isGeoJunk(t), t);
+});
+test('P3: Arabic/generic STOP words; need a specific token (Citadel of Aleppo → none, Azm/Umayyad kept)', () => {
+  assert.deepEqual([...nameTokens({ name: 'قلعة حلب', 'name:en': 'Citadel of Aleppo', 'name:de': 'Zitadelle von Aleppo' })], []);
+  const azm = nameTokens({ name: 'قصر العظم', 'name:en': "A'zm Palace" });
+  assert.ok(azm.has('azm') && azm.has('عظم') && !azm.has('قصر'));
+  assert.ok(nameTokens({ name: 'الجامع الأموي', 'name:en': 'Umayyad Mosque' }).has('umayyad'));
+  const ok = { title: 'File:Damascus Azm Palace 5126.jpg', categories: ['Category:Azm Palace'], ow: 4000, oh: 3000 };
+  assert.ok(geoRelevant(ok, azm));
+  assert.ok(!geoRelevant({ ...ok, title: 'File:Palace in Damascus.jpg' }, azm), 'generic word only → no match');
+  assert.ok(!geoRelevant({ ...ok, title: 'File:قلعة حلب.jpg' }, nameTokens({ name: 'قلعة حلب', 'name:en': 'Citadel of Aleppo' })), 'no specific token → no nearby photos');
+});
+test('P3: srcsetFor parses any /NNNpx- width and strips tracking params', () => {
+  const u = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/330px-X.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail';
+  assert.equal(cleanThumb(u), 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/330px-X.jpg');
+  const s = srcsetFor(u);
+  assert.ok(!s.includes('utm_')); assert.ok(s.includes('/330px-X.jpg 330w')); assert.ok(s.includes(`/${THUMB_W2}px-X.jpg ${THUMB_W2}w`));
+  assert.ok(srcsetFor(u.replace('330px', '250px')).includes('250w'));
+  const p = parseImageInfo({ query: { pages: [{ ...page('File:X.jpg'), imageinfo: [{ ...page('File:X.jpg').imageinfo[0], thumburl: u }] }] } });
+  assert.ok(!p[0].thumb.includes('utm_'));
+});
+test('P3: very wide panoramas (aspect > 2.5) skipped from geosearch', async () => {
+  assert.equal(MAX_ASPECT, 2.5);
+  assert.ok(tooWide({ ow: 9000, oh: 2000 })); assert.ok(!tooWide({ ow: 4000, oh: 3000 })); assert.ok(!tooWide({}));
+  const tg = { name: 'قصر العظم', 'name:en': 'Azm Palace', historic: 'palace' };
+  const fetchJSON = async u => new URL(u).searchParams.get('generator') === 'geosearch' ? { query: { pages: [
+    geoPage('File:Azm Palace panorama.jpg', ['Azm Palace'], 0, 12000, 3000), geoPage('File:Azm Palace 02.jpg', ['Azm Palace'], 1)] } } : { query: { pages: [] } };
+  const r = await loadPhotos(tg, fetchJSON, { lat: 33.51, lon: 36.30 });
+  assert.deepEqual(r.photos.map(p => p.title), ['File:Azm Palace 02.jpg']);
+  assert.match(readFileSync(new URL('../../css/app.css', import.meta.url), 'utf8'), /object-fit:\s*cover/);
+});
+test('P3: API HTTP 500 → own error state (not "offline"), texts in EN/AR/DE', async () => {
+  const e500 = async () => { const e = new Error('HTTP 500'); e.status = 500; throw e; };
+  const r = await loadPhotos({ image: 'File:A.jpg' }, e500);
+  assert.equal(r.error, 'error');
+  const off = await loadPhotos({ image: 'File:A.jpg' }, async () => { throw new TypeError('Failed to fetch'); });
+  assert.equal(off.error, 'offline');
+  assert.equal(photoEmptyKey('error', true), 'photoError');
+  assert.equal(photoEmptyKey('offline', true), 'photoOffline');
+  assert.equal(photoEmptyKey('error', false), 'photoOffline');
+  assert.equal(photoEmptyKey(undefined, true), 'photoNone');
+  const i18n = readFileSync(new URL('../../js/i18n.js', import.meta.url), 'utf8');
+  assert.equal((i18n.match(/photoError:/g) || []).length, 3);
+  assert.ok(i18n.includes('Foto aus der Umgebung') && !i18n.includes('Foto aus der Nähe'));
+  assert.match(readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8'), /photoEmptyKey\(/);
 });
