@@ -68,6 +68,9 @@ export const BACKOFF_MAX = 300000;     // never wait longer than 5 min between a
 export const VIEW_TRIES = 4;           // failed attempts per viewport (cell set) before giving up on it
 export const SESSION_FAILS = 8;        // consecutive failed attempts per session before world POIs pause until reload/online
 /** Retry-After header (seconds or HTTP date) → ms, or 0 */
+// Note: browsers only expose Retry-After cross-origin if the server sends Access-Control-Expose-Headers: Retry-After,
+// which the public Overpass instances usually do not – so the exponential backoff is the primary mechanism and
+// Retry-After only ever lengthens the wait when it is readable.
 export function retryAfterMs(v, now = Date.now()) {
   if (v == null || v === '') return 0;
   const s = Number(v); if (Number.isFinite(s)) return Math.max(0, s * 1000);
@@ -89,7 +92,8 @@ export class Backoff {
     const exp = Math.min(this.max, this.base * 2 ** (this.fails - 1));
     const wait = Math.min(this.max, Math.max(exp, retryAfter || 0));
     this.until = now + wait;
-    const toast = now >= this.toastUntil; if (toast) this.toastUntil = now + wait;
+    const toast = this.fails === 1; // once per failure series (until a success / reset)
+    if (toast) this.toastUntil = now + wait;
     return { wait, toast };
   }
   ok() { this.fails = 0; this.viewFails = 0; this.until = 0; }

@@ -99,3 +99,36 @@ test('P3: world POI layers are added above poi-transit', () => {
 test('P3: voice suite uses free ports (no fixed PORT+1 clash)', () => {
   const s = read('tests/voice/voice.test.js'); assert.match(s, /process\.env\.PORT \|\| 0/); assert.match(s, /address\(\)\.port/);
 });
+
+// ---- QA round 2: cross-script exact place matches in every UI language ----
+// Items as search.js/fromPhoton builds them: Photon returns one name per hit (EN/DE UI: localized, AR UI: local name).
+const P = (name, place, lon, lat, extra = {}) => ({ name, lon, lat, tags: { place }, ...extra });
+const POI = (name, lon, lat, k = 'amenity', v = 'bus_station') => ({ name, lon, lat, tags: { [k]: v } });
+const IST = [28.97, 41.01], IST_BOX = biasBox(IST, [28.9, 40.95, 29.05, 41.07]);
+const r2 = [
+  // [ui, query, box, list, expected first]
+  ['en', 'حلب', BOX, [POI('طرق دمشق حلب', 36.3, 33.52), P('Aleppo', 'city', 37.16, 36.2)], 'Aleppo'],
+  ['de', 'حلب', BOX, [POI('طرق دمشق حلب', 36.3, 33.52), P('Aleppo', 'city', 37.16, 36.2)], 'Aleppo'],
+  ['en', 'الرقة', BOX, [POI('بيت اهل ابواسماعيل', 36.3, 33.5, 'building', 'house'), P('Raqqa', 'city', 39.01, 35.95)], 'Raqqa'],
+  ['de', 'الرقة', BOX, [POI('بيت اهل ابواسماعيل', 36.3, 33.5, 'building', 'house'), P('Rakka', 'city', 39.01, 35.95)], 'Rakka'],
+  ['en', 'دير الزور', BOX, [P('Deir Atiyah', 'town', 36.76, 34.09, { placeHit: true }), P('Deir ez-Zor', 'city', 40.14, 35.33)], 'Deir ez-Zor'],
+  ['de', 'دير الزور', BOX, [P('Deir Atiyah', 'town', 36.76, 34.09, { placeHit: true }), P('Deir ez-Zor', 'city', 40.14, 35.33)], 'Deir ez-Zor'],
+  ['ar', 'Aleppo', BOX, [POI('Bus to Aleppo', 36.3, 33.52), P('حلب', 'city', 37.16, 36.2)], 'حلب'],
+  ['ar', 'Berlin', IST_BOX, [POI('Berlitz language center', 28.98, 41.02, 'amenity', 'language_school'), P('Berlin', 'city', 13.39, 52.52)], 'Berlin'],
+  ['de', 'Raqqa', BOX, [POI('Raqqa Museum', 39.0, 35.95, 'tourism', 'museum'), P('Rakka', 'city', 39.01, 35.95)], 'Rakka'],
+];
+for (const [ui, q, box, list, want] of r2) test(`QA2 (${ui} UI): "${q}" → ${want} first`, () => {
+  const r = rank(list, q, box); const first = [...r.settlements, ...r.rest][0];
+  assert.equal(first.name, want);
+});
+test('QA2: Photon city boundary relations count as places (Berlin)', async () => {
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ features: [{ type: 'Feature', geometry: { coordinates: [13.4, 52.5] }, properties: { osm_type: 'R', osm_id: 62422, osm_key: 'boundary', osm_value: 'administrative', type: 'city', name: 'Berlin' } }] }) });
+  try { const { photonSearch } = await import('../../js/suggest.js'); const f = await photonSearch('Berlin', { center: IST }); assert.equal(f[0].properties.osm_key, 'place'); assert.equal(f[0].properties.osm_value, 'city'); }
+  finally { globalThis.fetch = orig; }
+});
+test('QA2: toast once per failure series; Retry-After CORS caveat documented', () => {
+  const g = new Backoff(); const t = []; for (let i = 0; i < 6; i++) t.push(g.fail(i * 400000).toast);
+  assert.deepEqual(t, [true, false, false, false, false, false]); g.ok(); assert.equal(g.fail(0).toast, true);
+  assert.match(read('js/world-core.js'), /Access-Control-Expose-Headers/);
+});

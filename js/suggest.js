@@ -24,12 +24,32 @@ const arabic = s => /[\u0600-\u06FF]/.test(s || '');
 export function countryTier(cc, lon, lat, box = SY_BBOX) {
   return lon == null || inBox(lon, lat, box) ? 0 : 1;
 }
-// 0 = name starts with the query, 1 = city/town hit across scripts (حمص → Homs), -1 = no settlement match
+// Cross-script names of Syria's major cities (governorate capitals + a few large towns). Photon returns only one
+// name per hit (the UI language or the local name), so حلب in the EN/DE UI ("Aleppo"/"Aleppo") or "Aleppo" in the AR
+// UI ("حلب") could not be matched by text alone (QA #15). Spellings are compared after skey() normalisation.
+const ALIASES = [
+  ['حلب', 'aleppo', 'halab'], ['دمشق', 'damascus', 'damaskus', 'dimashq'], ['حمص', 'homs', 'hims'], ['حماه', 'hama', 'hamah'],
+  ['اللاذقيه', 'latakia', 'lattakia', 'latakieh', 'latakiya', 'ladhiqiyah'], ['طرطوس', 'tartus', 'tartous', 'tortosa'],
+  ['ادلب', 'idlib', 'idleb'], ['الرقه', 'raqqa', 'raqqah', 'ar-raqqah', 'rakka', 'ar-rakka'],
+  ['دير الزور', 'deir ez-zor', 'deir ezzor', 'deir al-zor', 'dayr az-zawr', 'deir ez zor', 'deir-ez-zor'],
+  ['الحسكه', 'hasakah', 'al-hasakah', 'hasaka', 'hassake', 'al-hasaka'], ['القامشلي', 'qamishli', 'qamishlo', 'kamischli'],
+  ['درعا', 'daraa', "dar'a", 'deraa'], ['السويداء', 'suwayda', 'as-suwayda', 'sweida', 'suwaida', 'es-suweida'],
+  ['القنيطره', 'quneitra', 'kuneitra', 'qunaytirah'], ['تدمر', 'palmyra', 'tadmur'], ['منبج', 'manbij', 'membidsch'],
+  ['البوكمال', 'abu kamal', 'al-bukamal', 'albu kamal'], ['الميادين', 'mayadin', 'al-mayadin'], ['جبله', 'jableh', 'jablah', 'dschabla'],
+  ['بانياس', 'baniyas', 'banias'], ['الباب', 'al-bab', 'bab'], ['عفرين', 'afrin'], ['اعزاز', 'azaz', 'aazaz'], ['السلميه', 'salamiyah', 'salamiyeh'],
+];
+const skey = s => norm(s).replace(/[^\p{L}\p{N}]/gu, '');
+const ALIAS = new Map(); ALIASES.forEach((v, i) => v.forEach(n => ALIAS.set(skey(n), i)));
+/** same place name in any script/spelling (exact after normalisation, or the same alias group) */
+export function sameName(a, b) { const x = skey(a), y = skey(b); if (!x || !y) return false; if (x === y) return true; const i = ALIAS.get(x); return i != null && i === ALIAS.get(y); }
+// 0 = exact name match in any script (Aleppo ↔ حلب ↔ Aleppo), 1 = name starts with the query,
+// 2 = city/town hit of the nearby place query across scripts (حمص → Homs), -1 = no settlement match
 function settleRank(it, q) {
   const place = it.tags?.place; if (!SETTLE.includes(place)) return -1;
   const n = norm(it.name), qq = norm(q);
-  if (qq && n.startsWith(qq)) return 0;
-  if (it.placeHit && arabic(q) !== arabic(it.name) && place !== 'village') return 1;
+  if (sameName(it.name, q) || [it.tags?.['name:ar'], it.tags?.['name:en'], it.tags?.['name:de']].some(v => v && sameName(v, q))) return 0;
+  if (qq && n.startsWith(qq)) return 1;
+  if (it.placeHit && arabic(q) !== arabic(it.name) && place !== 'village') return 2;
   return -1;
 }
 // Settlements that match the query first (city > town > village, then near the view), then everything else by tier, stable.
@@ -77,6 +97,10 @@ export async function photonSearch(q, { lang = 'default', center, zoom, view, li
   if (signal?.aborted) throw Object.assign(new Error('abort'), { name: 'AbortError' });
   if (g.status === 'rejected' && p.status === 'rejected' && sy.status === 'rejected') throw g.reason;
   const pf = (p.value?.features || []).map(f => (f.properties.placeHit = true, f));
+  // city/town boundary relations (e.g. Berlin) → place:<type>, so the ranking treats them as settlements (QA #15)
+  for (const f of [...(g.value?.features || []), ...pf, ...(sy.value?.features || [])]) {
+    const pp = f.properties; if (pp.osm_key === 'boundary' && SETTLE.includes(pp.type)) { pp.osm_key = 'place'; pp.osm_value = pp.type; }
+  }
   const seen = new Set(), out = [];
   for (const f of [...pf, ...(g.value?.features || []), ...(sy.value?.features || [])]) {
     const k = (f.properties.osm_type || '') + f.properties.osm_id;
