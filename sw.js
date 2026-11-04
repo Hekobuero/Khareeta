@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-2008';
+const VERSION = '20261104-2035';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -261,9 +261,9 @@ async function warm(urls) {
 // ----- place photos (Wikimedia Commons): bounded runtime cache, shared across versions -----
 // Thumbnails (upload/thumb.wikimedia.org, CORS) cache-first; Commons/Wikidata API JSON network-first with cache fallback.
 // Only non-opaque 200 responses are stored; oldest entries are dropped beyond the limits.
-const PHOTOS = 'kh-photos', MAX_PHOTO_IMG = 60, MAX_PHOTO_API = 120;
+const PHOTOS = 'kh-photos', MAX_PHOTO_IMG = 80, MAX_PHOTO_API = 120;
 const isPhotoImg = u => /^https:\/\/(upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//.test(u);
-const isPhotoApi = u => /^https:\/\/(commons\.wikimedia\.org\/w\/api\.php\?action=query&(titles|generator=categorymembers)|www\.wikidata\.org\/w\/api\.php\?action=wbgetclaims&)/.test(u);
+const isPhotoApi = u => /^https:\/\/(commons\.wikimedia\.org\/w\/api\.php\?action=query&(titles|generator=categorymembers|generator=geosearch)|www\.wikidata\.org\/w\/api\.php\?action=wbgetclaims&)/.test(u);
 async function photoTrim(c, isImg, max) {
   const ks = (await c.keys()).filter(k => isImg(k.url));
   for (const k of ks.slice(0, Math.max(0, ks.length - max))) await c.delete(k);
