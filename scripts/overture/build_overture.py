@@ -7,12 +7,14 @@ Reproducible from the public Overture Maps release (anonymous S3, no keys):
     python3 scripts/overture/build_overture.py --input syria.parquet # or a local extract of the same release
 Steps (all deterministic, counts per rule are printed): inside the Syria outline (js/overture-data.js OV_SY) and every
 address country = 'SY' → confidence >= 0.7 → category ALLOWLIST → privacy rules (homes, clerics, kunya, person-only names,
-foreign phones, mobiles only for commercial categories) → no locality names, exact duplicates or centroid stacks → drop records with any Foursquare source (Apache-2.0 parts; avoids a NOTICE) → e-mails are never
-exported → OSM duplicates removed (similar name within 50 m of a bundled OSM POI from data/poi/) → split into 0.1° tiles.
+foreign phones, mobiles only for commercial categories) → junk names (foreign scripts, terrain/gazetteer names,
+parenthetical descriptions, person name + filler word) → no locality names, exact duplicates or centroid stacks → drop records with any Foursquare source (Apache-2.0 parts; avoids a NOTICE) → e-mails are never
+exported → OSM duplicates removed (similar name within 50 m of a bundled OSM POI from data/poi/) → near-duplicates (same group, same distinctive name within 200 m → keep the entry with most contact data) →
+points carrying unrelated places and coarse-grid coordinates dropped → links: webmail dropped, tracking params stripped →
+split into 0.1° tiles.
 """
 import argparse, json, math, re, hashlib, os, glob
 from difflib import SequenceMatcher
-import duckdb
 
 RELEASE = '2026-10-21.0'
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -75,7 +77,24 @@ PLACE_NAMES = {x.lower() for x in (
     'Damascus Aleppo Homs Hama Latakia Lattakia Tartus Idlib Raqqa Hasakah Qamishli Daraa Suwayda Quneitra Jableh Baniyas Palmyra '
     'Manbij Afrin Azaz Douma Jaramana Mezzeh Malki Midan Salhieh Syria').split()} | {
     'دير الزور', 'باب توما', 'ركن الدين', 'الشيخ مقصود', 'دمشق القديمة', 'حلب القديمة', 'deir ez-zor', 'deir ezzor', 'bab touma', 'old damascus'}
-TRACK = re.compile(r'^(fbclid|gclid|igshid|igsh|mibextid|ref|ref_src|ref_type|__tn__|__cft__\[0\]|hc_ref|fref|si|_rdr|rdid|share_url|sfnsn|utm_[a-z_]+)$', re.I)
+TRACK = re.compile(r'^(fbclid|gclid|dclid|msclkid|yclid|twclid|ttclid|igshid|igsh|mibextid|ref|ref_src|ref_type|__tn__|__cft__\[0\]|hc_ref|fref|si|_rdr|rdid|'
+                   r'share_url|sfnsn|stkn|wa_status_inline|g_st|g_ep|authuser|_sg|ev|mc_cid|mc_eid|_hsenc|_hsmi|spm|s|t|feature|utm_[a-z_]+)$', re.I)
+# a few params are only tracking on some hosts (r=nametag on Instagram)
+TRACK_HOST = {'instagram.com': re.compile(r'^(r|hl)$', re.I), 'google.com': re.compile(r'^(hl|entry|coh)$', re.I)}
+# webmail / mail-provider links are never a business website
+WEBMAIL = re.compile(r'^https?://([a-z0-9-]+\.)*(mail\.live\.com|live\.com|hotmail\.com|outlook\.(com|live\.com|office\.com|office365\.com)|'
+                     r'mail\.google\.com|gmail\.com|mail\.yahoo\.com|yahoo\.com|ymail\.com|aol\.com|mail\.ru|yandex\.(ru|com)|icloud\.com|proton(mail)?\.(me|com))(/|$|\?|:)', re.I)
+# QA P3 junk rules
+# 1) scripts that are not used for Syrian shop names (Thai, CJK, Cyrillic, Greek, Hebrew, Devanagari, …)
+FOREIGN_SCRIPT = re.compile(r'[\u0370-\u03ff\u0400-\u04ff\u0590-\u05ff\u0900-\u0dff\u0e00-\u0eff\u1000-\u109f\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]')
+# 2) gazetteer / Wikipedia-style terrain names: a terrain word + no business word, or a GeoNames-style transliteration
+TERRAIN = re.compile(r'^(tall|tell|tal|jabal|jebel|jbel|wadi|wādī|nahr|khirbat|khirbet|ayn|ain|ʿayn|‘ayn|qaryat|sahl|marj|ra[sʾ]s|'
+                     r'تل|تلة|جبل|وادي|نهر|خربة|عين|سهل|مرج|رأس|راس)\b', re.I)
+TRANSLIT = re.compile(r'[āīūḩḑṣṭẓḍĀĪŪḨḐṢṬẒḌʿʾ]')
+# 3) a parenthetical description of the place in another language (Swedish/German/English bot-made articles, coordinates)
+PAREN_DESC = re.compile(r'\((?:[^)]*\b(?:i syrien|in syrien|in syria|kulle|berg|wadi|hill|mountain|river|village|dorf|fluss|lat\s*\d|long\s*\d)\b[^)]*)\)', re.I)
+# 4) a person's name plus one generic filler word ("Express AHMAD ASWAD")
+GENERIC = re.compile(r'\b(express|group|official|online|plus|point|world|zone)\b', re.I)
 
 def clean_url(u):
     """strip tracking params; m.me/<page> (Messenger) → facebook.com/<page>"""
@@ -87,7 +106,10 @@ def clean_url(u):
     if p.netloc.lower() in ('m.me', 'www.m.me'):
         page = p.path.strip('/').split('/')[0]
         return 'https://www.facebook.com/' + page if page else ''
-    q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if not TRACK.match(k)]
+    if WEBMAIL.match(u): return ''
+    host = p.netloc.lower().split(':')[0].removeprefix('www.')
+    th = next((rx for h, rx in TRACK_HOST.items() if host == h or host.endswith('.' + h)), None)
+    q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if not TRACK.match(k) and not (th and th.match(k))]
     return urlunsplit((p.scheme.lower(), p.netloc, p.path, urlencode(q), ''))
 
 def phone_kind(p):
@@ -117,6 +139,66 @@ def person_rule(name):
         if not forms & AR_BIZ: return 'arabic_person_name'
     if LATIN_NAME.match(n) and not re.search(EN_BIZ, n.lower()): return 'latin_person_name'
     return ''
+
+def junk_rule(name):
+    """QA P3: names that are not a business at all ('' = ok)"""
+    n = name.strip()
+    if FOREIGN_SCRIPT.search(n): return 'foreign_script'
+    if PAREN_DESC.search(n): return 'parenthetical_description'
+    low = n.lower()
+    biz = re.search(EN_BIZ, low) or any(w in AR_BIZ for w in re.sub(r'[^\w\s]', ' ', n).split())
+    if not biz and (TERRAIN.match(n) or TRANSLIT.search(n)): return 'terrain_name'
+    rest = re.sub(r'\s+', ' ', GENERIC.sub(' ', n)).strip()
+    if rest != n and re.fullmatch(r'[A-Za-z]+( [A-Za-z]+){1,2}', rest) and not re.search(EN_BIZ, rest.lower()) and LATIN_NAME.match(rest.title()):
+        return 'person_name_generic'
+    return ''
+
+def best_of(rs):
+    """near-duplicate cluster → the entry with most contact data, then highest confidence, then longest name, then id"""
+    return max(rs, key=lambda r: (sum(1 for x in r[5:9] if x), r[9], len(r[3]), r[0]))
+
+def coarse(x):
+    """True for a coordinate on a 0.01° or 1/60° grid (as printed with 4 decimals)"""
+    return abs(x * 100 - round(x * 100)) < 1e-3 or abs(x * 60 - round(x * 60)) < 3.1e-3
+
+def dist_m(a, b):
+    return math.hypot((a[2] - b[2]) * 111320, (a[1] - b[1]) * 111320 * math.cos(math.radians(a[2])))
+
+# generic category words do not identify a place ("Sea Cafe" ≠ "Sham Cafe", "Dental Clinic" ≠ "Whity Dental Clinic")
+GEN_WORDS = re.compile(r'\b(restaurant|rest|cafe|café|coffee|pharmacy|hospital|clinic|dental|medical|center|centre|hotel|gym|club|pool|'
+                       r'salon|shop|store|market|bakery|station|and|&)\b|(^|\s)(و?(ال)?(مطعم|مقهى|كافيه|كافي|صيدلية|مشفى|مستشفى|عيادة|فندق|'
+                       r'محطة|مسبح|نادي|صالون|مركز|محل|مخبز|سوبر|ماركت))(?=\s|$)', re.I)
+def dedup_key(name):
+    return norm(GEN_WORDS.sub(' ', name.lower()))
+
+def same_place(a, b):
+    """stricter than similar(): the distinctive part must match (equal, contained with >= 5 chars, or ratio >= 0.9)"""
+    if not a or not b or min(len(a), len(b)) < 3: return False
+    if a == b: return True
+    if min(len(a), len(b)) >= 5 and (a in b or b in a): return True
+    return SequenceMatcher(None, a, b).ratio() >= 0.9
+
+def near_dups(rows, radius=200):
+    """merge rows of the same category group with the same distinctive name within `radius` m; returns (kept, merged_count)"""
+    grid = {}
+    for i, r in enumerate(rows): grid.setdefault((int(r[2] * 500), int(r[1] * 500)), []).append(i)   # ~200 m cells
+    parent = list(range(len(rows)))
+    def find(i):
+        while parent[i] != i: parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+    keys = [dedup_key(r[3]) for r in rows]
+    for i, r in enumerate(rows):
+        gy, gx = int(r[2] * 500), int(r[1] * 500)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                for j in grid.get((gy + dy, gx + dx), []):
+                    if j <= i or find(i) == find(j): continue
+                    if dist_m(r, rows[j]) <= radius and group_of(r[4])[0] == group_of(rows[j][4])[0] and same_place(keys[i], keys[j]): parent[find(j)] = find(i)
+    cl = {}
+    for i in range(len(rows)): cl.setdefault(find(i), []).append(rows[i])
+    kept = [best_of(rs) for rs in cl.values()]
+    kept.sort(key=lambda r: r[0])
+    return kept, len(rows) - len(kept)
 
 def recategorise(name, cat):
     n = name.lower()
@@ -187,6 +269,7 @@ SOC = {'facebook': re.compile(r'^https?://([a-z0-9-]+\.)?(facebook\.com|fb\.com|
        'instagram': re.compile(r'^https?://([a-z0-9-]+\.)?(instagram\.com|instagr\.am)/', re.I)}
 
 def main():
+    import duckdb  # only needed for a build; the rule helpers are importable without it (tests)
     ap = argparse.ArgumentParser(); ap.add_argument('--input', help='local parquet extract (default: Overture release on S3)')
     ap.add_argument('--release', default=RELEASE); a = ap.parse_args()
     c = duckdb.connect()
@@ -222,6 +305,8 @@ def main():
         cat = recategorise(name, cat or '')
         if cat not in ALLOW: drop('category_not_allowlisted'); continue
         if name.lower() in PLACE_NAMES or norm(name) in placen: drop('locality_name'); continue
+        jr = junk_rule(name)
+        if jr: drop('junk_' + jr); continue
         pr = person_rule(name)
         if pr: drop('name_' + pr); continue
         ph = next((p for p, k in kinds if k == 'sy'), '') or (next((p for p, k in kinds if k == 'mob'), '') if ALLOW[cat] else '')
@@ -231,7 +316,7 @@ def main():
         fb = next((u for u in links if SOC['facebook'].match(u)), '')
         ig = next((u for u in links if SOC['instagram'].match(u)), '')
         web = next((u for u in (clean_url(x) for x in webs if isinstance(x, str)) if u and not any(r.match(u) for r in SOC.values())), '')
-        cand.append((oid, lon, lat, name[:120], cat, ph, web[:300], fb[:300], ig[:300]))
+        cand.append((oid, lon, lat, name[:120], cat, ph, web[:300], fb[:300], ig[:300], conf or 0))
     # exact duplicates (same name + coordinates) → keep the first; centroid stacks (> 3 places on one point) → drop all
     seen, uniq = set(), []
     for r in cand:
@@ -244,10 +329,22 @@ def main():
     for r in uniq:
         if at[(r[1], r[2])] > 3: drop('centroid_stack'); continue
         keep.append(r)
+    keep, nd = near_dups(keep)
+    # QA P3 stacks: a point carrying unrelated places (different category groups) is a geocoder fallback → drop them all;
+    # coordinates on a coarse grid (0.01° or 1 arc-minute) are a town/district centroid, not a shop location
+    grp = {}
+    for r in keep: grp.setdefault((r[1], r[2]), set()).add(group_of(r[4])[0])
+    keep2 = []
+    for r in keep:
+        if len(grp[(r[1], r[2])]) > 1: drop('mixed_stack'); continue
+        if coarse(r[1]) and coarse(r[2]): drop('coarse_coordinates'); continue
+        keep2.append(r)
+    keep = keep2
+    if nd: st['dropped_near_duplicate_200m'] = nd
     cats = sorted({r[4] for r in keep})
     ci = {k: i for i, k in enumerate(cats)}
     tiles = {}
-    for oid, lon, lat, name, cat, ph, web, fb, ig in keep:
+    for oid, lon, lat, name, cat, ph, web, fb, ig, _ in keep:
         r = [lon, lat, re.sub('[^0-9a-f]', '', oid.lower())[:12], name, ci[cat], ph, web, fb, ig]
         while r[-1] == '': r.pop()
         tiles.setdefault(f'{math.floor(lon * TILE)}_{math.floor(lat * TILE)}', []).append(r)

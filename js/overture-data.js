@@ -116,6 +116,9 @@ export function ovReport(id, reason, { store = globalThis.localStorage, track } 
   const h = ovHidden(store); h.add(String(id));
   try { store?.setItem(OV_HIDE_KEY, JSON.stringify([...h].slice(-500))); } catch {}
   // kh_events.type has a check constraint, so the report rides on the allowed 'layer' type with k = 'ov_report'
-  try { track?.('layer', { k: 'ov_report', id: String(id).slice(0, 40), r: reason }); } catch {}
-  return true;
+  // 'queued' only when analytics actually accepted the event (it is off with Do-Not-Track/opt-out) – the UI must not
+  // claim a report was sent otherwise; true = hidden locally only
+  let queued = false;
+  try { queued = track?.('layer', { k: 'ov_report', id: String(id).slice(0, 40), r: reason }) === true; } catch {}
+  return queued ? 'queued' : true;
 }
