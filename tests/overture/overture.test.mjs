@@ -91,7 +91,7 @@ test('category labels in EN/AR/DE', () => {
 });
 test('i18n strings exist in all languages', async () => {
   const src = readFileSync(new URL('../../js/i18n.js', import.meta.url), 'utf8');
-  for (const k of ['ovLayer', 'ovUnverified', 'ovAttr', 'ovAddOsm', 'cOverture', 'ovReport', 'ovReportWhy', 'ovR_private', 'ovR_wrong', 'ovR_closed', 'ovReported']) assert.equal(src.split(k + ':').length - 1, 3, k);
+  for (const k of ['ovLayer', 'ovUnverified', 'ovAttr', 'ovAddOsm', 'cOverture', 'ovReport', 'ovReportWhy', 'ovR_private', 'ovR_wrong', 'ovR_closed', 'ovReported', 'ovReportQueued']) assert.equal(src.split(k + ':').length - 1, 3, k);
 });
 
 // ---- QA 2026-11-04 (PR #16): privacy, data quality, outline, report button ----
@@ -151,7 +151,7 @@ test('report / remove: hides locally, sends one anonymous event via the mocked t
   assert.equal(ovReport('', 'private', { store, track }), false);
   assert.equal(ovReport('abc123', 'spam', { store, track }), false);
   assert.equal(sent.length, 0);
-  assert.equal(ovReport('abc123', 'private', { store, track }), true);
+  assert.equal(ovReport('abc123', 'private', { store, track }), true); // mock track() does not confirm queueing → only hidden
   assert.ok(ovHidden(store).has('abc123'));
   assert.deepEqual(JSON.parse(mem.get(OV_HIDE_KEY)), ['abc123']);
   assert.deepEqual(sent, [['layer', { k: 'ov_report', id: 'abc123', r: 'private' }]]);
@@ -163,4 +163,48 @@ test('report / remove: hides locally, sends one anonymous event via the mocked t
   const pl = readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8');
   assert.match(pl, /ovReport\(item\.ovId, b\.dataset\.r, \{ track \}\)/);
   assert.match(readFileSync(new URL('../../css/app.css', import.meta.url), 'utf8'), /\.ov-report \.abtn\{min-height:44px;min-width:44px\}/);
+});
+
+test('QA P3: report toast only claims a report when analytics queued it; neutral wording (no "anonymous")', () => {
+  const mem = new Map(), store = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+  assert.equal(ovReport('q1', 'wrong', { store, track: () => true }), 'queued');
+  assert.equal(ovReport('q2', 'wrong', { store, track: () => false }), true); // analytics off (DNT/opt-out)
+  assert.equal(ovReport('q3', 'wrong', { store, track: () => { throw new Error('x'); } }), true);
+  assert.deepEqual([...ovHidden(store)], ['q1', 'q2', 'q3']);
+  const pl = readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8');
+  assert.match(pl, /t\(res === 'queued' \? 'ovReportQueued' : 'ovReported'\)/);
+  const an = readFileSync(new URL('../../js/analytics.js', import.meta.url), 'utf8');
+  assert.match(an, /if \(OFF \|\| !ALLOWED\.has\(type\)\) return false;/);
+  assert.match(an, /return true; \/\/ queued/);
+  const src = readFileSync(new URL('../../js/i18n.js', import.meta.url), 'utf8');
+  const vals = [...src.matchAll(/ovReport(?:ed|Queued): '([^']*)'/g)].map(m => m[1]);
+  assert.equal(vals.length, 6);
+  for (const v of vals) assert.doesNotMatch(v, /anonym|دون هوية|sent anonymously/i);
+  for (const v of vals.filter((_, i) => i % 2 === 0)) assert.doesNotMatch(v, /sent|gesendet|أُرسل|Meldung|report/i); // plain 'hidden' text
+  assert.match(src, /ovReported: 'Ort auf diesem Gerät ausgeblendet\.'/);
+});
+test('QA P3 data: no junk names, no webmail/tracking links, no near-duplicates, no mixed stacks', () => {
+  const foreign = /[\u0370-\u03ff\u0400-\u04ff\u0590-\u05ff\u0900-\u0dff\u0e00-\u0eff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
+  const paren = /\([^)]*\b(i syrien|kulle|berg|wadi|lat \d|long \d)\b[^)]*\)/i;
+  const track = /[?&](utm_[a-z_]+|fbclid|gclid|igsh|igshid|stkn|wa_status_inline|g_st|authuser|_sg|mibextid)=|instagram\.com\/[^?]*\?(.*&)?r=/i;
+  const webmail = /^https?:\/\/([a-z0-9-]+\.)*(mail\.live\.com|hotmail\.com|outlook\.|mail\.google\.com|gmail\.com|mail\.yahoo\.com)/i;
+  for (const r of rows) {
+    assert.doesNotMatch(r[3], foreign, r[3]);
+    assert.doesNotMatch(r[3], paren, r[3]);
+    assert.doesNotMatch(r[3], /^(Tall|Wādī|Jabal)\b/, r[3]);
+    for (const u of r.slice(6)) { if (!u) continue; assert.doesNotMatch(u, track, u); assert.doesNotMatch(u, webmail, u); }
+  }
+  const norm = s => s.toLowerCase().replace(/[\u064b-\u065f\u0640]|[^\p{L}\p{N}]/gu, '');
+  const seen = new Map();
+  for (const r of rows) {
+    const k = norm(r[3]);
+    for (const o of seen.get(k) || []) {
+      const d = Math.hypot((o[1] - r[1]) * 111320, (o[0] - r[0]) * 111320 * Math.cos(r[1] * Math.PI / 180));
+      if (ix.groups[o[4]][0] === ix.groups[r[4]][0]) assert.ok(d > 200, `${r[3]} duplicated ${Math.round(d)} m apart`);
+    }
+    seen.set(k, [...(seen.get(k) || []), r]);
+  }
+  const at = new Map();
+  for (const r of rows) { const k = r[0] + ',' + r[1]; at.set(k, [...(at.get(k) || []), ix.groups[r[4]][0]]); }
+  for (const [k, g] of at) assert.equal(new Set(g).size, 1, `mixed stack at ${k}`);
 });
