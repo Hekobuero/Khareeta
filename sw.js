@@ -37,6 +37,8 @@ const SHELL_FILES = [
   'js/overture-data.js',
   'js/report.js',
   'js/report-core.js',
+  'js/closures.js',
+  'js/closures-core.js',
   'js/route.js',
   'js/search.js',
   'js/suggest.js',
@@ -296,6 +298,8 @@ self.addEventListener('fetch', e => {
     if (/\/(robots\.txt|sitemap\.xml)$/.test(url.pathname) || url.pathname.endsWith('/icons/og-image.png')) return;
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
+    // moderated road reports: always try the network first (short-lived data), cached copy only when offline
+    if (url.pathname.endsWith('/data/closures.json')) return e.respondWith(networkFirst(req, SHELL, 4000));
     if (isOv(url.pathname)) return e.respondWith(ovFetch(req, e));
     if (isPoi(url.pathname)) return e.respondWith(poiFetch(req, e));
     if (isAsset(url.pathname)) return e.respondWith(swr(req, e));

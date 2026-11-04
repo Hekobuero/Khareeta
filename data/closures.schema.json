@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Khareeta moderated road reports (data/closures.json)",
+  "type": "object",
+  "required": ["schema", "closures"],
+  "properties": {
+    "schema": { "const": 1 },
+    "updated": { "type": "string", "format": "date-time" },
+    "closures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "lat", "lon", "since", "expires"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 40 },
+          "kind": { "enum": ["closed", "delay", "construction", "flooding"] },
+          "lat": { "type": "number", "minimum": -90, "maximum": 90, "description": "rounded to 4 decimals" },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180, "description": "rounded to 4 decimals" },
+          "since": { "type": "string", "format": "date-time" },
+          "expires": { "type": "string", "format": "date-time", "description": "after this the app hides the entry; max 14 days after since" },
+          "road": { "type": "string", "maxLength": 80 },
+          "note": { "type": "string", "maxLength": 140, "description": "moderator-written, neutral wording" }
+        }
+      }
+    }
+  }
+}
