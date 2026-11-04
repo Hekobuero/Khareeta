@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1518';
+const VERSION = '20261104-1525';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -41,11 +41,30 @@ const SHELL_FILES = [
   'js/update.js',
   'js/util.js',
   'js/voice.js',
+  'js/names.js',
+  'js/world-core.js',
+  'js/world-poi.js',
   'fonts/glyphs-empty.pbf',
   'icons/icon.svg',
   'icons/icon-192.png'];
 const TILES = 'kh-tiles', OFFLINE = 'kh-offline', RT = 'kh-rt', ASSETS = 'kh-assets-' + VERSION, POI = 'kh-poi-';
 const MAX_TILES = 6000, MAX_AGE = 21 * 864e5;
+// Live world POIs (world-poi.js): Overpass GET answers per ~2 km cell block, cache-first for 7 days, max 150 entries
+const WPOI = 'kh-wpoi', WPOI_MAX = 150, WPOI_AGE = 7 * 864e5;
+const isWorldPoi = u => /\/api\/interpreter\?data=/.test(u) && u.includes(encodeURIComponent('[out:json][timeout:15];('));
+async function wpoiFetch(req) {
+  const c = await caches.open(WPOI), hit = await c.match(req);
+  if (hit && (Date.now() - (+hit.headers.get('x-kh-date') || 0) < WPOI_AGE || !navigator.onLine)) return hit;
+  try {
+    const r = await fetch(req);
+    if (r.ok) {
+      const res = new Response(await r.clone().blob(), { headers: { 'Content-Type': 'application/json', 'x-kh-date': String(Date.now()) } });
+      await c.put(req, res);
+      const ks = await c.keys(); for (const k of ks.slice(0, Math.max(0, ks.length - WPOI_MAX))) await c.delete(k);
+    }
+    return r;
+  } catch (e) { if (hit) return hit; throw e; }
+}
 
 async function hasBanner() {
   for (const k of await caches.keys()) if (k.startsWith('kh-shell-') && k !== SHELL && await (await caches.open(k)).match('js/update.js')) return true;
@@ -256,6 +275,7 @@ self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const u = req.url;
   if (isTile(u)) return e.respondWith(tileFetch(req));
+  if (isWorldPoi(u)) return e.respondWith(wpoiFetch(req));
   if (isStatic(u)) return e.respondWith(cacheFirst(req, RT));
   if (isStyle(u)) return e.respondWith(networkFirst(req, RT, 6000));
   if (isPhotoImg(u) || isPhotoApi(u)) return e.respondWith(photoFetch(req, e));

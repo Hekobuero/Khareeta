@@ -4,6 +4,7 @@
 // multi-select category filter.
 import { haversine } from './util.js';
 import { ohStatus } from './hours.js';
+import { labelExpression } from './names.js';
 
 // data/poi-syria.json split by tools/poi/split.py into ~50 KB parts (data/poi/index.json + pN.json), so no single
 // JSON.parse blocks the main thread for long.
@@ -106,13 +107,14 @@ export function loadPois() {
       await yieldNow(); t0 = performance.now();
       for (let k = 0; k < rows.length; k++) {
         if ((k & 63) === 0 && performance.now() - t0 > 8) { await yieldNow(); t0 = performance.now(); }
-        const rec = rowRec(rows[k], j), { lon, lat, c, osm, name, ar, en, st, grp } = rec, imp0 = (CAT[c] || ['civic', 1])[1];
-        const named = !!(name || ar || en);
+        const rec = rowRec(rows[k], j), { lon, lat, c, osm, name, ar, en, st, grp, brand } = rec, imp0 = (CAT[c] || ['civic', 1])[1];
+        const named = !!(name || ar || en || brand); // brand-only shops count as named (shown like any other)
         rec.tok = null; // search tokens: built later in idle slices (buildTokens) or on the first search
         rec.i = all.length; all.push(rec); byOsm.set(osm, rec.i);
         const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
         if (name) props.name = name; if (ar) props['name:ar'] = ar; if (en) props['name:en'] = en;
-        if (!name && (ar || en)) props.name = ar || en;
+        if (brand) props.brand = brand;
+        if (!name && (ar || en)) props.name = ar || en; // name:ar/name:en-only POIs keep a label in every language
         feats.push({ type: 'Feature', id: rec.i, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: props });
       }
     }
@@ -128,7 +130,7 @@ export function loadPois() {
 }
 // search tokens for all rows: in ≤8 ms idle slices after loading; searchLocal finishes synchronously if needed
 let tokAt = 0;
-const tokOf = r => [...new Set([...tokens(r.name), ...tokens(r.ar), ...tokens(r.en)])];
+const tokOf = r => [...new Set([...tokens(r.name), ...tokens(r.ar), ...tokens(r.en), ...tokens(r.brand)])];
 function buildTokens() {
   const step = () => { const t0 = performance.now(); while (tokAt < P.all.length && performance.now() - t0 < 8) { for (let k = 0; k < 32 && tokAt < P.all.length; k++) { const r = P.all[tokAt++]; r.tok = tokOf(r); } } if (tokAt < P.all.length) next(); };
   const next = () => ('requestIdleCallback' in window ? requestIdleCallback(step, { timeout: 3000 }) : setTimeout(step, 50));
@@ -139,7 +141,8 @@ function ensureTokens() { while (tokAt < P.all.length) { const r = P.all[tokAt++
 export function rowRec(row, j) {
   const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = row;
   const c = j.cats[ci], s = j.subs[si], [grp] = CAT[c] || ['civic', 1];
-  return { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
+  const brand = ex && c !== 'food' && c !== 'cafe' ? ex : '';
+  return { lon, lat, c, s, osm, name, ar, en, brand, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
 }
 // Local (bundled, SW-cached) record for an OSM id like "n14304758001" → toItem() or null. Used for deep links,
 // so name, hours, phone … show even offline before Nominatim/Overpass answer.
@@ -161,24 +164,45 @@ export function toItem(rec) {
 let state = { cats: new Set(), openNow: false };
 export const LAYERS = ['kh-poi-1', 'kh-poi-2', 'kh-poi-3', 'kh-poi-0', 'kh-poi-f'];
 export function poiLayerIds() { return LAYERS; }
-export function addPoiLayers(map, dark) {
-  if (!P.geo || map.getSource('kh-poi')) return;
-  map.addSource('kh-poi', { type: 'geojson', data: P.geo, buffer: 32, maxzoom: 16 });
-  const before = map.getLayer('poi-transit') ? 'poi-transit' : map.getLayer('label-airport') ? 'label-airport' : undefined;
+// Symbol layer factory shared with the on-demand world POI layer (world-poi.js)
+export function poiLayerSpec(map, dark, source) {
   const tc = GROUP_TEXT[dark ? 'dark' : 'light'];
   const textColor = ['match', ['get', 'g'], ...Object.entries(tc).flat(), tc.civic];
   const halo = (map.getLayer('poi') && map.getPaintProperty('poi', 'text-halo-color')) || (dark ? 'rgba(28,28,30,0.92)' : 'rgba(244,242,238,0.92)');
-  const lay = (id, minzoom, filter, size, textFrom) => ({
-    id, type: 'symbol', source: 'kh-poi', minzoom, filter, metadata: { 'khareeta:label': true },
+  return (id, minzoom, filter, size, textFrom) => ({
+    id, type: 'symbol', source, minzoom, filter, metadata: { 'khareeta:label': true },
     layout: {
       'icon-image': ['get', 'sp'], 'icon-size': ['interpolate', ['linear'], ['zoom'], minzoom, size, 17, 1], 'icon-padding': 3,
-      'text-field': ['step', ['zoom'], '', textFrom, ['coalesce', ['get', 'name:en'], ['get', 'name']]],
+      'text-field': ['step', ['zoom'], '', textFrom, labelExpression('en')], // relabel() swaps in the UI language
       'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 17, 12.5], 'text-max-width': 8, 'text-line-height': 1.2,
       'text-variable-anchor': ['right', 'left', 'top', 'bottom'], 'text-radial-offset': 1.1, 'text-justify': 'auto', 'text-optional': true,
       'symbol-sort-key': ['get', 'rank'],
     },
     paint: { 'text-color': textColor, 'text-halo-color': halo, 'text-halo-width': 1.5, 'text-halo-blur': 0.5, 'icon-opacity': ['interpolate', ['linear'], ['zoom'], minzoom, 0, minzoom + 0.4, 1] },
   });
+}
+export function poiCatFor(tags) { // OSM tags -> [data category, sub, group, importance, sprite] (world POIs)
+  for (const [k, v] of [['amenity', tags.amenity], ['tourism', tags.tourism], ['shop', tags.shop], ['historic', tags.historic], ['leisure', tags.leisure]]) {
+    if (!v) continue;
+    let c = 'shop';
+    if (k === 'tourism') c = ['hotel', 'motel', 'hostel', 'guest_house', 'apartment', 'chalet'].includes(v) ? 'hotel' : 'sight';
+    else if (k === 'historic') c = 'sight';
+    else if (k === 'leisure') c = 'park';
+    else if (k === 'shop') c = ['supermarket', 'convenience', 'greengrocer', 'grocery'].includes(v) ? 'grocery' : ['bakery', 'pastry', 'confectionery'].includes(v) ? 'bakery' : 'shop';
+    else c = ({ restaurant: 'food', fast_food: 'food', food_court: 'food', cafe: 'cafe', ice_cream: 'cafe', atm: 'money', bank: 'money', bureau_de_change: 'money', fuel: 'fuel', pharmacy: 'pharmacy',
+      hospital: 'hospital', clinic: 'clinic', doctors: 'clinic', dentist: 'clinic', police: 'police', toilets: 'toilets', parking: 'parking', place_of_worship: tags.religion === 'muslim' ? 'mosque' : tags.religion === 'christian' ? 'church' : 'worship',
+      school: 'edu', university: 'edu', college: 'edu', kindergarten: 'edu', bus_station: 'transport', townhall: 'gov', post_office: 'gov', cinema: 'fun', theatre: 'fun', bar: 'food', pub: 'food' })[v] || 'shop';
+    const sub = v === 'bureau_de_change' ? 'exchange' : v === 'post_office' ? 'post' : v === 'place_of_worship' ? (c === 'worship' ? 'worship' : c) : v;
+    const [g, imp] = CAT[c] || ['civic', 1];
+    return { c, s: sub, g, imp, sp: SPRITE[sub] || (c === 'shop' ? 'shop' : 'generic') };
+  }
+  return null;
+}
+export function addPoiLayers(map, dark) {
+  if (!P.geo || map.getSource('kh-poi')) return;
+  map.addSource('kh-poi', { type: 'geojson', data: P.geo, buffer: 32, maxzoom: 16 });
+  const before = map.getLayer('poi-transit') ? 'poi-transit' : map.getLayer('label-airport') ? 'label-airport' : undefined;
+  const lay = poiLayerSpec(map, dark, 'kh-poi');
   map.addLayer(lay('kh-poi-1', 12.5, ['==', ['get', 'imp'], 3], 0.72, 14), before);
   map.addLayer(lay('kh-poi-2', 14, ['==', ['get', 'imp'], 2], 0.8, 15), before);
   map.addLayer(lay('kh-poi-3', 15.5, ['==', ['get', 'imp'], 1], 0.85, 16), before);
@@ -190,7 +214,7 @@ export function addPoiLayers(map, dark) {
   applyFilterToMap(map);
 }
 export function setPoiVisible(map, on) {
-  for (const id of LAYERS) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+  for (const id of [...LAYERS, 'kh-wpoi-1', 'kh-wpoi-2', 'kh-wpoi-3']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
   if (on) applyFilterToMap(map);
 }
 let selIdx = null;
@@ -257,7 +281,7 @@ export function searchLocal(text, ref, limit = 6) {
   const out = [];
   if (!rest.length) {
     if (!cats) return { chip, items: [] };
-    const near = P.all.filter(r => cats.includes(r.c) && (r.name || r.ar || r.en)).map(r => [haversine(ref, [r.lon, r.lat]), r]).sort((a, b) => a[0] - b[0]).slice(0, Math.min(limit, 4));
+    const near = P.all.filter(r => cats.includes(r.c) && (r.name || r.ar || r.en || r.brand)).map(r => [haversine(ref, [r.lon, r.lat]), r]).sort((a, b) => a[0] - b[0]).slice(0, Math.min(limit, 4));
     return { chip, items: near.map(([d, r]) => Object.assign(r, { d })) };
   }
   for (const r of P.all) {

@@ -1,38 +1,63 @@
-// Shared search ranking (Syria first, settlements before POIs) + accessible combobox for search inputs.
+// Shared search ranking (near the map view first, settlements before POIs; worldwide, no country limit) + accessible combobox for search inputs.
 // OSM-only: Photon (komoot) – no keys.
 import { fetchJSON } from './util.js';
 
 export const SY_BBOX = [35.6, 32.3, 42.4, 37.4]; // W,S,E,N
 const SY_CENTER = [38.5, 35.0];
 const SETTLE = ['city', 'town', 'village'];
-const LAST = ['sa', 'jo', 'tr']; // neighbours that used to crowd out Syrian hits
 
 export function inSyria(lon, lat) { return lon >= SY_BBOX[0] && lon <= SY_BBOX[2] && lat >= SY_BBOX[1] && lat <= SY_BBOX[3]; }
-// Bias point for Photon: the map centre if it is in Syria, otherwise the centre of Syria
-export function biasPoint(c, z = 7) { return c && inSyria(c[0], c[1]) ? { lon: c[0], lat: c[1], zoom: Math.round(Math.max(6, z)) } : { lon: SY_CENTER[0], lat: SY_CENTER[1], zoom: 7 }; }
+// Bias point for Photon: always the map centre (worldwide); Syria's centre only if no view is known
+export function biasPoint(c, z = 7) { return c ? { lon: c[0], lat: c[1], zoom: Math.round(Math.max(6, z)) } : { lon: SY_CENTER[0], lat: SY_CENTER[1], zoom: 7 }; }
+// Region around the view used for the "nearby" Photon queries and the ranking tier: the view box, at least ±1.5°
+export function biasBox(c, view) {
+  const m = 1.5; let [w, s, e, n] = view || (c ? [c[0], c[1], c[0], c[1]] : SY_BBOX);
+  const cx = (w + e) / 2, cy = (s + n) / 2;
+  w = Math.min(w, cx - m); e = Math.max(e, cx + m); s = Math.min(s, cy - m); n = Math.max(n, cy + m);
+  return [Math.max(-180, w), Math.max(-85, s), Math.min(180, e), Math.min(85, n)].map(v => +v.toFixed(4));
+}
+const inBox = (lon, lat, b) => lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3];
 
 const norm = s => (s || '').toLowerCase().normalize('NFKD').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[\u0300-\u036f]/g, '').replace(/^(al|el|ال)[- ]?/, '').trim();
 const arabic = s => /[\u0600-\u06FF]/.test(s || '');
-// 0 = Syria (country code, or no code but inside the Syria bbox), 1 = other countries, 2 = SA/JO/TR (never excluded)
-export function countryTier(cc, lon, lat) {
-  cc = (cc || '').toLowerCase();
-  if (!cc) return lon == null || inSyria(lon, lat) ? 0 : 1;
-  return cc === 'sy' ? 0 : LAST.includes(cc) ? 2 : 1;
+// 0 = near the map view (inside the bias box), 1 = elsewhere in the world (never excluded)
+export function countryTier(cc, lon, lat, box = SY_BBOX) {
+  return lon == null || inBox(lon, lat, box) ? 0 : 1;
 }
-// 0 = name starts with the query, 1 = city/town hit across scripts (حمص → Homs), -1 = no settlement match
+// Cross-script names of Syria's major cities (governorate capitals + a few large towns). Photon returns only one
+// name per hit (the UI language or the local name), so حلب in the EN/DE UI ("Aleppo"/"Aleppo") or "Aleppo" in the AR
+// UI ("حلب") could not be matched by text alone (QA #15). Spellings are compared after skey() normalisation.
+const ALIASES = [
+  ['حلب', 'aleppo', 'halab'], ['دمشق', 'damascus', 'damaskus', 'dimashq'], ['حمص', 'homs', 'hims'], ['حماه', 'hama', 'hamah'],
+  ['اللاذقيه', 'latakia', 'lattakia', 'latakieh', 'latakiya', 'ladhiqiyah'], ['طرطوس', 'tartus', 'tartous', 'tortosa'],
+  ['ادلب', 'idlib', 'idleb'], ['الرقه', 'raqqa', 'raqqah', 'ar-raqqah', 'rakka', 'ar-rakka'],
+  ['دير الزور', 'deir ez-zor', 'deir ezzor', 'deir al-zor', 'dayr az-zawr', 'deir ez zor', 'deir-ez-zor'],
+  ['الحسكه', 'hasakah', 'al-hasakah', 'hasaka', 'hassake', 'al-hasaka'], ['القامشلي', 'qamishli', 'qamishlo', 'kamischli'],
+  ['درعا', 'daraa', "dar'a", 'deraa'], ['السويداء', 'suwayda', 'as-suwayda', 'sweida', 'suwaida', 'es-suweida'],
+  ['القنيطره', 'quneitra', 'kuneitra', 'qunaytirah'], ['تدمر', 'palmyra', 'tadmur'], ['منبج', 'manbij', 'membidsch'],
+  ['البوكمال', 'abu kamal', 'al-bukamal', 'albu kamal'], ['الميادين', 'mayadin', 'al-mayadin'], ['جبله', 'jableh', 'jablah', 'dschabla'],
+  ['بانياس', 'baniyas', 'banias'], ['الباب', 'al-bab', 'bab'], ['عفرين', 'afrin'], ['اعزاز', 'azaz', 'aazaz'], ['السلميه', 'salamiyah', 'salamiyeh'],
+];
+const skey = s => norm(s).replace(/[^\p{L}\p{N}]/gu, '');
+const ALIAS = new Map(); ALIASES.forEach((v, i) => v.forEach(n => ALIAS.set(skey(n), i)));
+/** same place name in any script/spelling (exact after normalisation, or the same alias group) */
+export function sameName(a, b) { const x = skey(a), y = skey(b); if (!x || !y) return false; if (x === y) return true; const i = ALIAS.get(x); return i != null && i === ALIAS.get(y); }
+// 0 = exact name match in any script (Aleppo ↔ حلب ↔ Aleppo), 1 = name starts with the query,
+// 2 = city/town hit of the nearby place query across scripts (حمص → Homs), -1 = no settlement match
 function settleRank(it, q) {
   const place = it.tags?.place; if (!SETTLE.includes(place)) return -1;
-  if (it.cc && it.cc.toLowerCase() !== 'sy') return -1;
   const n = norm(it.name), qq = norm(q);
-  if (qq && n.startsWith(qq)) return 0;
-  if (it.placeHit && arabic(q) !== arabic(it.name) && place !== 'village') return 1;
+  if (sameName(it.name, q) || [it.tags?.['name:ar'], it.tags?.['name:en'], it.tags?.['name:de']].some(v => v && sameName(v, q))) return 0;
+  if (qq && n.startsWith(qq)) return 1;
+  if (it.placeHit && arabic(q) !== arabic(it.name) && place !== 'village') return 2;
   return -1;
 }
-// Settlements that match the query first (city > town > village), then everything else by country tier, stable.
-export function rank(list, q) {
+// Settlements that match the query first (city > town > village, then near the view), then everything else by tier, stable.
+export function rank(list, q, box = SY_BBOX) {
   const pr = { city: 0, town: 1, village: 2 };
-  const a = list.map((it, i) => ({ it, i, s: settleRank(it, q), c: countryTier(it.cc, it.lon, it.lat) }));
-  const set = a.filter(x => x.s >= 0).sort((x, y) => x.s - y.s || pr[x.it.tags.place] - pr[y.it.tags.place] || x.i - y.i);
+  const a = list.map((it, i) => ({ it, i, s: settleRank(it, q), c: countryTier(it.cc, it.lon, it.lat, box) }));
+  // QA P1-2: proximity only breaks ties – a nearby village must never beat the city (حلب from Damascus → Aleppo first)
+  const set = a.filter(x => x.s >= 0).sort((x, y) => x.s - y.s || pr[x.it.tags.place] - pr[y.it.tags.place] || x.c - y.c || x.i - y.i);
   const rest = a.filter(x => x.s < 0).sort((x, y) => x.c - y.c || x.i - y.i);
   return { settlements: set.map(x => x.it), rest: rest.map(x => x.it) };
 }
@@ -59,19 +84,23 @@ export function dedupe(list) {
   }
   return out;
 }
-// Photon: one biased general query + two Syria-bbox queries (settlements, any hit), in parallel. The bbox
-// queries make sure Syrian hits are always fetched even if a same-named place abroad ranks higher worldwide
-// (QA: "دمشق" → Iran/Tunisia before Syrian streets); other countries stay in the list, rank() puts them after Syria.
-export async function photonSearch(q, { lang = 'default', center, zoom, limit = 8, signal } = {}) {
-  const b = biasPoint(center, zoom);
+// Photon: one worldwide query biased to the map view + two queries in the region around the view (settlements,
+// any hit), in parallel. The region queries make sure nearby hits are fetched even if a same-named place elsewhere
+// ranks higher worldwide (QA: "دمشق" from Damascus → Iran/Tunisia before Syrian streets); far hits stay in the list.
+export async function photonSearch(q, { lang = 'default', center, zoom, view, limit = 8, signal } = {}) {
+  const b = biasPoint(center, zoom), box = biasBox(center, view);
   const base = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=${lang}`;
   const general = fetchJSON(`${base}&limit=${limit}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}&zoom=${b.zoom}&location_bias_scale=0.4`, { signal }, 8000);
-  const places = fetchJSON(`${base}&limit=4&bbox=${SY_BBOX.join(',')}&osm_tag=place:city&osm_tag=place:town&osm_tag=place:village`, { signal }, 8000);
-  const syria = fetchJSON(`${base}&limit=${Math.min(limit, 8)}&bbox=${SY_BBOX.join(',')}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}`, { signal }, 8000);
+  const places = fetchJSON(`${base}&limit=4&bbox=${box.join(',')}&osm_tag=place:city&osm_tag=place:town&osm_tag=place:village`, { signal }, 8000);
+  const syria = fetchJSON(`${base}&limit=${Math.min(limit, 8)}&bbox=${box.join(',')}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}`, { signal }, 8000);
   const [g, p, sy] = await Promise.allSettled([general, places, syria]);
   if (signal?.aborted) throw Object.assign(new Error('abort'), { name: 'AbortError' });
   if (g.status === 'rejected' && p.status === 'rejected' && sy.status === 'rejected') throw g.reason;
   const pf = (p.value?.features || []).map(f => (f.properties.placeHit = true, f));
+  // city/town boundary relations (e.g. Berlin) → place:<type>, so the ranking treats them as settlements (QA #15)
+  for (const f of [...(g.value?.features || []), ...pf, ...(sy.value?.features || [])]) {
+    const pp = f.properties; if (pp.osm_key === 'boundary' && SETTLE.includes(pp.type)) { pp.osm_key = 'place'; pp.osm_value = pp.type; }
+  }
   const seen = new Set(), out = [];
   for (const f of [...pf, ...(g.value?.features || []), ...(sy.value?.features || [])]) {
     const k = (f.properties.osm_type || '') + f.properties.osm_id;

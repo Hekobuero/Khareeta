@@ -7,20 +7,16 @@
 //   map.on('style.load', () => applyMapLanguage(map, uiLang));   // run after every setStyle()
 
 /** Load the RTL plugin eagerly: Syrian OSM `name` tags are Arabic, so Arabic labels appear in every UI language. */
+import { labelExpression } from './names.js';
+
 export function initRTL(url) {
   const ml = window.maplibregl;
   if (!ml || ml.getRTLTextPluginStatus?.() !== 'unavailable') return;
   ml.setRTLTextPlugin(url, false /* lazy=false: load now */).catch((e) => console.warn('RTL plugin failed', e));
 }
 
-/** Label expression per UI language. Fallback chain always ends at the local `name`. */
-export function labelExpression(lang) {
-  switch (lang) {
-    case 'ar': return ['coalesce', ['get', 'name:ar'], ['get', 'name']];
-    case 'de': return ['coalesce', ['get', 'name:de'], ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
-    default:   return ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
-  }
-}
+/** Label expression per UI language (names.js): never requires name:ar; ends at name → brand. */
+export { labelExpression };
 
 /** Places get a second, smaller line with the Arabic original in en/de (helps match street signs in Syria). */
 const BILINGUAL_LAYERS = new Set(['place-city', 'place-town', 'place-village', 'place-neighbourhood']);
@@ -45,6 +41,8 @@ export function applyMapLanguage(map, lang, { bilingualPlaces = true } = {}) {
     if (current === undefined) continue;
     let next = expr;
     if (Array.isArray(current) && current[0] === 'format') { next = current.slice(); next[1] = expr; }
+    // ['step', ['zoom'], '', z, name] (our POI layers): keep the zoom step, replace only the name part
+    else if (Array.isArray(current) && current[0] === 'step' && current.length === 5) { next = current.slice(); next[4] = expr; }
     else if (bilingualPlaces && lang !== 'ar' && BILINGUAL_LAYERS.has(layer.id)) next = bilingual(expr);
     map.setLayoutProperty(layer.id, 'text-field', next);
   }

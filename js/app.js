@@ -6,6 +6,7 @@ import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center,
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
 import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
+import { addWorldLayers, initWorldPois, WLAYERS } from './world-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
 import { mapIsDark } from './mapstyle.js';
 import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
@@ -144,9 +145,13 @@ hooks.overture = ovSync;
 map.on('moveend', ovSync);
 map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
 map.once('idle', startPois); setTimeout(startPois, 5000);
+// outside Syria: live OpenStreetMap POIs for the visible area (world-poi.js)
+function worldLayers() { if (!map.isStyleLoaded() || map.getSource('kh-wpoi')) return; addWorldLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }
+map.once('idle', () => { worldLayers(); initWorldPois(map); });
 addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
+  addWorldLayers(map, mapIsDark());
   ovLayers();
   if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
@@ -195,6 +200,12 @@ map.on('click', async e => {
     const rec = POIS.all[kp[0].properties.i];
     if (rec) { const it = toItem(rec); it.name = pickName(it.tags).primary || ''; openPlace(it, { noFly: true }); return; }
   }
+  const wp = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: WLAYERS.filter(id => map.getLayer(id)) });
+  if (wp.length) {
+    const p = wp[0].properties, osm_type = { n: 'node', w: 'way', r: 'relation' }[p.wid[0]], osm_id = +p.wid.slice(1);
+    const tags = {}; for (const k of ['name', 'name:ar', 'name:en', 'name:de', 'int_name', 'name:latin', 'brand']) if (p[k]) tags[k] = p[k];
+    openPlace({ id: osm_type[0].toUpperCase() + osm_id, osm_type, osm_id, name: pickName(tags).primary, lon: wp[0].geometry.coordinates[0], lat: wp[0].geometry.coordinates[1], tags }, { noFly: true }); return;
+  }
   const ko = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: OV_LAYERS.filter(id => map.getLayer(id)) });
   if (ko.length) { const it = ovItemAt(ko[0].properties.i); if (it) { openPlace(it, { noFly: true }); return; } }
   const feats = map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
@@ -220,7 +231,7 @@ map.on('click', async e => {
 });
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
-for (const id of [...POI_LAYERS, ...OV_LAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
+for (const id of [...POI_LAYERS, ...WLAYERS, ...OV_LAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 // long-press ("what's here") for touch devices
 {
   let tm = null, sx = 0, sy = 0;

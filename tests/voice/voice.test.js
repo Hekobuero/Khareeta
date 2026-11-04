@@ -4,8 +4,9 @@ const http = require('http'), fs = require('fs'), path = require('path');
 const EXE = process.env.CHROME || undefined; // default: Playwright's own Chromium
 const REPO = path.resolve(__dirname, '..', '..');
 const OUT = path.join(__dirname, 'out'), SHOTS = path.join(OUT, 'shots') + '/';
-const PORT = +(process.env.PORT || 8765);
-const ROOT = `http://127.0.0.1:${PORT}/`, SUB = `http://127.0.0.1:${PORT + 1}/sub/khareeta/`;
+// Ports: PORT and PORT+1 if set, otherwise free ephemeral ports; a busy port falls back to an ephemeral one (QA P3)
+const PORT = +(process.env.PORT || 0);
+let ROOT = '', SUB = '';
 // two tiny static servers: the app at "/" and under a subpath (own origin → own service worker)
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.pbf': 'application/x-protobuf', '.xml': 'application/xml', '.txt': 'text/plain' };
 function serve(port, prefix) {
@@ -15,7 +16,7 @@ function serve(port, prefix) {
     let f = path.join(REPO, u.slice(prefix.length)); if (!f.startsWith(REPO)) { rs.writeHead(403); return rs.end(); }
     if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, 'index.html');
     fs.readFile(f, (e, b) => { if (e) { rs.writeHead(404); return rs.end(); } rs.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); rs.end(b); });
-  }).listen(port, '127.0.0.1', () => res(srv)); });
+  }); srv.once('error', e => { if (e.code !== 'EADDRINUSE' || !port) throw e; srv.listen(0, '127.0.0.1', () => res(srv)); }); srv.listen(port, '127.0.0.1', () => res(srv)); });
 }
 const V = (name, lang, local = true) => ({ name, lang, localService: local, voiceURI: name, default: false });
 const UA = {
@@ -155,7 +156,8 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
 
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
-  const servers = [await serve(PORT, '/'), await serve(PORT + 1, '/sub/khareeta/')];
+  const servers = [await serve(PORT, '/'), await serve(PORT ? PORT + 1 : 0, '/sub/khareeta/')];
+  ROOT = `http://127.0.0.1:${servers[0].address().port}/`; SUB = `http://127.0.0.1:${servers[1].address().port}/sub/khareeta/`;
   const browser = await chromium.launch({ executablePath: EXE, args: ['--autoplay-policy=no-user-gesture-required'] });
   // 1) voice selection, notes, test announcement: every profile × language
   for (const prof of Object.keys(P)) for (const lang of ['en', 'de', 'ar']) {

@@ -7,7 +7,7 @@ import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
 import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking, unlockSpeech, sampleText, isIOS } from './voice.js';
-import { photonSearch, rank, dedupe, combobox } from './suggest.js';
+import { photonSearch, rank, dedupe, combobox, biasBox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
 export const routeState = R;
@@ -273,10 +273,10 @@ function initPanel() {
     if (q.length >= 2) {
       ctl?.abort(); ctl = new AbortController();
       try {
-        const fs = await photonSearch(q, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 8, signal: ctl.signal });
+        const fs = await photonSearch(q, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view: (b => [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()])(App.map.getBounds()), limit: 8, signal: ctl.signal });
         const list = fs.map(f => { const p = f.properties; return { name: p.name || p.street, sub: [p.city || p.town || p.village, p.state, p.country].filter((v, i, a) => v && v !== p.name && a.indexOf(v) === i).join(', '), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], cc: p.countrycode, placeHit: !!p.placeHit, tags: { [p.osm_key]: p.osm_value } }; }).filter(r => r.name);
         // settlements (Homs city, Damascus …) first, then Syria before neighbours (QA P1-1/P1-3)
-        const rk = rank(list, q);
+        const rk = rank(list, q, biasBox(c, (b => [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()])(App.map.getBounds())));
         res = dedupe([...rk.settlements, ...res, ...rk.rest]).slice(0, 10);
       } catch (e) { if (e.name === 'AbortError' && my !== sseq) return; }
     }
