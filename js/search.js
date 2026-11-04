@@ -7,8 +7,8 @@ import { App, center, refPoint, catIcon, catLabel, pickName, openSheet, clearMar
 import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
-import { photonSearch, rank, dedupe, inSyria, combobox, biasBox } from './suggest.js';
-import { loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
+import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
+import { norm, loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
 export const CATS = [
@@ -81,24 +81,13 @@ export function initSearch() {
   };
   const doPhoton = async (text) => {
     const my = ++seq;
-    const c = center(), z = App.map.getZoom(), view = viewBox(), bbox = biasBox(c, view);
-    const lang = getLang() === 'de' ? 'de' : getLang() === 'en' ? 'en' : 'default';
     photonCtl?.abort(); photonCtl = new AbortController();
-    let res = []; $('#searchProg').classList.remove('hidden');
-    const local = localMatches(text);
-    const lp = poiLocal(text);
-    try {
-      res = (await photonSearch(text, { lang, center: c, zoom: z, view, limit: 8, signal: photonCtl.signal })).map(fromPhoton);
-    } catch (e) { if (e.name === 'AbortError') return; }
+    $('#searchProg').classList.remove('hidden');
+    let r;
+    try { r = await placeSuggest(text, { signal: photonCtl.signal }); } catch (e) { if (e.name === 'AbortError') return; r = { items: [], chip: null }; }
     if (my !== seq) return;
     $('#searchProg').classList.add('hidden');
-    // Matching cities/towns/villages first (near the view first; QA: "Homs" → Homs city), then saved places and
-    // POIs, then the rest – nearby before the rest of the world
-    let { settlements, rest } = rank(res, text, bbox);
-    if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
-    const top = [...settlements, ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
-    const seen = new Set();
-    items = dedupe([...(lp.chip ? [chipItem(lp.chip)] : []), ...top, ...rest].filter(x => !seen.has(x.id) && seen.add(x.id))).slice(0, 14);
+    items = dedupe([...(r.chip ? [chipItem(r.chip)] : []), ...r.items]).slice(0, 14);
     const coord = parseCoords(text) || plusDecode(text);
     if (coord) items.unshift({ id: 'c', name: text, sub: t('coords'), lon: coord[0], lat: coord[1], icon: ['pin', '#E5484D'], coord: true });
     box.innerHTML = items.length ? items.map((it, i) => row(it, i)).join('') : `<div class="srow muted">${t('noResults')}</div>`;
@@ -128,10 +117,33 @@ export function initSearch() {
   $('#btnClear').addEventListener('click', () => { q.value = ''; $('#btnClear').classList.add('hidden'); clearMarkers(); closeSheet(); q.focus(); renderIdle(); });
 }
 
+// The ONE suggestion pipeline used by the main search and by the route start/stop/destination fields:
+// cleaned query (tashkeel/tatweel/bidi marks), Photon in the UI language (Arabic → 'default' = native names), the
+// bundled local POI index (Arabic/Latin normalisation), saved + recent places, settlement ranking and de-duplication.
+// Returns { items, chip } (chip = a category word like "صيدلية"). Throws AbortError if the signal fires.
+export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
+  const text = cleanQuery(raw);
+  if (!text) return { items: [], chip: null };
+  const c = center(), z = App.map.getZoom(), view = viewBox(), bbox = biasBox(c, view);
+  if (!P.all.length) { try { await loadPois(); } catch {} }
+  const local = localMatches(text);
+  const lp = poiLocal(text);
+  let res = [];
+  try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: z, view, limit, signal })).map(fromPhoton); }
+  catch (e) { if (e.name === 'AbortError' || signal?.aborted) throw e; } // offline / Photon down: local hits still count
+  // Matching cities/towns/villages first (near the view first; QA: "Homs" → Homs city), then saved places and
+  // POIs, then the rest – nearby before the rest of the world
+  let { settlements, rest } = rank(res, text, bbox);
+  if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
+  const top = [...settlements, ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
+  const seen = new Set();
+  return { chip: lp.chip, items: dedupe([...top, ...rest].filter(x => !x.id || (!seen.has(x.id) && seen.add(x.id)))) };
+}
+
 function localMatches(text) {
-  const s = text.toLowerCase();
+  const s = norm(text);
   return [...lsGet('kh.saved', []).map(x => ({ ...x, icon: ['star', '#f9ab00'] })), ...lsGet('kh.recent', []).map(x => ({ ...x, icon: ['history', '#8E8E93'] }))]
-    .filter(x => (x.name || '').toLowerCase().includes(s)).slice(0, 3);
+    .filter(x => s && norm(x.name).includes(s)).slice(0, 3);
 }
 
 function poiLocal(text) {
@@ -169,6 +181,7 @@ export function choose(item) {
 function catLabelKey(tags = {}) { return tags.amenity || tags.shop || tags.tourism || tags.place || tags.highway || null; }
 
 export async function fullSearch(text) {
+  text = cleanQuery(text);
   if (!text) return;
   const coord = parseCoords(text) || plusDecode(text);
   if (coord) return choose({ id: 'c', name: text, lon: coord[0], lat: coord[1], coord: true });
@@ -181,9 +194,9 @@ export async function fullSearch(text) {
     const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=1&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
     // Nominatim's viewbox is only a bias: if it found (almost) nothing near the view, add Photon's nearby hits
-    if (res.filter(r => r.lon >= bbox[0] && r.lon <= bbox[2] && r.lat >= bbox[1] && r.lat <= bbox[3]).length < 3) try { res = res.concat((await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view, limit: 8 })).map(fromPhoton)); } catch {}
+    if (res.filter(r => r.lon >= bbox[0] && r.lon <= bbox[2] && r.lat >= bbox[1] && r.lat <= bbox[3]).length < 3) try { res = res.concat((await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: App.map.getZoom(), view, limit: 8 })).map(fromPhoton)); } catch {}
   } catch {
-    try { res = (await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view, limit: 12 })).map(fromPhoton); } catch {}
+    try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: App.map.getZoom(), view, limit: 12 })).map(fromPhoton); } catch {}
   }
   box.innerHTML = ''; box.classList.add('hidden'); document.body.classList.remove('sugg-open');
   try { await loadPois(); } catch {}

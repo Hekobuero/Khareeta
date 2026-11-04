@@ -2,6 +2,16 @@
 // OSM-only: Photon (komoot) – no keys.
 import { fetchJSON } from './util.js';
 
+// Query clean-up shared by every search field (main search AND route stops): iOS/Arabic keyboards insert tashkeel,
+// tatweel, bidi and zero-width marks that Photon does not match ("قَصْر العَظْم" → "قصر العظم").
+export function cleanQuery(q) {
+  return String(q || '').normalize('NFC')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\u061C\uFEFF]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+// Photon language for a UI language – identical for the main search and route stops (Arabic → native names)
+export const photonLang = l => (l === 'de' || l === 'en' ? l : 'default');
 export const SY_BBOX = [35.6, 32.3, 42.4, 37.4]; // W,S,E,N
 const SY_CENTER = [38.5, 35.0];
 const SETTLE = ['city', 'town', 'village'];
