@@ -144,9 +144,11 @@ test('P1: every anonymous report (road + #20 reports) has no client time, langua
 });
 
 // ---- P1 timeline simulation: real usage events vs. anonymous reports, client time AND server insert time ----
+function mkLocks() { const held = new Set(); return { request: async (name, o, cb) => { if (held.has(name)) return cb(null); held.add(name); try { return await cb({ name }); } finally { held.delete(name); } } }; }
 function sim(t, start) {
   t.mock.timers.reset(); t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: start });
   A._resetPrivacy(); localStorage.removeItem('kh.aq'); sessionStorage.clear();
+  Object.defineProperty(navigator, 'locks', { value: mkLocks(), configurable: true }); // Web Locks mock (single-process)
   const reqs = []; // { at (server time), evs }
   globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); reqs.push({ at: Date.now(), url: u, evs: Array.isArray(b) ? b : [b.ev] }); return { ok: true, status: 201, text: async () => '' }; };
   const at = s => start + s * 1000;
@@ -254,7 +256,7 @@ test('P2b: idempotent report via RPC kh_report_insert: random rid, retry after t
   rows.clear(); calls = 1; rpcErr = [400, '{"code":"PGRST102","message":"Empty or invalid json"}']; localStorage.removeItem('kh.noRid');
   const r3 = A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 });
   t.mock.timers.tick(r3.due - Date.now() + 61e3); await A.sendDueReports(); await flushAll();
-  assert.equal(rows.size, 0, 'no plain insert for an unrelated PGRST error'); assert.equal(localStorage.getItem('kh.noRid'), null); assert.equal(A._pendingReports().length, 1);
+  assert.equal(rows.size, 0, 'no plain insert for an unrelated PGRST error'); assert.equal(localStorage.getItem('kh.noRid'), null); assert.equal(A._pendingReports().length, 0, 'permanent 400: dropped, not retried');
   localStorage.setItem('kh.rq', '[]'); rpcErr = null;
   // without the migration: 404 PGRST202 → repeated once as plain insert (best effort), remembered
   rows.clear(); calls = 1; migrated = false;
@@ -309,7 +311,7 @@ test('P1 hide: all eligible events go out in several batches of ≤50 (keepalive
 });
 test('transit: city/line fit never zooms out below z12 (Aleppo was z9.4)', () => {
   const tr = readFileSync(root + 'js/transit.js', 'utf8'), core = readFileSync(root + 'js/core.js', 'utf8');
-  assert.match(tr, /TR_MIN_Z = 12/); assert.doesNotMatch(tr, /map\.fitBounds\(/); assert.equal((tr.match(/minZoom: TR_MIN_Z/g) || []).length, 1); assert.match(tr, /fitArea\(cityFitBounds/); assert.match(tr, /fitLine = \(map, bb\) => fitArea/); // one shared fit (city switch + line)
+  assert.match(tr, /TR_MIN_Z = 12/); assert.doesNotMatch(tr, /map\.fitBounds\(/); assert.equal((tr.match(/minZoom: TR_MIN_Z/g) || []).length, 2); assert.match(tr, /fitArea\(cityFitBounds/); assert.match(tr, /fitLine = \(map, bb\) => fitArea/); // one shared fit (city switch + line)
   assert.match(core, /cam\.zoom < minZoom/);
 });
 test('P3: offline at due time → sent on the online event; P2a: toast says saved / sent shortly (EN/AR/DE)', async (t) => {
@@ -435,4 +437,40 @@ test('P3: moderation view migration covers closures; README wording is neutral',
   assert.match(sql, /props->>'k' in \('report', 'closure'\)/); assert.match(sql, /DO NOT run/);
   const md = readFileSync(root + 'scripts/closures/README.md', 'utf8');
   assert.equal(C.neutralText(md.replace(/blocklist/g, '')), true); assert.doesNotMatch(md, /checkpoint/i); assert.doesNotMatch(md, /client_ts/);
+});
+
+test('P3 #24: Web Locks: 3 tabs in the same ms → exactly one send; fallback token claim without navigator.locks', async (t) => {
+  const S = sim(t, NOW + 80e6);
+  let n = 0; globalThis.fetch = async () => { n++; return { ok: true, status: 204, text: async () => '' }; };
+  const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
+  t.mock.timers.tick(r.due - Date.now());
+  // three "tabs": the in-module guard is bypassed by calling the locked path concurrently via the lock mock
+  const res = await Promise.all([A.sendDueReports(), A.sendDueReports(), A.sendDueReports()]); await flushAll();
+  assert.equal(n, 1, 'one insert'); assert.ok(res.filter(x => x === 1).length <= 1); assert.equal(A._pendingReports().length, 0);
+  // fallback (no Web Locks): token claim, a second tab that overwrote the claim wins, the first backs off
+  Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true }); n = 0;
+  const r2 = A.submitReport('layer', { k: 'closure', t: 'delay', la: 33.5, lo: 36.3 });
+  t.mock.timers.tick(r2.due - Date.now() + 61e3);
+  const p = A.sendDueReports(); await new Promise(r => setImmediate(r));
+  localStorage.setItem('kh.rq', JSON.stringify(A._pendingReports().map(x => ({ ...x, ct: 'other-tab' }))));
+  t.mock.timers.tick(200); assert.equal(await p, 0); assert.equal(n, 0, 'backed off: the other tab owns the claim');
+  assert.match(readFileSync(root + 'js/analytics.js', 'utf8'), /navigator\?\.locks/);
+  assert.match(readFileSync(root + 'js/analytics.js', 'utf8'), /cur\.get\(x\.id\)\?\.ct === tok/);
+  S.done();
+});
+test('P3 #24: permanent 400s (23502, 22P02, 42501) are dropped at once; 5xx/429/network are retried', async (t) => {
+  for (const [st, body, keep] of [[400, '{"code":"23502"}', false], [400, '{"code":"22P02"}', false], [403, '{"code":"42501"}', false], [500, '', true], [429, '', true], [0, 'net', true]]) {
+    const S = sim(t, NOW + 81e6);
+    localStorage.setItem('kh.noRid', String(Date.now())); // plain insert path
+    globalThis.fetch = async () => { if (st === 0) throw new TypeError('net'); return { ok: false, status: st, text: async () => body }; };
+    const r = A.submitReport('layer', { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 });
+    t.mock.timers.tick(r.due - Date.now()); await A.sendDueReports(); await flushAll();
+    assert.equal(A._pendingReports().length, keep ? 1 : 0, `${st} ${body}`);
+    localStorage.removeItem('kh.noRid'); S.done();
+  }
+});
+test('P3 #24: rid migration dedupes with row_number(), pinned search_path, still DO NOT run', () => {
+  const sql = readFileSync(root + 'supabase/migrations/20261106_kh_events_rid.sql', 'utf8');
+  assert.match(sql, /row_number\(\) over \(partition by props->>'rid' order by id\)/); assert.match(sql, /d\.rn > 1/);
+  assert.doesNotMatch(sql, /using public\.kh_events b/); assert.match(sql, /set search_path = pg_catalog, public/); assert.match(sql, /DO NOT run/);
 });

@@ -22,6 +22,7 @@ header img{height:34px;width:auto;margin-inline-start:-4px}header h1{font-size:1
 header select,header button{font:inherit;border:0;border-radius:8px;padding:7px 12px;background:rgba(255,255,255,.18);color:#fff;cursor:pointer}
 header option{color:#000}
 header .hsep{display:inline-block;width:1px;height:18px;background:rgba(255,255,255,.35);margin:0 12px 0 2px;vertical-align:-3px}
+@media(max-width:520px){header{flex-wrap:wrap;gap:8px;padding:10px 14px}header h1{flex-basis:100%}header .hsep{display:none}}
 main{max-width:1280px;margin:0 auto;padding:20px}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
 .kpi{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
@@ -44,7 +45,7 @@ svg text{font-family:Inter,sans-serif}
 .err{color:#d93025;font-size:13.5px;min-height:18px;margin-top:8px}
 .muted{color:var(--fg2);font-size:12.5px}
 .legend{display:flex;gap:14px;font-size:12.5px;color:var(--fg2);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-.navt{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}.navt th,.navt td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right}.navt th:first-child,.navt td:first-child{text-align:left}
+.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}.navt{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}.navt th,.navt td{padding:4px 6px;white-space:nowrap;border-bottom:1px solid var(--line);text-align:right}.navt th:first-child,.navt td:first-child{text-align:left}
 .navs{display:inline-block;width:6px;background:var(--blue);vertical-align:bottom;margin-right:1px;border-radius:1px}.navs.s{background:#f9ab00}
 .hidden{display:none!important}
 </style>
@@ -182,16 +183,17 @@ function navHtml(nav, days) {
   const now = new Date(); now.setUTCHours(0, 0, 0, 0);
   const n = Math.min(days || 30, 30), dayList = [];
   for (let i = n - 1; i >= 0; i--) dayList.push(new Date(now - i * 864e5).toISOString().slice(0, 10));
+  const short = d => d.slice(5).replace('-', '/'); // MM/DD keeps the 30-day table narrow on phones
   const map = (ev, kind) => new Map((g(ev, kind, 'daily') || []).map(x => [String(x.day).slice(0, 10), x.n]));
   const M = rows.map(([ev, kind]) => map(ev, kind));
   const has = !!nav;
   const max = Math.max(1, ...M.flatMap(m => [...m.values()]));
-  h += `<table class="navt"><thead><tr><th>Day</th><th>Arrivals real</th><th>Arrivals sim</th><th>Reroutes real</th><th>Reroutes sim</th><th style="text-align:left">Arrivals</th></tr></thead><tbody>`;
+  h += `<div class="tscroll"><table class="navt"><thead><tr><th>Day</th><th>Arrivals real</th><th>Arrivals sim</th><th>Reroutes real</th><th>Reroutes sim</th><th style="text-align:left">Arrivals</th></tr></thead><tbody>`;
   for (const day of dayList.slice().reverse()) {
     const v = M.map(m => has ? (m.get(day) || 0) : null);
-    h += `<tr><td>${day}</td>${v.map(x => `<td>${f(x)}</td>`).join('')}<td style="text-align:left"><i class="navs" style="height:${Math.round((v[0] || 0) / max * 14) + 1}px"></i><i class="navs s" style="height:${Math.round((v[1] || 0) / max * 14) + 1}px"></i></td></tr>`;
+    h += `<tr><td title="${day}">${short(day)}</td>${v.map(x => `<td>${f(x)}</td>`).join('')}<td style="text-align:left"><i class="navs" style="height:${Math.round((v[0] || 0) / max * 14) + 1}px"></i><i class="navs s" style="height:${Math.round((v[1] || 0) / max * 14) + 1}px"></i></td></tr>`;
   }
-  return h + '</tbody></table>';
+  return h + '</tbody></table></div>';
 }
 // nav-stats:end
 async function load() {

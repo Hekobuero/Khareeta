@@ -1,12 +1,17 @@
 -- Khareeta – navigation arrivals + reroutes in the admin dashboard (2026-11-04)
--- Run once in the Supabase SQL editor (project lqanalmwztxdonrrrgqi). Safe to re-run.
+-- DO NOT run automatically – a maintainer runs it by hand in the Supabase SQL editor after review. Safe to re-run.
+-- Target: the Supabase SQL editor (project lqanalmwztxdonrrrgqi). Safe to re-run.
 -- Adds key 'nav' to kh_dashboard(); every existing output key is unchanged (backward compatible).
 -- Events: type 'nav_arrive' and 'reroute' in public.kh_events; props->>'sim' = 'true' marks simulated trips.
 -- Distinct devices = count(distinct install_id) excluding 'anon'.
 
 create or replace function public.kh_nav_stats(p_type text, p_sim boolean, p_since timestamptz)
-returns jsonb language sql stable security invoker set search_path = public as
+returns jsonb language plpgsql stable security invoker set search_path = pg_catalog, public as
 $$
+begin
+  -- own admin check: callable directly via /rpc, not only through kh_dashboard()
+  if not public.kh_is_admin() then raise exception 'not authorized' using errcode = '42501'; end if;
+  return (
   with e as (
     select created_at, install_id from public.kh_events
     where type = p_type and created_at >= p_since
@@ -20,7 +25,8 @@ $$
     'daily', (select coalesce(jsonb_agg(d order by d.day), '[]') from (
         select date_trunc('day', created_at)::date as day, count(*) as n,
                count(distinct install_id) filter (where install_id is not null and install_id <> 'anon') as devices
-        from e group by 1) d));
+        from e group by 1) d)));
+end;
 $$;
 revoke all on function public.kh_nav_stats(text, boolean, timestamptz) from public, anon;
 grant execute on function public.kh_nav_stats(text, boolean, timestamptz) to authenticated;
