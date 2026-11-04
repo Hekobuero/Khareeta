@@ -175,8 +175,9 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
     } else {
       ok(`note ${tag}: friendly note shown`, !!d.note, (d.note || '').replace(/\n/g, ' ⏎ ').slice(0, 160));
       if (st === 'unsupported') ok(`note ${tag}: own "no voice output in this browser" hint, no test button`, !d.test && ({ en: /doesn’t support voice output/, de: /unterstützt keine Sprachausgabe/, ar: /لا يدعم إخراج الصوت/ })[lang].test(d.note || ''), (d.note || '').slice(0, 80));
-      else ok(`note ${tag}: test button disabled`, d.testDisabled);
-      if (st === 'unknown') ok(`note ${tag}: says it stays silent (no system-voice fallback)`, /silent|stumm|صامتة/.test(d.note || ''));
+      else if (st === 'online') ok(`note ${tag}: test button disabled`, d.testDisabled);
+      else ok(`note ${tag}: test button enabled (system-voice fallback by language tag)`, d.test && !d.testDisabled);
+      if (st === 'unknown') ok(`note ${tag}: explains the system-voice fallback`, /system|System|النظام/.test(d.note || ''));
     }
     if (prof === 'ios') { await scrollToVoice(page); await page.screenshot({ path: `${SHOTS}settings-${lang}-ios-390x844.png` }); }
     if (prof === 'noAr' && lang === 'ar') { await scrollToVoice(page); await page.screenshot({ path: `${SHOTS}novoice-ar-390x844.png` }); }
@@ -194,7 +195,8 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
   {
     const ctx = await ctxFor(browser, 'noAr', { lang: 'ar' }); const page = await ctx.newPage(); watch(page, 'toast'); await load(page, ROOT);
     const r = await page.evaluate(async () => { const v = await import(new URL('js/voice.js', location.href)); const a = v.speak('اختبار'); const b = v.speak('اختبار ٢'); await new Promise(r => setTimeout(r, 100)); return { a, b, toast: document.querySelector('.toast, #toast')?.textContent || '', spoken: window.__spoken.filter(s => s.vol !== 0).length }; });
-    ok('no-AR voice: nothing spoken in wrong language + toast', r.a === false && r.b === false && r.spoken === 0 && /صوت|العربية/.test(r.toast), JSON.stringify(r));
+    const last = await page.evaluate(() => window.__spoken.filter(s => s.vol !== 0).pop());
+    ok('no-AR voice: fallback speaks with lang tag ar-SA (no wrong-language voice object) + toast', r.a === true && r.spoken >= 1 && last && last.lang === 'ar-SA' && !last.voice && /صوت|العربية/.test(r.toast), JSON.stringify({ ...r, last }));
     await ctx.close();
   }
   // 3) viewports / dark / subpath screenshots
@@ -296,12 +298,13 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
     else if (!/arrival/.test(r.tag)) ok(`${r.tag}: no separate "now" for the close chained maneuver`, sepNow.length === 0, sepNow.map(o => o.text).join(' | '));
     if (/Syrian/.test(r.tag)) ok(`${r.tag}: Syrian forms (هلّق / وبعدين / المفرق)`, r.out.some(o => /^هلّق/.test(o.text)) && r.out.some(o => /وبعدين/.test(o.text)) && r.out.some(o => /المفرق/.test(o.text)), '');
   }
-  // 8) empty voice list: not a single speak call (no unlock, no prompt, no test)
+  // 8) empty voice list (iOS PWA): fallback by language tag
   {
     const r = await navRun(browser, { prof: 'empty', lang: 'en', mode: 'foot', click: true, tag: 'empty voice list' });
-    ok('empty voice list: 0 speechSynthesis.speak calls during navigation (incl. tap unlock)', r.all === 0, `speak calls=${r.all}`);
+    // iOS PWAs often list no voices → fall back to the language tag (engine picks its system voice), never silent
+    ok('empty voice list: prompts still spoken with lang tag en-GB, no voice object', r.all > 0 && r.out.length > 0 && r.out.every(o => o.lang === 'en-GB' && !o.voice), `speak calls=${r.all} ${JSON.stringify(r.out.slice(0, 2))}`);
     const r2 = await navRun(browser, { prof: 'empty', lang: 'ar', mode: 'car', click: true, segs: [[400, 0], [0, 100], [100, 0]], tag: 'empty voice list AR' });
-    ok('empty voice list AR: 0 speak calls', r2.all === 0, `speak calls=${r2.all}`);
+    ok('empty voice list AR: prompts spoken with lang tag ar-SA', r2.all > 0 && r2.out.length > 0 && r2.out.every(o => o.lang === 'ar-SA' && !o.voice), `speak calls=${r2.all}`);
   }
   // 9) recalculation (real GPS path via geolocation + mocked OSRM): "recalculating" once, next maneuver not announced twice
   for (const lang of ['en', 'ar']) {
@@ -357,7 +360,7 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
     await page.click('[data-a="voice"]'); await page.keyboard.press('Escape'); await page.waitForTimeout(300);
     const route = mkRoute([[800, 0], [0, 700], [600, 0]]); delete route._sa; delete route._pts;
     await page.evaluate(async ({ route }) => { const m = await import(new URL('js/route.js', location.href)); m.routeState.routes = [route]; m.routeState.sel = 0; m.routeState.mode = 'car'; m.startNav(true); }, { route });
-    await page.waitForFunction(() => speechSynthesis.speaking, null, { timeout: 5000 }).catch(() => {}); await page.evaluate(() => document.querySelector('#navVoice').click()); await page.waitForTimeout(200);
+    await page.waitForFunction(() => speechSynthesis.speaking && speechSynthesis._cur && speechSynthesis._cur.volume !== 0, null, { timeout: 5000 }).catch(() => {}); await page.evaluate(() => document.querySelector('#navVoice').click()); await page.waitForTimeout(200);
     const h = await page.evaluate(() => ({ speaking: speechSynthesis.speaking, c: window.__cancels.at(-1), n: window.__spoken.length }));
     await page.waitForTimeout(6000); const h2 = await page.evaluate(() => window.__spoken.length);
     ok('toggle off in nav HUD: start prompt stopped, nothing spoken afterwards', !h.speaking && h.c && h.c.cut && h2 === h.n, JSON.stringify({ ...h, h2 }));

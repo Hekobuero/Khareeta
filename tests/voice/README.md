@@ -28,3 +28,13 @@ What the tests cover:
 - text rules (km agreement, no bracketed road numbers, Syrian texts).
 
 CI: `.github/workflows/pr-checks.yml` runs this suite on every pull request to `main` (job `voice-tests`), together with `scripts/ci/check-version.sh` (`version`) and `scripts/ci/check-cname.sh` (`cname`). Both scripts also run locally, e.g. `scripts/ci/check-version.sh origin/main`.
+
+## iPhone (WebKit) checks
+
+`node ios-webkit.test.js` runs the app in Playwright WebKit with the "iPhone 13" profile and an iOS-like
+`speechSynthesis` mock (empty voice list until first speech, speech before a user gesture is dropped,
+`speak()` right after `cancel()` is dropped). It checks the unlock on "Go", the speaker button in navigation
+(visible, ≥44 px, aria-label, RTL, mute persisted, unmute = test announcement) and writes screenshots to `out/ios/`
+(`SHOTS=/some/dir` copies them there too). Install once: `npx playwright install webkit`.
+
+Node-only mock tests (no browser): `node --test 'tests/ios/*.test.mjs'` from the repo root.
