@@ -281,7 +281,8 @@ function play(text) {
     const u = keep(new SpeechSynthesisUtterance(text));
     if (v) { u.voice = v; u.lang = v.lang; } else u.lang = langTag(lang); // fallback: language tag only, the engine picks its voice
     u.rate = 1; u.pitch = 1; u.volume = 1;
-    u.onend = u.onerror = () => finish(u);
+    u.onstart = () => { confirmed = true; }; // the engine really played something → unlocked
+    u.onend = () => { confirmed = true; finish(u); }; u.onerror = () => finish(u);
     cur = u; last = text; lastT = Date.now();
     clearTimeout(guard); guard = setTimeout(() => finish(u), Math.min(15000, 1500 + text.length * 110)); // engines that never fire onend
     s.speak(u);

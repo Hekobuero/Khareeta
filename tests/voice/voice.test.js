@@ -360,7 +360,7 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
     await page.click('[data-a="voice"]'); await page.keyboard.press('Escape'); await page.waitForTimeout(300);
     const route = mkRoute([[800, 0], [0, 700], [600, 0]]); delete route._sa; delete route._pts;
     await page.evaluate(async ({ route }) => { const m = await import(new URL('js/route.js', location.href)); m.routeState.routes = [route]; m.routeState.sel = 0; m.routeState.mode = 'car'; m.startNav(true); }, { route });
-    await page.waitForFunction(() => speechSynthesis.speaking, null, { timeout: 5000 }).catch(() => {}); await page.evaluate(() => document.querySelector('#navVoice').click()); await page.waitForTimeout(200);
+    await page.waitForFunction(() => speechSynthesis.speaking && speechSynthesis._cur && speechSynthesis._cur.volume !== 0, null, { timeout: 5000 }).catch(() => {}); await page.evaluate(() => document.querySelector('#navVoice').click()); await page.waitForTimeout(200);
     const h = await page.evaluate(() => ({ speaking: speechSynthesis.speaking, c: window.__cancels.at(-1), n: window.__spoken.length }));
     await page.waitForTimeout(6000); const h2 = await page.evaluate(() => window.__spoken.length);
     ok('toggle off in nav HUD: start prompt stopped, nothing spoken afterwards', !h.speaking && h.c && h.c.cut && h2 === h.n, JSON.stringify({ ...h, h2 }));
