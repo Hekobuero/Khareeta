@@ -14,6 +14,18 @@ const clip = (v, n) => { v = String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, '
 export const snap = (lat, lon) => ({ lat: r4(lat), lon: r4(lon) });
 const okLL = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
 
+// ----- personal data in the free-text note: e-mails, phone numbers (Latin, Arabic-Indic and Persian digits), links,
+// @handles. The UI rejects such notes with a clear message; stripPII() is the safety net for moderators.
+const D = '[0-9\u0660-\u0669\u06F0-\u06F9]';
+const PII_RES = [
+  /[^\s@]+@[^\s@]+\.[^\s@]{2,}/gu,                                   // e-mail
+  /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|me|ly|gl|sy|lb|de|info|app|co)(?:\/\S*)?/giu, // URL / bare domain
+  new RegExp(`\\+?${D}(?:[\\s\\-./()\\u00A0]*${D}){6,}`, 'gu'),       // phone (7+ digits, any separators)
+  /(?:^|[^\p{L}\p{N}_])@[\p{L}\p{N}_.]{2,}/gu,                           // @handle
+];
+export const hasPII = s => { s = String(s || ''); return PII_RES.some(r => { r.lastIndex = 0; return r.test(s); }); };
+export const stripPII = s => PII_RES.reduce((a, r) => a.replace(r, m => (/^[^@]/.test(m) && m.includes('@') && !m.includes('.') ? m[0] : '') + '…'), String(s || '')).replace(/\s+/g, ' ').trim();
+
 /** Build the anonymous props payload. Returns { ok, props } or { ok:false, err: kind|pos|size }. */
 export function buildClosureReport(kind, note, lat, lon, road) {
   if (!CLOSURE_KINDS.includes(kind)) return { ok: false, err: 'kind' };
@@ -22,6 +34,7 @@ export function buildClosureReport(kind, note, lat, lon, road) {
   const s = snap(lat, lon);
   const p = { k: 'closure', t: kind, la: s.lat, lo: s.lon };
   const rd = clip(road, 80); if (rd) p.rd = rd;
+  if (hasPII(note)) return { ok: false, err: 'pii' };
   const v = clip(note, NOTE_MAX); if (v) p.v = v;
   if (JSON.stringify(p).length > 900) return { ok: false, err: 'size' };
   return { ok: true, props: p };
@@ -29,7 +42,7 @@ export function buildClosureReport(kind, note, lat, lon, road) {
 
 // Public-facing text must stay neutral: moderator notes containing military/political terms are rejected by the export.
 export const BLOCKED_TERMS = ['military', 'army', 'militia', 'soldier', 'regime', 'rebel', 'checkpoint', 'sniper', 'shelling', 'airstrike',
-  'جيش', 'عسكري', 'ميليشيا', 'حاجز', 'قناص', 'قصف', 'معارضة', 'Militär', 'Armee', 'Miliz', 'Soldat', 'Regime', 'Rebell', 'Kontrollpunkt', 'Checkpoint'];
+  'جيش', 'عسكري', 'ميليشيا', 'حاجز عسكري', 'حاجز أمني', 'حاجز تفتيش', 'قناص', 'قصف', 'معارضة', 'Militär', 'Armee', 'Miliz', 'Soldat', 'Regime', 'Rebell', 'Kontrollpunkt', 'Checkpoint'];
 export const neutralText = s => !BLOCKED_TERMS.some(w => String(s || '').toLowerCase().includes(w.toLowerCase()));
 const ts = v => { const n = Date.parse(v); return Number.isFinite(n) ? n : NaN; };
 /** Validate one entry of data/closures.json; returns a normalised entry or null. */
@@ -94,6 +107,7 @@ export function closuresNearRoute(coords, list, m = NEAR_M) {
     .filter(e => distToLine([e.lon, e.lat], coords) <= m);
 }
 
+export class ExportError extends Error {}
 // ----- moderator export (used by scripts/closures/export-approved.mjs, tested in Node) -----
 /** rows: kh_events rows (or their props) with props.k === 'closure'; approve: Map/obj id → { hours, note? }. */
 export function rowsToEntries(rows, approve, now = Date.now(), defHours = 48) {
@@ -103,8 +117,11 @@ export function rowsToEntries(rows, approve, now = Date.now(), defHours = 48) {
     if (!p || p.k !== 'closure' || !id) continue;
     const a = approve instanceof Map ? approve.get(id) : approve?.[id];
     if (!a) continue;
-    if (a.note && !neutralText(a.note)) throw new Error(`note for ${id} is not neutral wording: ${a.note}`);
-    const hours = Math.min(MAX_DAYS * 24, Math.max(1, +(a.hours || defHours)));
+    if (a.note && !neutralText(a.note)) throw new ExportError(`Report ${id}: the note uses wording that is not allowed on the map (${BLOCKED_TERMS.filter(w => String(a.note).toLowerCase().includes(w.toLowerCase())).join(', ')}). Rephrase it neutrally, e.g. "slow traffic", "road closed".`);
+    if (a.note && hasPII(a.note)) throw new ExportError(`Report ${id}: the note contains personal data (phone, e-mail, link or @handle). Remove it.`);
+    const raw = a.hours ?? defHours, hours = +raw;
+    if (!Number.isFinite(hours) || hours <= 0) throw new ExportError(`Report ${id}: hours must be a positive number (got ${JSON.stringify(raw)}).`);
+    if (hours > MAX_DAYS * 24) throw new ExportError(`Report ${id}: hours ${hours} is more than the maximum of ${MAX_DAYS * 24} (${MAX_DAYS} days).`);
     const e = normEntry({ id: 'r' + id, kind: p.t, lat: p.la, lon: p.lo, since: new Date(now).toISOString(),
       expires: new Date(now + hours * 36e5).toISOString(), note: a.note ?? '', road: p.rd || '' });
     if (e) out.push(e);
@@ -117,4 +134,10 @@ export function mergeFile(doc, add, now = Date.now()) {
   const byId = new Map(old.map(e => [e.id, e]));
   for (const e of add) byId.set(e.id, e);
   return { schema: 1, updated: new Date(now).toISOString(), closures: [...byId.values()].sort((x, y) => x.expires.localeCompare(y.expires)) };
+}
+
+/** Arabic (and other) plural-aware count text: tpl = { zero, one, two, few, many, other } with {n}. */
+export function plural(lang, n, tpl) {
+  let c = 'other'; try { c = new Intl.PluralRules(lang).select(n); } catch {}
+  return String(tpl[c] ?? tpl.other ?? '').replace('{n}', new Intl.NumberFormat(lang === 'ar' ? 'ar' : lang).format(n));
 }

@@ -1,10 +1,10 @@
 // Community road reports: report sheet (anonymous, moderated) + map layer of APPROVED entries from data/closures.json.
 // Nothing a user sends is shown directly – only what moderators export into the static file. Expired entries are hidden.
-import { $, esc, toast, fmtCoord } from './util.js';
+import { $, esc, toast, fmtCoord, haversine } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
-import { sendNow } from './analytics.js';
+import { sendNow, reportQuiet, reportQuietOff } from './analytics.js';
 import { rateCheck, rateNote } from './report-core.js';
 import { CLOSURE_KINDS, CLOSURE_COLORS, NOTE_MAX, buildClosureReport, nearestOnPolyline, activeClosures, toGeoJSON, snap } from './closures-core.js';
 
@@ -40,7 +40,7 @@ export function loadClosures(force = false) {
 function syncSource() { App.map?.getSource('kh-cl')?.setData(toGeoJSON(activeList())); }
 
 export function addClosureLayers(map) {
-  if (!map?.isStyleLoaded?.() || map.getSource('kh-cl')) return;
+  if (!map || map.getSource('kh-cl')) return true; // throws while the style itself is still loading → caller retries
   for (const k of CLOSURE_KINDS) { const id = 'kh-cl-' + k; if (!map.hasImage(id)) { const im = iconImage(k); if (im) map.addImage(id, im.img, { pixelRatio: im.pixelRatio }); } }
   map.addSource('kh-cl', { type: 'geojson', data: toGeoJSON(activeList()) });
   map.addLayer({ id: 'kh-cl-halo', type: 'circle', source: 'kh-cl', minzoom: 9,
@@ -50,8 +50,10 @@ export function addClosureLayers(map) {
     layout: { 'icon-image': ['concat', 'kh-cl-', ['get', 'kind']], 'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 15, 1], 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
 }
 export function initClosures(map) {
-  const add = () => addClosureLayers(map);
-  map.on('style.load', add); map.once('idle', add);
+  // isStyleLoaded() also waits for all tiles, which can stay false for long on a busy map; try directly and retry
+  let tm = null;
+  const add = () => { clearTimeout(tm); try { addClosureLayers(map); } catch { tm = setTimeout(add, 400); } };
+  map.on('style.load', add); map.once('idle', add); add();
   loadClosures();
   // re-read the file after an hour in the foreground and drop expired entries every 5 min
   setInterval(syncSource, 5 * 6e4); setInterval(() => loadClosures(true), 36e5);
@@ -78,20 +80,36 @@ export function openClosure(p, ll) {
     </div>`;
   const body = openSheet(html, 'half');
   body.querySelector('#clClose').onclick = () => closeSheet();
-  body.querySelector('#clRep').onclick = () => openClosureReport({ lat: ll[1], lon: ll[0], road: p.road });
+  body.querySelector('#clRep').onclick = () => openClosureReport({ lat: ll[1], lon: ll[0], road: p.road, snapped: true });
 }
 
-// Snap a dropped pin onto the nearest rendered OSM road (OpenFreeMap 'transportation' layer) within ~30 px.
+// Snap a dropped pin onto the nearest rendered OSM road (OpenFreeMap 'transportation' lines) within SNAP_M metres.
+// The search box is derived from metres at the current zoom and the distance is measured with haversine, so the
+// result does not depend on the zoom level. The road name comes from 'transportation_name' (fallback: the line's own
+// name). Returns { snapped:false } when no road is close enough – the caller must then refuse to send anything.
+export const SNAP_M = 60;
+const mPerPx = (lat, z) => 40075016.686 * Math.cos(lat * Math.PI / 180) / (512 * 2 ** z);
+const linesOf = g => g?.type === 'LineString' ? [g.coordinates] : g?.type === 'MultiLineString' ? g.coordinates : [];
 export function snapToRoad(map, lon, lat) {
   try {
     const pt = map.project([lon, lat]);
-    const fs = map.queryRenderedFeatures([[pt.x - 30, pt.y - 30], [pt.x + 30, pt.y + 30]]).filter(f => (f.sourceLayer === 'transportation' || f.sourceLayer === 'transportation_name') && f.geometry);
+    const r = Math.min(600, Math.max(4, Math.ceil(SNAP_M / mPerPx(lat, map.getZoom()) * 1.2)));
+    const fs = map.queryRenderedFeatures([[pt.x - r, pt.y - r], [pt.x + r, pt.y + r]]);
+    const lang = document.documentElement.lang || 'en';
+    const nm = f => f.properties?.['name:' + lang] || f.properties?.name || '';
     let best = null;
     for (const f of fs) {
-      const g = f.geometry, lines = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
-      for (const l of lines) { const n = nearestOnPolyline([lon, lat], l); if (n.pt && (!best || n.d < best.d)) best = { ...n, name: f.properties?.['name:' + (document.documentElement.lang || 'en')] || f.properties?.name || best?.name || '' }; }
+      if (f.sourceLayer !== 'transportation') continue;
+      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline([lon, lat], l); if (!n.pt) continue; const d = haversine([lon, lat], n.pt); if (d <= SNAP_M && (!best || d < best.d)) best = { pt: n.pt, d, name: nm(f) }; }
     }
-    if (best && best.d <= 60) return { lon: best.pt[0], lat: best.pt[1], road: best.name || '', snapped: true };
+    if (!best) return { lon, lat, road: '', snapped: false };
+    // name of the closest labelled street line near the snapped point
+    let lbl = null;
+    for (const f of fs) {
+      if (f.sourceLayer !== 'transportation_name' || !nm(f)) continue;
+      for (const l of linesOf(f.geometry)) { const n = nearestOnPolyline(best.pt, l); if (n.pt) { const d = haversine(best.pt, n.pt); if (d <= 25 && (!lbl || d < lbl.d)) lbl = { d, name: nm(f) }; } }
+    }
+    return { lon: best.pt[0], lat: best.pt[1], road: lbl?.name || best.name || '', snapped: true };
   } catch {}
   return { lon, lat, road: '', snapped: false };
 }
@@ -99,25 +117,29 @@ export function snapToRoad(map, lon, lat) {
 let busy = false;
 /** item: { lat, lon, road? } – a dropped pin on a road. */
 export function openClosureReport(item) {
-  const s = snap(item.lat, item.lon);
+  // never send (or even show) a raw position that could not be placed on a road
+  const onRoad = item.snapped !== false && Number.isFinite(+item.lat) && Number.isFinite(+item.lon);
+  const s = onRoad ? snap(item.lat, item.lon) : null;
   let kind = '';
+  reportQuiet(Infinity); // see analytics.reportQuiet: no point/place events around a report
   const html = `<div class="phead"><div><h2 class="ptitle">${esc(t('clTitle'))}</h2>${item.road ? `<p class="psub" dir="auto">${esc(item.road)}</p>` : ''}</div><button class="pclose" id="clClose" aria-label="${esc(t('close'))}">${ic('close')}</button></div>
     <form class="rp" id="clForm" novalidate>
-      <div class="rp-f"><label>${esc(t('rpPos'))}</label><div class="rp-pos"><span dir="ltr">${esc(fmtCoord(s.lat, s.lon))}</span></div><small>${esc(t('clPosHint'))}</small></div>
+      <div class="rp-f"><label>${esc(t('rpPos'))}</label><div class="rp-pos"><span dir="ltr">${s ? esc(fmtCoord(s.lat, s.lon)) : '—'}</span></div><small>${esc(t('clPosHint'))}</small></div>
       <div class="rp-f" role="radiogroup" aria-label="${esc(t('clKind'))}"><label>${esc(t('clKind'))}</label><div class="cl-kinds">
         ${CLOSURE_KINDS.map(k => `<button type="button" role="radio" aria-checked="false" class="cl-kind" data-k="${k}"><span class="cl-dot" style="background:${CLOSURE_COLORS[k]}"></span>${esc(t('clK_' + k))}</button>`).join('')}</div></div>
       <div class="rp-f"><label for="clNote">${esc(t('clNote'))}</label><textarea id="clNote" dir="auto" rows="2" maxlength="${NOTE_MAX}"></textarea></div>
       <p class="rp-err" id="clErr" role="alert" hidden></p>
       <button class="rp-send" id="clSend" type="submit">${esc(t('rpSend'))}</button>
       <p class="rp-note">${ic('info', 'xs')}<span>${esc(t('clModerated'))}</span></p></form>`;
-  const body = openSheet(html, 'full');
+  const body = openSheet(html, 'full', () => reportQuietOff());
+  if (!onRoad) { body.querySelector('#clForm').innerHTML = `<p class="rp-err" id="clErr" role="alert">${esc(t('clE_noroad'))}</p>`; return; }
   body.querySelector('#clClose').onclick = () => closeSheet();
   body.querySelectorAll('.cl-kind').forEach(b => b.onclick = () => { kind = b.dataset.k; body.querySelectorAll('.cl-kind').forEach(x => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)); }); });
   const err = k => { const e = body.querySelector('#clErr'); e.textContent = t(k); e.hidden = false; };
   body.querySelector('#clForm').onsubmit = async e => {
     e.preventDefault(); if (busy) return;
     const b = buildClosureReport(kind, body.querySelector('#clNote').value, item.lat, item.lon, item.road);
-    if (!b.ok) return err(b.err === 'kind' ? 'clE_kind' : 'rpE_pos');
+    if (!b.ok) return err(b.err === 'kind' ? 'clE_kind' : b.err === 'pii' ? 'clE_pii' : 'rpE_pos');
     const rl = rateCheck(); if (!rl.ok) return err(rl.why === 'gap' ? 'rpE_gap' : 'rpE_rate');
     busy = true; const btn = body.querySelector('#clSend'); btn.disabled = true; btn.textContent = t('rpSending');
     const r = await sendNow('layer', b.props);

@@ -506,7 +506,6 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 .rp-note .ic{flex:none;width:14px;height:14px;margin-top:2px}
 .rp-open{padding:4px 16px 0}.rp-open .abtn{width:100%;height:44px;flex-direction:row;gap:8px}
 /* community road reports */
-.rp-open #pRoad{margin-top:8px}
 .cl-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-inline-end:8px;vertical-align:middle;box-shadow:0 0 0 2px var(--k-surface)}
 .cl-kinds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .cl-kind{min-height:44px;border-radius:12px;background:var(--k-surface-2);color:var(--k-text);padding:8px 12px;text-align:start;display:flex;align-items:center;font-size:var(--k-text-sub)}

@@ -86,9 +86,12 @@ test('moderator export: only approved closure rows, neutral notes, merge + prune
   const add = C.rowsToEntries(rows, { 11: { hours: 24, note: 'Bridge repairs' }, 12: {} }, NOW);
   assert.equal(add.length, 1); assert.equal(add[0].id, 'r11'); assert.equal(add[0].note, 'Bridge repairs');
   assert.equal(Date.parse(add[0].expires) - NOW, 24 * 36e5);
-  assert.equal(C.rowsToEntries(rows, { 13: { hours: 9999 } }, NOW)[0].note, ''); // user notes never published
-  assert.equal(Date.parse(C.rowsToEntries(rows, { 13: { hours: 9999 } }, NOW)[0].expires) - NOW, C.MAX_DAYS * 864e5);
-  assert.throws(() => C.rowsToEntries(rows, { 11: { note: 'army checkpoint' } }, NOW), /neutral/);
+  assert.equal(C.rowsToEntries(rows, { 13: { hours: 6 } }, NOW)[0].note, ''); // user notes never published
+  assert.equal(Date.parse(C.rowsToEntries(rows, { 13: { hours: 336 } }, NOW)[0].expires) - NOW, C.MAX_DAYS * 864e5);
+  assert.throws(() => C.rowsToEntries(rows, { 13: { hours: 9999 } }, NOW), C.ExportError);
+  for (const h of [0, -3, 'x']) assert.throws(() => C.rowsToEntries(rows, { 11: { hours: h } }, NOW), /positive number/); // never silently 48 h
+  assert.throws(() => C.rowsToEntries(rows, { 11: { note: 'army checkpoint' } }, NOW), C.ExportError);
+  assert.throws(() => C.rowsToEntries(rows, { 11: { note: 'call 0933 123 456' } }, NOW), /personal data/);
   const old = { closures: [{ id: 'gone', kind: 'closed', lat: 1, lon: 1, since: '2026-11-01T00:00:00Z', expires: '2026-11-02T00:00:00Z' }] };
   const res = C.mergeFile(old, add, NOW);
   assert.deepEqual(res.closures.map(x => x.id), ['r11']); assert.equal(res.schema, 1);
@@ -107,7 +110,7 @@ test('moderator CLI writes a valid file (temp dir, no network)', () => {
 
 test('i18n: EN/AR/DE strings exist and use neutral wording', async () => {
   const I = await import('../../js/i18n.js');
-  const keys = ['clOpen', 'clTitle', 'clKind', 'clNote', 'clPosHint', 'clModerated', 'clE_kind', 'clSince', 'clUntil', 'clDisclaimer', 'clReportHere', 'clRouteWarn1', 'clRouteWarnN', ...C.CLOSURE_KINDS.map(k => 'clK_' + k)];
+  const keys = ['clOpen', 'clTitle', 'clKind', 'clNote', 'clPosHint', 'clModerated', 'clE_kind', 'clSince', 'clUntil', 'clDisclaimer', 'clReportHere', 'clRW_one', 'clRW_other', 'clE_noroad', 'clE_pii', ...C.CLOSURE_KINDS.map(k => 'clK_' + k)];
   for (const l of ['en', 'ar', 'de']) {
     I.setLang(l);
     for (const k of keys) { const v = I.t(k, { n: 2 }); assert.ok(v && v !== k, `${l}.${k}`); assert.ok(C.neutralText(v), `${l}.${k} not neutral: ${v}`); }
@@ -126,4 +129,109 @@ test('service worker + no third-party map providers', () => {
     assert.doesNotMatch(s, /google|mapbox\.com|api\.mapbox|here\.com|bing\.com|apple\.com|service_role|https?:\/\//i, f);
     assert.doesNotMatch(s, /fetch\(['"]\//, `${f}: relative paths only`);
   }
+});
+
+// ----- QA round 2 -----
+test('P1: every anonymous report (road + #20 reports) has no client time, language or device fingerprint', async () => {
+  for (const props of [C.buildClosureReport('delay', '', 33.51, 36.29).props, RC.buildReport ? { k: 'report', t: 'missing', la: 33.5, lo: 36.3, n: 'X', c: 'cafe' } : null].filter(Boolean)) {
+    let body = null;
+    const r = await A.sendNow('layer', props, { fetchImpl: async (u, o) => { body = o.body; return { ok: true, status: 201, text: async () => '' }; } });
+    if (r.why === 'dev') continue;
+    const [ev] = JSON.parse(body);
+    for (const k of ['client_ts', 'lang', 'device', 'os', 'standalone', 'app_version', 'session_id', 'country', 'city', 'referrer', 'utm_source']) assert.equal(ev[k], null, k);
+    assert.equal(ev.install_id, 'anon'); assert.equal(ev.props.ch, undefined);
+  }
+});
+
+test('P1: point/place events are held back and dropped when a report sheet opens; quiet 60 s after', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
+  const queued = () => JSON.parse(localStorage.getItem('kh.aq') || '[]').map(e => e.type);
+  localStorage.removeItem('kh.aq');
+  // normal case: queued only after HOLD_MS
+  assert.equal(A.track('place_view', { cat: 'pin' }), true);
+  assert.equal(queued().includes('place_view'), false); assert.equal(A._heldCount(), 1);
+  t.mock.timers.tick(A.HOLD_MS + 1);
+  assert.equal(queued().includes('place_view'), true);
+  const base = queued().filter(x => x === 'place_view' || x === 'whats_here').length;
+  // report case: whats_here + place_view 3 s before the report sheet opens are never queued
+  A.track('whats_here', {}); t.mock.timers.tick(3000); A.track('place_view', { cat: 'pin' });
+  A.reportQuiet(Infinity);
+  assert.equal(A._heldCount(), 0);
+  assert.equal(A.track('place_view', { cat: 'pin' }), false); // sheet open
+  A.reportQuietOff(); // sheet closed (after sending)
+  t.mock.timers.tick(A.QUIET_MS - 1000);
+  assert.equal(A.track('whats_here', {}), false); // still inside the quiet window
+  t.mock.timers.tick(A.HOLD_MS * 2);
+  assert.equal(queued().filter(x => x === 'place_view' || x === 'whats_here').length, base); // nothing new
+  assert.equal(A.track('whats_here', {}), true); // later views count again (held)
+  A.reportQuiet(0); localStorage.removeItem('kh.aq');
+  // both report sheets enable the quiet mode on open and end it on close
+  for (const f of ['js/report.js', 'js/closures.js']) { const src = readFileSync(root + f, 'utf8'); assert.match(src, /reportQuiet\(Infinity\)/, f); assert.match(src, /reportQuietOff\(\)/, f); }
+});
+
+test('P2: note PII filter (emails, phones Latin + Arabic-Indic, URLs, @handles)', () => {
+  for (const s of ['call 0933 123 456', '+963 11 222 3333', '٠٩٣٣١٢٣٤٥٦', '۰۹۳۳ ۱۲۳ ۴۵۶', 'mail a.b@x.org', 'see https://x.io/a', 'www.example.com', 't.me/somebody', 'ask @ahmad_1', 'اتصل @سامر'])
+    { assert.equal(C.hasPII(s), true, s); assert.equal(C.buildClosureReport('closed', s, 33.5, 36.3).err, 'pii', s); }
+  for (const s of ['Bridge closed, 2 lanes', 'km 12 water 30 cm', 'حاجز إسمنتي على الطريق', 'Stau ab 17:30', 'Baustelle bis 2026'])
+    { assert.equal(C.hasPII(s), false, s); assert.equal(C.buildClosureReport('closed', s, 33.5, 36.3).ok, true, s); }
+  assert.doesNotMatch(C.stripPII('call 0933 123 456 or a@b.com @bob ok'), /\d{3}|@|b\.com/);
+});
+
+test('P3: blocklist allows "حاجز إسمنتي" (concrete barrier), still blocks military phrasing', () => {
+  assert.equal(C.neutralText('حاجز إسمنتي'), true);
+  for (const s of ['حاجز عسكري', 'army', 'Checkpoint', 'Militär']) assert.equal(C.neutralText(s), false, s);
+});
+
+test('P3: Arabic plurals via Intl.PluralRules + reworded strings', async () => {
+  const I = await import('../../js/i18n.js');
+  I.setLang('ar');
+  const tpl = Object.fromEntries(['zero', 'one', 'two', 'few', 'many', 'other'].map(c => [c, I.t('clRW_' + c)]).filter(([c, v]) => v !== 'clRW_' + c));
+  assert.match(C.plural('ar', 1, tpl), /واحدة/); assert.match(C.plural('ar', 2, tpl), /مشكلتا/);
+  assert.match(C.plural('ar', 3, tpl), /مشاكل/); assert.match(C.plural('ar', 11, tpl), /مشكلة/);
+  assert.doesNotMatch(I.t('clDisclaimer'), /قُد بحذر/); assert.match(I.t('clDisclaimer'), /انتبه أثناء القيادة/);
+  assert.match(I.t('clK_construction'), /صيانة/);
+  for (const l of ['en', 'de', 'ar']) { I.setLang(l); for (const k of ['clE_noroad', 'clE_pii', 'clRW_one', 'clRW_other']) assert.notEqual(I.t(k), k, `${l}.${k}`); }
+  I.setLang('en'); assert.equal(C.plural('en', 1, { one: '1 x', other: '{n} xs' }), '1 x'); assert.equal(C.plural('en', 4, { one: '1 x', other: '{n} xs' }), '4 xs');
+});
+
+test('P2: snapToRoad works in metres (zoom-independent), refuses > 60 m, name from transportation_name', async () => {
+  const CL = await import('../../js/closures.js');
+  const road = { sourceLayer: 'transportation', properties: { class: 'primary' }, geometry: { type: 'LineString', coordinates: [[36.28, 33.51], [36.30, 33.51]] } };
+  const label = { sourceLayer: 'transportation_name', properties: { name: 'Al-Thawra St' }, geometry: { type: 'LineString', coordinates: [[36.285, 33.51], [36.295, 33.51]] } };
+  const mapAt = z => { const k = 512 * 2 ** z / 360, boxes = []; return { boxes, getZoom: () => z, project: ([x, y]) => ({ x: x * k, y: -y * k }),
+    queryRenderedFeatures: b => { boxes.push(b); return [road, label]; } }; };
+  const dLat = m => m / 111195;
+  for (const z of [12, 14, 16, 18]) {
+    const m = mapAt(z);
+    const s = CL.snapToRoad(m, 36.29, 33.51 + dLat(40));
+    assert.equal(s.snapped, true, 'z' + z); assert.equal(s.road, 'Al-Thawra St'); assert.ok(Math.abs(s.lat - 33.51) < 1e-9);
+    const far = CL.snapToRoad(m, 36.29, 33.51 + dLat(75));
+    assert.equal(far.snapped, false, 'z' + z + ' 75 m must be refused');
+    const mpp = 40075016.686 * Math.cos(33.51 * Math.PI / 180) / (512 * 2 ** z), half = (m.boxes[0][1][0] - m.boxes[0][0][0]) / 2 * mpp;
+    if (z >= 14) assert.ok(half >= 60 && half < 90, `z${z}: search box half-size ${half.toFixed(1)} m`);
+  }
+  // only line name: fallback to the transportation feature's own name
+  const m = mapAt(16); m.queryRenderedFeatures = () => [{ ...road, properties: { name: 'Baghdad St' } }];
+  assert.equal(CL.snapToRoad(m, 36.29, 33.51).road, 'Baghdad St');
+  const src = readFileSync(root + 'js/closures.js', 'utf8');
+  assert.match(src, /item\.snapped !== false/); assert.match(src, /clE_noroad/);
+});
+
+test('P3: CLI prints a friendly error (no stack) for non-neutral notes and hours 0', () => {
+  const d = mkdtempSync(join(tmpdir(), 'clx-'));
+  writeFileSync(join(d, 'r.json'), JSON.stringify([{ id: 5, props: { k: 'closure', t: 'closed', la: 33.5, lo: 36.3 } }]));
+  for (const [ap, extra, re] of [[{ 5: { note: 'army road' } }, [], /not allowed/], [{ 5: { hours: 0 } }, [], /positive number/], [{ 5: {} }, ['--hours', '0'], /positive number/]]) {
+    writeFileSync(join(d, 'a.json'), JSON.stringify(ap));
+    let err = null;
+    try { execFileSync(process.execPath, [root + 'scripts/closures/export-approved.mjs', '--reports', join(d, 'r.json'), '--approve', join(d, 'a.json'), '--out', join(d, 'o.json'), ...extra], { stdio: 'pipe' }); } catch (e) { err = e; }
+    assert.ok(err, 'must fail'); assert.equal(err.status, 1);
+    const msg = err.stderr.toString(); assert.match(msg, re); assert.doesNotMatch(msg, /\n\s+at /); // no stack trace
+  }
+});
+
+test('P3: moderation view migration covers closures; README wording is neutral', () => {
+  const sql = readFileSync(root + 'supabase/migrations/20261105_reports_view_closures.sql', 'utf8');
+  assert.match(sql, /props->>'k' in \('report', 'closure'\)/); assert.match(sql, /DO NOT run/);
+  const md = readFileSync(root + 'scripts/closures/README.md', 'utf8');
+  assert.equal(C.neutralText(md.replace(/blocklist/g, '')), true); assert.doesNotMatch(md, /checkpoint/i); assert.doesNotMatch(md, /client_ts/);
 });

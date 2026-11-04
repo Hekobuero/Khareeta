@@ -144,8 +144,28 @@ const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => m
 // ----- queue -----
 let q = lsGet(QKEY, []);
 const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
+// Reports must not be linkable to normal usage events. Events about a point/place the user looks at are therefore held
+// back for HOLD_MS before they are queued; opening a report sheet drops the held ones (reportQuiet), and none are
+// recorded while a report sheet is open or for QUIET_MS after a report was sent.
+export const POINT_TYPES = new Set(['place_view', 'whats_here', 'share', 'directions_open', 'route', 'measure']);
+export const HOLD_MS = 60e3, QUIET_MS = 60e3;
+let held = [], quietUntil = 0;
+/** Call when a report sheet opens (ms = how long to stay quiet; Infinity until the next call) and after sending. */
+export function reportQuiet(ms = QUIET_MS, now = Date.now()) { for (const h of held) clearTimeout(h.tm); held = []; quietUntil = Math.max(quietUntil, now + ms); }
+export const reportQuietOff = (now = Date.now()) => { quietUntil = Math.min(quietUntil, now + QUIET_MS); };
+export const _heldCount = () => held.length;
+// leaving the page: queue what is held unless a report is open / was just sent (then it is dropped)
+function releaseHeld() { const h = held; held = []; for (const x of h) { clearTimeout(x.tm); if (Date.now() >= quietUntil) enqueue(x.type, x.props); } }
 export function track(type, props = {}) {
   if (OFF || !ALLOWED.has(type)) return false;
+  if (POINT_TYPES.has(type)) {
+    if (Date.now() < quietUntil) return false;
+    const h = { type, props, tm: setTimeout(() => { held = held.filter(x => x !== h); if (Date.now() >= quietUntil) enqueue(type, props); }, HOLD_MS) };
+    held.push(h); return true;
+  }
+  return enqueue(type, props);
+}
+function enqueue(type, props) {
   if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sessionId) return; sessionStorage.setItem('kh.visit', sessionId); } catch {} }
   try {
     const pr = { ...props };
@@ -177,8 +197,10 @@ export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeo
   if (REPORT_DEV_BLOCKED()) return { ok: false, why: 'dev' };
   if (navigator.onLine === false) return { ok: false, why: 'offline' };
   const ev = {
-    client_ts: new Date().toISOString(), install_id: 'anon', session_id: null, type, lang: getLang(),
-    device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
+    // no client_ts / lang / device / os / app_version: they would let a report be matched to the sender's usage
+    // events by time and fingerprint (the server's created_at is enough for moderation)
+    client_ts: null, install_id: 'anon', session_id: null, type, lang: null,
+    device: null, os: null, standalone: null, app_version: null,
     country: null, city: null, geo_src: null, lat_r: null, lon_r: null,
     referrer: null, utm_source: null, props: { ...props },
   };
@@ -226,8 +248,8 @@ export function initAnalytics() {
   if (OFF) return;
   setTimeout(edgeCountry, 4000);
   addEventListener('online', () => schedule(2000));
-  addEventListener('pagehide', () => { leaving = true; flush(); });
+  addEventListener('pagehide', () => { leaving = true; releaseHeld(); flush(); });
   addEventListener('pageshow', () => { leaving = false; });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { releaseHeld(); flush(); } });
   if (q.length) schedule(5000);
 }

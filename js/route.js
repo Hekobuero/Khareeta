@@ -10,7 +10,7 @@ import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingTex
 import { dedupe, combobox, cleanQuery } from './suggest.js';
 import { placeSuggest } from './search.js';
 import { activeList } from './closures.js';
-import { closuresNearRoute } from './closures-core.js';
+import { closuresNearRoute, plural } from './closures-core.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
 export const routeState = R;
@@ -377,7 +377,7 @@ function showRouteSheet() {
   const r = R.routes[R.sel];
   const tag = rt => rt.duration === fastest ? `<div class="fast">${t('fastestRoute')}</div>` : rt.distance === shortest ? `<div class="fast" style="color:var(--k-text-2)">${t('shortest')}</div>` : '';
   const near = closuresNearRoute(r.coords, activeList());
-  const warn = near.length ? `<div class="cl-warn" role="status">${ic('warning', 'sm')}<span>${esc(t(near.length === 1 ? 'clRouteWarn1' : 'clRouteWarnN', { n: near.length }))}: ${[...new Set(near.map(c => t('clK_' + c.kind)))].map(esc).join(', ')}</span></div>` : '';
+  const warn = near.length ? `<div class="cl-warn" role="status">${ic('warning', 'sm')}<span>${esc(plural(getLang(), near.length, Object.fromEntries(['zero', 'one', 'two', 'few', 'many', 'other'].map(c => [c, t('clRW_' + c)]).filter(([c, v]) => v && v !== 'clRW_' + c))))}: ${[...new Set(near.map(c => t('clK_' + c.kind)))].map(esc).join(', ')}</span></div>` : '';
   const html = `${warn}
     ${R.routes.map((rt, i) => `<div class="rcard ${i === R.sel ? 'on' : ''}" data-i="${i}" role="button" aria-pressed="${i === R.sel}"><div style="flex:1;min-width:0"><div class="rt">${fmtDur(rt.duration)}</div><div class="rd">${fmtDist(rt.distance)}${rt.summary ? ' · ' + t('via', { r: '<bdi>' + esc(rt.summary) + '</bdi>' }) : ''} · ${t('eta')} ${arrive(rt.duration)}</div>${tag(rt)}</div><button class="gobtn" data-go="${i}">${t('go')}</button></div>`).join('')}
     <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
