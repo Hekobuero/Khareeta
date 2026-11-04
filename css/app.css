@@ -348,7 +348,14 @@ body.nav .sheet,body.nav #top,body.nav #dirPanel,body.nav #fabs,body.nav #fabsBo
 body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
 #chips{transition:opacity .16s}
 .maplibregl-ctrl-scale{opacity:0;transition:opacity .3s}body.show-scale .maplibregl-ctrl-scale{opacity:1}
-#zoomGrp{display:none}@media (pointer:fine) and (min-width:900px){#zoomGrp{display:flex}}
+/* Zoom: the map (MapLibre, touch-action:none on its canvas container) owns pinch/double-tap. The page itself must never
+   pinch-zoom or shift sideways (iOS Safari ignores maximum-scale/user-scalable, so the viewport meta cannot do it):
+   UI overlays allow panning/scrolling only (no pinch-zoom, no double-tap zoom); gesture events outside #map are
+   cancelled in js/app.js. +/- buttons are always visible in the right control column (Apple Maps style). */
+html,body{width:100%;max-width:100%;overscroll-behavior:none}
+#top,#fabs,#fabsBottom,.sheet,.dirpanel,.pop,.updbar,.toast,.pill,.nav-banner,.nav-bottom,.maplibregl-ctrl{touch-action:pan-x pan-y}
+#zoomGrp{display:flex}
+#zoomGrp button:active,#fabs .cgroup button:active{background:var(--k-surface-2)}
 .drawer .ditem{color:var(--k-text);font-weight:400}
 [dir=rtl] .maplibregl-ctrl-bottom-left{left:auto;right:0}[dir=rtl] .maplibregl-ctrl-bottom-right{right:auto;left:0}
 /* generic panels (about, offline areas) on the design tokens */
@@ -392,7 +399,7 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
 .kattr.open{border-radius:14px}
 
 /* ---------- Touch targets ≥ 44×44 (DESIGN.md: visuals may stay smaller, the hit area grows via ::before) ---------- */
-button,a,[role=button],summary{touch-action:manipulation}
+button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom / tap delay, no page pinch */
 .grab{position:relative}.grab::before{content:"";position:absolute;inset:-8px 0}
 #btnMenu,#btnClear,.irow button.ib,.stop .ib,.seg button,.ochip,.act,.addstop,#hAll,.hhead button{position:relative}
 #btnMenu::before,#btnClear::before{content:"";position:absolute;inset:-2px}

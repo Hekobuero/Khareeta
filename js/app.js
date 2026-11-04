@@ -328,6 +328,10 @@ $('#btnMenu').onclick = openDrawer;
 $('#btnLayers').onclick = toggleLayers;
 $('#btnZin').innerHTML = ic('plus'); $('#btnZout').innerHTML = ic('minus');
 $('#btnZin').onclick = () => map.zoomIn(); $('#btnZout').onclick = () => map.zoomOut();
+// iOS Safari: pinch/double-tap that starts on UI overlays would zoom the whole page (visual viewport) and push the
+// search bar, chips and sheet off-screen. Cancel Safari's page gesture events only outside the map – MapLibre uses
+// touch events for its own pinch zoom, so the map keeps working (gesture* events are WebKit-only, no-op elsewhere).
+for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, e => { if (!e.target?.closest?.('#map')) e.preventDefault(); }, { passive: false });
 $('#btnCompass').onclick = () => { if (App.locMode === 2) App.locMode = 1; renderLocBtn(); map.easeTo({ bearing: 0, pitch: 0, duration: 400 }); if (settings.b3dOn) { settings.b3dOn = false; saveSettings(); hooks.set3d(false); } };
 $('#btn3d').onclick = () => { settings.b3dOn = !(map.getPitch() > 10); saveSettings(); hooks.set3d(settings.b3dOn); };
 $('#btnLocate').onclick = () => {

@@ -131,6 +131,9 @@ jobs:
           exit 1
       - run: node ios-webkit.test.js
         timeout-minutes: 5
+      - name: iPhone zoom (pinch/double-tap/buttons, no page overflow)
+        run: node ios-zoom.test.js
+        timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4
