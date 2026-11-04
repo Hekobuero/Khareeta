@@ -16,6 +16,7 @@ import { showSaved } from './ui.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
 import { initAnalytics, track } from './analytics.js';
+import { initClosures, closureClick } from './closures.js';
 import { addTransitLayers, syncTransit, transitClick, openLines } from './transit.js';
 
 applyDir();
@@ -203,6 +204,7 @@ map.on('click', async e => {
   if (navActive()) return;
   if (measureActive()) { measureClick([e.lngLat.lng, e.lngLat.lat]); return; }
   $('#layersPop').classList.add('hidden');
+  if (closureClick(map, e.point)) return;
   if (transitClick(map, e)) return;
   const kp = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: POI_LAYERS.filter(id => map.getLayer(id)) });
   if (kp.length) {
@@ -238,6 +240,7 @@ map.on('click', async e => {
   }
   if (!document.body.classList.contains('dir-open') && App.sheetKind !== 'home') { if (sheetState() !== 'hidden') closeSheet(); else showHome(); }
 });
+initClosures(map);
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
 for (const id of [...POI_LAYERS, ...WLAYERS, ...OV_LAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }

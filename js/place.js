@@ -12,6 +12,7 @@ import { phones as phoneList, website as websiteOf, socials as socialList } from
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
+import { openClosureReport, snapToRoad } from './closures.js';
 import { photoSources, loadPhotos, photoTags, geoEligible, photoEmptyKey } from './photos.js';
 const hasPhotoSrc = (item, tg) => photoSources(tg).any || (navigator.onLine !== false && item.lat != null && geoEligible(tg));
 // Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
@@ -244,6 +245,7 @@ function render(item, tg, loading) {
     <button class="abtn primary" id="pDir">${ic(App.mode === 'foot' ? 'walk' : App.mode === 'bike' ? 'bike' : 'car')}<span id="pEta">${eta ? fmtDur(eta) : t('directionsBtn')}</span></button>
     <button class="abtn" id="pSave">${ic(saved ? 'bookmark' : 'bookmarkOutline')}<span>${saved ? t('savedOk') : t('save')}</span></button>
     <button class="abtn" id="pShare">${ic('share')}<span>${t('share')}</span></button>
+    ${item.coord ? `<button class="abtn" id="pRoad">${ic('warning')}<span>${esc(t('clOpen'))}</span></button>` : ''}
     ${fourth}
   </div>
   ${contactRow}
@@ -268,6 +270,7 @@ function render(item, tg, loading) {
   const it = { ...item, name: title };
   body.querySelector('#pClose').onclick = () => closeSheet();
   body.querySelector('#pReport').onclick = () => openReport(item.coord ? item : { ...item, name: title }, item.coord ? 'missing' : 'wrong');
+  body.querySelector('#pRoad')?.addEventListener('click', () => openClosureReport(App.map ? snapToRoad(App.map, item.lon, item.lat) : { ...item, snapped: false }));
   body.querySelector('#pDir').onclick = () => openDirections({ to: it });
   body.querySelector('#pStart')?.addEventListener('click', () => openDirections({ to: it, autostart: true }));
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };

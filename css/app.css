@@ -505,6 +505,18 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 .rp-note{margin:0;display:flex;gap:6px;align-items:flex-start;color:var(--k-text-2);font-size:var(--k-text-caption)}
 .rp-note .ic{flex:none;width:14px;height:14px;margin-top:2px}
 .rp-open{padding:4px 16px 0}.rp-open .abtn{width:100%;height:44px;flex-direction:row;gap:8px}
+/* community road reports */
+.cl-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-inline-end:8px;vertical-align:middle;box-shadow:0 0 0 2px var(--k-surface)}
+.cl-kinds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cl-kind{min-height:44px;border-radius:12px;background:var(--k-surface-2);color:var(--k-text);padding:8px 12px;text-align:start;display:flex;align-items:center;font-size:var(--k-text-sub)}
+.cl-kind.on{box-shadow:0 0 0 2px var(--k-accent);background:var(--k-accent-tint)}
+.cl-body{padding:4px var(--k-gutter) 16px;display:flex;flex-direction:column;gap:12px}
+.cl-note{margin:0;font-size:var(--k-text-body)}
+.cl-meta{display:flex;gap:16px}.cl-meta div{display:flex;flex-direction:column;gap:2px}
+.cl-meta label{font-size:var(--k-text-caption);color:var(--k-text-2);font-weight:600}
+.cl-rep{width:100%;height:44px;flex-direction:row;gap:8px}
+.cl-warn{margin:8px var(--k-gutter) 0;padding:10px 14px;border-radius:var(--k-radius-md);background:rgba(227,116,0,.14);color:var(--k-text);display:flex;gap:8px;align-items:flex-start;font-size:var(--k-text-sub)}
+.cl-warn .ic{flex:none;fill:#E37400}
 /* transit lines (js/transit.js) */
 .tr-pill{gap:6px;min-height:40px;cursor:pointer;position:absolute;inset-inline-end:0;bottom:58px} /* stacked above the locate button, clear of the attribution */
 .tr-pill .ic{width:18px;height:18px;fill:currentColor;color:var(--k-accent,#2F6FDB)}

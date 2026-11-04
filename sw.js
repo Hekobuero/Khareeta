@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-2246';
+const VERSION = '20261104-2250';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -37,6 +37,8 @@ const SHELL_FILES = [
   'js/overture-data.js',
   'js/report.js',
   'js/report-core.js',
+  'js/closures.js',
+  'js/closures-core.js',
   'js/route.js',
   'js/search.js',
   'js/suggest.js',
@@ -308,6 +310,8 @@ self.addEventListener('fetch', e => {
     if (/\/(robots\.txt|sitemap\.xml)$/.test(url.pathname) || url.pathname.endsWith('/icons/og-image.png')) return;
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
+    // moderated road reports: always try the network first (short-lived data), cached copy only when offline
+    if (url.pathname.endsWith('/data/closures.json')) return e.respondWith(networkFirst(req, SHELL, 4000));
     if (isOv(url.pathname)) return e.respondWith(ovFetch(req, e));
     if (isTransit(url.pathname)) return e.respondWith(transitFetch(req, e));
     if (isPoi(url.pathname)) return e.respondWith(poiFetch(req, e));

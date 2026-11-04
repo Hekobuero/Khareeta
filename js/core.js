@@ -39,7 +39,10 @@ export function fitTo(bounds, pad, opts = {}) {
   const H = m.getContainer().clientHeight, W = m.getContainer().clientWidth;
   if (cur.top + cur.bottom + r.top + r.bottom > H - 60) { const ex = cur.top + cur.bottom + r.top + r.bottom - (H - 60); r.bottom = Math.max(0, r.bottom - ex); }
   if (cur.left + cur.right + r.left + r.right > W - 60) { r.left = r.right = 0; }
-  m.fitBounds(bounds, { ...opts, padding: r });
+  // opts.minZoom: never zoom out further than this (a city bbox would otherwise end up at ~z9); keep the bounds' centre
+  const { minZoom, ...o } = opts;
+  if (minZoom != null) { const cam = m.cameraForBounds(bounds, { padding: r, maxZoom: o.maxZoom }); if (cam && cam.zoom < minZoom) { m.easeTo({ center: cam.center, zoom: minZoom, bearing: cam.bearing ?? m.getBearing(), duration: o.duration ?? 500 }); return; } }
+  m.fitBounds(bounds, { ...o, padding: r });
 }
 let padWait = false;
 // Apply the sheet padding without moving the visible map (keeps what is on screen in place)
