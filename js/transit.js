@@ -4,7 +4,7 @@
 import { esc, settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
-import { App, openSheet, closeSheet } from './core.js';
+import { App, openSheet, closeSheet, fitTo } from './core.js';
 import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
 
 export const TR_LAYERS = ['kh-tr-line', 'kh-tr-sel-case', 'kh-tr-sel', 'kh-tr-stop'];
@@ -32,9 +32,9 @@ export function addTransitLayers(map, dark) {
   map.addLayer({ id: 'kh-tr-line', type: 'line', source: 'kh-tr', layout: { visibility: vis, 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': c.line, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 3], 'line-opacity': ['case', ['boolean', ['feature-state', 'dim'], false], 0.15, 0.55] } }, before);
   map.addLayer({ id: 'kh-tr-sel-case', type: 'line', source: 'kh-tr-sel', layout: { visibility: vis, 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': c.case, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 10] } }, before);
+    paint: { 'line-color': c.case, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 7, 13, 10, 16, 15] } }, before);
   map.addLayer({ id: 'kh-tr-sel', type: 'line', source: 'kh-tr-sel', layout: { visibility: vis, 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': c.sel, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 16, 6] } }, before);
+    paint: { 'line-color': c.sel, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 4, 13, 6, 16, 9] } }, before);
   map.addLayer({ id: 'kh-tr-stop', type: 'circle', source: 'kh-tr-stops', minzoom: 11, layout: { visibility: vis },
     paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 2.5, 16, 6], 'circle-color': c.case, 'circle-stroke-color': S.sel ? c.sel : c.line, 'circle-stroke-width': 2 } }, before);
   draw(map);
@@ -109,10 +109,17 @@ function renderList(map) {
     const li = e.target.closest('[data-l]'); if (li) showLine(map, +li.dataset.l);
   };
 }
+// Fit the selected line into the map area above the sheet. fitTo() subtracts the map's own (sheet) padding,
+// so these are total insets; left/right are symmetric, so LTR and RTL frame the same.
+const trSheetClosed = () => document.body.classList.remove('tr-line-open');
+function fitLine(map, bb) {
+  const sh = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || Math.round(innerHeight * 0.5);
+  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh + 72, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { maxZoom: 15.5, duration: 600 });
+}
 export function showLine(map, id, fly = true) {
   const d = S.cur, l = d?.lines.find(x => x.id === id); if (!l) return;
   const lang = getLang(); S.sel = id; draw(map);
-  const bb = lineBounds(l, d); if (fly && bb) map.fitBounds(bb, { padding: { top: 80, bottom: Math.round(innerHeight * 0.5), left: 30, right: 30 }, maxZoom: 15, duration: 600 });
+  const bb = lineBounds(l, d);
   const alt = tAlt(l, lang), row = (k, v) => v ? `<div class="irow"><div class="iv"><label>${esc(t(k))}</label><div class="val" dir="auto">${esc(v)}</div></div></div>` : '';
   const stops = (l.stops || []).map((i, n) => { const s = d.stops[i]; return `<button class="irow click tr-stop" data-s="${i}"><span class="tr-dot">${n + 1}</span><div class="iv"><div class="val" dir="auto">${esc(tName(s, lang) || t('trUnnamed'))}</div>${tAlt(s, lang) ? `<label dir="auto">${esc(tAlt(s, lang))}</label>` : ''}</div></button>`; }).join('');
   const html = `<div class="phead"><div style="display:flex;gap:10px;align-items:flex-start">${refBadge(l)}<div><h2 class="ptitle" dir="auto">${esc(lineLabel(l, lang))}</h2>
@@ -123,7 +130,9 @@ export function showLine(map, id, fly = true) {
     <div class="dlabel">${esc(t('trStops')).toUpperCase()} · ${(l.stops || []).length}</div>
     <div class="igroup">${stops || `<p class="tr-empty">${esc(t('trNoStops'))}</p>`}</div>
     ${srcNote()}<div style="height:16px"></div>`;
-  const body = openSheet(html, 'half', null); App.sheetKind = 'transit';
+  const body = openSheet(html, 'half', trSheetClosed); App.sheetKind = 'transit';
+  document.body.classList.add('tr-line-open'); // hides the "Show lines" pill so it can't cover the highlighted path
+  if (fly && bb) setTimeout(() => fitLine(map, bb), 380); // after the sheet settled at half height
   body.querySelector('#trBack').onclick = () => { S.sel = null; draw(map); closeSheet(); };
   body.querySelector('#trAll').onclick = () => { S.sel = null; draw(map); renderList(map); };
   body.onclick = e => { const s = e.target.closest('[data-s]'); if (s) showStop(map, +s.dataset.s); };
