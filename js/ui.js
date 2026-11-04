@@ -103,7 +103,7 @@ function showAbout() {
   openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
   <div class="prow">${ic('info')}<div class="pv wiki">${t('aboutText')}</div></div>
   <div class="prow">${ic('map')}<div class="pv"><b>${t('sources')}</b><small>
-  ${t('cMapData')} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('cOsm')}</a> (ODbL)<br>${t('cPlaces', { g: '<a href="https://download.geofabrik.de/asia/syria.html" target="_blank" rel="noopener">Geofabrik</a>', d: '<bdi>2026-10-31</bdi>' })} (ODbL)<br>
+  ${t('cMapData')} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('cOsm')}</a> (ODbL)<br>${t('cPlaces', { g: '<a href="https://download.geofabrik.de/asia/syria.html" target="_blank" rel="noopener">Geofabrik</a>', d: '<bdi>2026-10-31</bdi>' })} (ODbL)<br>${t('cPlacesWorld')} (ODbL)<br>
   ${t('cTiles')}: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank" rel="noopener">© OpenMapTiles</a><br>
   ${t('cRenderer')}: <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3) · RTL: mapbox-gl-rtl-text (BSD-2)<br>
   ${t('cSearch')}: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon by komoot</a> · <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a> (OSMF)<br>

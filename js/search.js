@@ -7,7 +7,7 @@ import { App, center, refPoint, catIcon, catLabel, pickName, openSheet, clearMar
 import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
-import { photonSearch, rank, dedupe, inSyria, combobox, SY_BBOX } from './suggest.js';
+import { photonSearch, rank, dedupe, inSyria, combobox, biasBox } from './suggest.js';
 import { loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
@@ -32,16 +32,18 @@ export const CATS = [
 export function renderChips() {
   $('#chips').innerHTML = CATS.map(([k, icn, col]) => `<button class="chip" data-cat="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('');
 }
+function viewBox() { const b = App.map.getBounds(); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
 // ---------- normalisation ----------
 function fromPhoton(f) {
   const p = f.properties, [lon, lat] = f.geometry.coordinates;
   const tags = { name: p.name, [p.osm_key]: p.osm_value };
+  if (!p.name && p.brand) tags.brand = p.brand;
   const sub = [p.street && (p.street + (p.housenumber ? ' ' + p.housenumber : '')), p.district, p.city || p.town || p.village, p.state, p.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i && v !== p.name).join(', ');
   return { id: (p.osm_type || 'N') + p.osm_id, osm_type: { N: 'node', W: 'way', R: 'relation' }[p.osm_type] || 'node', osm_id: p.osm_id, name: p.name || sub, sub, lon, lat, tags, extent: p.extent, cc: p.countrycode, placeHit: !!p.placeHit };
 }
 function fromNominatim(r) {
   const tags = Object.assign({}, r.extratags || {}, r.namedetails || {}, { [r.category || r.class]: r.type });
-  const name = r.name || (r.display_name || '').split(',')[0];
+  const name = r.name || tags.brand || (r.display_name || '').split(',')[0];
   const sub = (r.display_name || '').split(',').slice(1, 4).join(',').trim();
   const at = r.addresstype;
   if (!tags.place && ['city', 'town', 'village'].includes(at) && (r.category === 'boundary' || r.category === 'place')) tags.place = at;
@@ -79,20 +81,20 @@ export function initSearch() {
   };
   const doPhoton = async (text) => {
     const my = ++seq;
-    const c = center(), z = App.map.getZoom();
+    const c = center(), z = App.map.getZoom(), view = viewBox(), bbox = biasBox(c, view);
     const lang = getLang() === 'de' ? 'de' : getLang() === 'en' ? 'en' : 'default';
     photonCtl?.abort(); photonCtl = new AbortController();
     let res = []; $('#searchProg').classList.remove('hidden');
     const local = localMatches(text);
     const lp = poiLocal(text);
     try {
-      res = (await photonSearch(text, { lang, center: c, zoom: z, limit: 8, signal: photonCtl.signal })).map(fromPhoton);
+      res = (await photonSearch(text, { lang, center: c, zoom: z, view, limit: 8, signal: photonCtl.signal })).map(fromPhoton);
     } catch (e) { if (e.name === 'AbortError') return; }
     if (my !== seq) return;
     $('#searchProg').classList.add('hidden');
-    // Syria first: matching cities/towns/villages before saved places and POIs (QA: "Homs" → Homs city),
-    // then the rest by country (SY, others, SA/JO/TR last)
-    let { settlements, rest } = rank(res, text);
+    // Matching cities/towns/villages first (near the view first; QA: "Homs" → Homs city), then saved places and
+    // POIs, then the rest – nearby before the rest of the world
+    let { settlements, rest } = rank(res, text, bbox);
     if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
     const top = [...settlements, ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
     const seen = new Set();
@@ -171,24 +173,24 @@ export async function fullSearch(text) {
   const coord = parseCoords(text) || plusDecode(text);
   if (coord) return choose({ id: 'c', name: text, lon: coord[0], lat: coord[1], coord: true });
   const box = $('#suggest'); box.innerHTML = `<div class="srow muted">${t('searching')}</div>`; box.classList.remove('hidden');
-  const b = App.map.getBounds(), c = center();
-  // bias (not bound) to the view if it is in Syria, otherwise to Syria
-  const vb = (!inSyria(c[0], c[1]) ? [SY_BBOX[0], SY_BBOX[3], SY_BBOX[2], SY_BBOX[1]] : [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()]).map(v => (+v).toFixed(4)).join(',');
+  const b = App.map.getBounds(), c = center(), view = viewBox(), bbox = biasBox(c, view);
+  // bias (never bound: no bounded/countrycodes) to the current map view, worldwide
+  const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => (+v).toFixed(4)).join(',');
   let res = [];
   if (navigator.onLine) try {
     const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=1&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
-    // Nominatim's viewbox is only a bias: if it found (almost) nothing in Syria, add Photon's Syria-bbox hits
-    if (res.filter(r => (r.cc || '').toLowerCase() === 'sy').length < 3) try { res = res.concat((await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 8 })).map(fromPhoton)); } catch {}
+    // Nominatim's viewbox is only a bias: if it found (almost) nothing near the view, add Photon's nearby hits
+    if (res.filter(r => r.lon >= bbox[0] && r.lon <= bbox[2] && r.lat >= bbox[1] && r.lat <= bbox[3]).length < 3) try { res = res.concat((await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view, limit: 8 })).map(fromPhoton)); } catch {}
   } catch {
-    try { res = (await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), limit: 12 })).map(fromPhoton); } catch {}
+    try { res = (await photonSearch(text, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view, limit: 12 })).map(fromPhoton); } catch {}
   }
   box.innerHTML = ''; box.classList.add('hidden'); document.body.classList.remove('sugg-open');
   try { await loadPois(); } catch {}
   const lr = searchLocal(text, refPoint(), 30);
   if (lr.chip && !lr.items.length) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
   const loc = lr.items.map(poiRow);
-  const rk = rank(res, text);
+  const rk = rank(res, text, bbox);
   res = dedupe([...rk.settlements, ...loc, ...rk.rest.filter(r => !loc.some(l => l.id === r.id))]);
   track('search', { kind: 'full', n: res.length });
   if (!res.length) { toast(t('noResults')); return; }
@@ -238,7 +240,7 @@ export function showFilterSheet(fit = false) {
   const title = cats.map(k => t(k)).join(' · ');
   const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
     [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
-  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
   const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`
     : `<div class="sec"><p class="psub">${t(f.openNow ? 'noOpenNow' : 'noResults')}</p></div>`;
   const body = openSheet(`<div class="sec fhead"><div class="fhrow"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><button class="act" id="fClear">${t('clear')}</button></div><p class="psub">${esc(countTxt)}</p></div>${chipsHtml}${list}<div class="sec"><button class="act" id="fLive">${ic('search')}<span>${t('liveSearch')}</span></button><p class="psub small">${esc(t('poiData', { d: P.meta?.date || '' }))}</p></div>`, fit ? 'half' : (sheetStateSafe() || 'half'),
@@ -294,7 +296,7 @@ export async function searchCategoryLive(key) {
       const addr = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
       return { id: el.type[0].toUpperCase() + el.id, osm_type: el.type, osm_id: el.id, name: nm, sub: [catLabel(tags), addr].filter(Boolean).join(' · '), lon, lat, tags, full: true, status: ohStatus(tags.opening_hours), d: haversine(ref, [lon, lat]) };
     }).filter(r => r.lon != null);
-    res.sort((a, b) => (b.tags.name ? 1 : 0) - (a.tags.name ? 1 : 0) || a.d - b.d);
+    res.sort((a, b) => (b.tags.name || b.tags.brand ? 1 : 0) - (a.tags.name || a.tags.brand ? 1 : 0) || a.d - b.d);
     res = res.slice(0, 100).sort((a, b) => a.d - b.d);
     if (!res.length) { openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('noResults')}</p></div>`, 'peek'); return; }
     showResultList(res, t(key) + ' · OSM live', false);
