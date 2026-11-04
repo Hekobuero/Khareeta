@@ -439,3 +439,16 @@ button,a,[role=button],summary{touch-action:manipulation}
 .igroup .val a{display:inline-flex;align-items:center;min-height:44px;margin-block:-10px;max-width:100%}
 .hours-tz-short{color:var(--k-text-2);font-size:var(--k-text-sub)}
 .irow .val small.hours-tz-short{display:inline}
+/* ---- place photos (Wikimedia Commons): fixed 4:3 boxes, attribution under each photo ---- */
+.pphotos{display:flex;gap:var(--k-space-2);overflow-x:auto;padding:4px var(--k-gutter) 4px;scrollbar-width:none;scroll-snap-type:x mandatory;scroll-padding-inline:var(--k-gutter);touch-action:pan-x}
+.pphotos::-webkit-scrollbar{display:none}
+.pphotos .ph{margin:0;flex:none;width:min(240px,calc(100vw - 2 * var(--k-gutter)));scroll-snap-align:start}
+.pphotos .ph:only-child{width:100%}
+.pphotos .ph-box{display:block;position:relative;aspect-ratio:4/3;width:100%;border-radius:12px;overflow:hidden;background:var(--k-surface-2);min-height:44px}
+.pphotos .ph-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.pphotos .skel-box{background:linear-gradient(90deg,var(--k-surface-2),var(--k-surface-3),var(--k-surface-2));background-size:200% 100%;animation:sk 1.2s infinite}
+.pphotos .ph-empty .ph-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--k-text-3);font-size:var(--k-text-sub);text-align:center;padding:12px}
+.pphotos .ph-cap{font-size:var(--k-text-caption);line-height:1.35;color:var(--k-text-3);overflow-wrap:anywhere}
+.pphotos .ph-cap a{display:inline-flex;align-items:center;min-height:var(--k-tap);color:var(--k-accent);font-weight:500}
+.pphotos .ph-cap .skel{display:block;height:12px;margin:16px 0}
+@media (prefers-reduced-motion: reduce){.pphotos .skel-box{animation:none}}

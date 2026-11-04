@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1321';
+const VERSION = '20261104-1339';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -30,6 +30,7 @@ const SHELL_FILES = [
   'js/mapstyle.js',
   'js/offline.js',
   'js/place.js',
+  'js/photos.js',
   'js/poi.js',
   'js/route.js',
   'js/search.js',
@@ -214,12 +215,34 @@ async function warm(urls) {
   }
 }
 
+// ----- place photos (Wikimedia Commons): bounded runtime cache, shared across versions -----
+// Thumbnails (upload/thumb.wikimedia.org, CORS) cache-first; Commons/Wikidata API JSON network-first with cache fallback.
+// Only non-opaque 200 responses are stored; oldest entries are dropped beyond the limits.
+const PHOTOS = 'kh-photos', MAX_PHOTO_IMG = 60, MAX_PHOTO_API = 120;
+const isPhotoImg = u => /^https:\/\/(upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//.test(u);
+const isPhotoApi = u => /^https:\/\/(commons\.wikimedia\.org\/w\/api\.php\?action=query&(titles|generator=categorymembers)|www\.wikidata\.org\/w\/api\.php\?action=wbgetclaims&)/.test(u);
+async function photoTrim(c, isImg, max) {
+  const ks = (await c.keys()).filter(k => isImg(k.url));
+  for (const k of ks.slice(0, Math.max(0, ks.length - max))) await c.delete(k);
+}
+async function photoFetch(req, e) {
+  const c = await caches.open(PHOTOS), img = isPhotoImg(req.url);
+  if (img) { const hit = await c.match(req.url); if (hit) return hit; }
+  try {
+    const r = await (img ? fetch(req) : Promise.race([fetch(req), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]));
+    // Clone synchronously, before the page gets r and consumes its body (a later r.clone() throws "body used").
+    if (r.ok && r.status === 200 && r.type !== 'opaque') { const cl = r.clone(); e.waitUntil(c.delete(req.url).then(() => c.put(req.url, cl)).then(() => photoTrim(c, img ? isPhotoImg : isPhotoApi, img ? MAX_PHOTO_IMG : MAX_PHOTO_API)).catch(() => {})); }
+    return r;
+  } catch (err) { const hit = await c.match(req.url); if (hit) return hit; throw err; }
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const u = req.url;
   if (isTile(u)) return e.respondWith(tileFetch(req));
   if (isStatic(u)) return e.respondWith(cacheFirst(req, RT));
   if (isStyle(u)) return e.respondWith(networkFirst(req, RT, 6000));
+  if (isPhotoImg(u) || isPhotoApi(u)) return e.respondWith(photoFetch(req, e));
   const url = new URL(u);
   if (url.origin === location.origin) {
     // SEO / sharing files: always straight from the network, never cached by the SW (no offline fallback to index.html)
