@@ -132,11 +132,15 @@ jobs:
           cache-dependency-path: tests/voice/package-lock.json
       - run: npm ci
       - name: Install WebKit + Chromium (+ system deps)
-        timeout-minutes: 15
+        timeout-minutes: 20
+        # A stalled attempt killed by `timeout` can leave its apt-get child holding the dpkg lock, so every retry
+        # then failed with "Could not get lock". apt now waits for the lock, and leftovers are killed before a retry.
         run: |
+          echo 'DPkg::Lock::Timeout "180";' | sudo tee /etc/apt/apt.conf.d/99kh-lock >/dev/null
           for i in 1 2 3; do
-            timeout 300 npx playwright install --with-deps webkit chromium && exit 0
+            timeout 420 npx playwright install --with-deps webkit chromium && exit 0
             echo "::warning::playwright webkit install attempt $i failed/stalled, retrying"
+            sudo pkill -f 'apt-get' 2>/dev/null || true; sleep 3; sudo dpkg --configure -a || true
             rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
           done
           exit 1
@@ -216,6 +220,17 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/report/*.test.mjs'
+
+  admin-tests:
+    # Pure Node: nav-stats migration SQL expectations + admin.html nav rendering with mocked old/new payloads (no network).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/admin/*.test.mjs'
 
   version:
     runs-on: ubuntu-latest
