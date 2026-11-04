@@ -4,6 +4,7 @@ import { poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
+import { ovCatLabel, OV_ATTR_URL } from './overture-data.js';
 import { App, openSheet, setSheet, closeSheet, setSelMarker, pickName, catLabel, catIcon, refPoint, sheetState, mapPadding, fitTo } from './core.js';
 import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
@@ -49,7 +50,7 @@ export function toggleSave(item, kind = 'fav') {
   if (kind !== 'fav') list = list.filter(s => s.kind !== kind);
   const ex = list.find(s => s.id === item.id && s.kind === kind);
   if (ex && kind === 'fav') list = list.filter(s => s !== ex);
-  else list.unshift({ id: item.id, osm_type: item.osm_type, osm_id: item.osm_id, name: item.name, sub: item.sub, lon: item.lon, lat: item.lat, tags: slimTags(item.tags), kind, coord: item.coord });
+  else list.unshift({ id: item.id, osm_type: item.osm_type, osm_id: item.osm_id, name: item.name, sub: item.sub, lon: item.lon, lat: item.lat, tags: slimTags(item.tags), kind, coord: item.coord, ov: item.ov, ovCat: item.ovCat, full: item.full });
   lsSet('kh.saved', list);
   return !ex;
 }
@@ -135,7 +136,7 @@ function render(item, tg, loading) {
   const nm = pickName(tg);
   const title = nm.primary || item.name || t('whatsHere');
   const second = nm.secondary && nm.secondary !== title ? nm.secondary : '';
-  const cat = item.coord ? t('droppedPin') : catLabel(tg);
+  const cat = item.coord ? t('droppedPin') : item.ov ? ovCatLabel(item.ovCat, getLang()) : catLabel(tg);
   const st = ohStatus(tg.opening_hours);
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
   const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
@@ -160,7 +161,8 @@ function render(item, tg, loading) {
   rows.push(irow(t('coordinates'), `<span dir="ltr">${esc(plusEncode(item.lat, item.lon))}</span><small dir="ltr">${fmtCoord(item.lat, item.lon)}</small>`, `<button class="ib" id="pCopy" aria-label="${t('copy')}">${ic('copy', 'sm')}</button>`, 'click'));
   const osmEdit = item.osm_type && item.osm_id ? `https://www.openstreetmap.org/edit?${item.osm_type}=${item.osm_id}` : `https://www.openstreetmap.org/note/new#map=19/${item.lat}/${item.lon}`;
   const osmView = item.osm_type && item.osm_id ? `https://www.openstreetmap.org/${item.osm_type}/${item.osm_id}` : `https://www.openstreetmap.org/#map=18/${item.lat}/${item.lon}`;
-  rows.push(irow(t('suggestEdit'), `<a href="${osmEdit}" target="_blank" rel="noopener">${t('editOsm')}</a> · <a href="${osmView}" target="_blank" rel="noopener">${t('osmLink')}</a>`));
+  if (item.ov) rows.push(irow(t('ovSourceLbl'), `<span class="tag ov-tag">${esc(t('ovUnverified'))}</span> <a href="${OV_ATTR_URL}" target="_blank" rel="noopener">Overture Maps Foundation</a><small>${esc(t('ovHint'))} <a href="${osmEdit}" target="_blank" rel="noopener">${t('ovAddOsm')}</a></small>`));
+  else rows.push(irow(t('suggestEdit'), `<a href="${osmEdit}" target="_blank" rel="noopener">${t('editOsm')}</a> · <a href="${osmView}" target="_blank" rel="noopener">${t('osmLink')}</a>`));
   // facts as tags
   const facts = [];
   if (tg.cuisine) facts.push([ic('cuisine', 'xs'), tg.cuisine.split(';').map(s => s.replace(/_/g, ' ')).join(', ')]);
@@ -197,6 +199,7 @@ function render(item, tg, loading) {
     <h2 class="ptitle" dir="auto">${esc(title)}</h2>
     ${second ? `<p class="psub" dir="auto">${esc(second)}</p>` : ''}
     <p class="psub">${[cat, loc && `<bdi>${esc(loc)}</bdi>`, d].filter(Boolean).map((x, i) => i === 1 ? x : esc(x)).join(' · ')}</p>
+    ${item.ov ? `<p class="psub ov-src"><span class="tag ov-tag">${esc(t('ovUnverified'))}</span> ${esc(t('ovSrcShort'))}</p>` : ''}
     ${statusHtml}
   </div><button class="pclose" id="pClose" aria-label="${t('close')}">${ic('close')}</button></div>
   ${loading && !item.coord ? '<div style="padding:0 16px"><div class="skel" style="width:40%"></div></div>' : ''}
@@ -254,7 +257,7 @@ async function extras(item, tg, my, phase) {
     jobs.push(nearby(item).then(n => ex.nearby = n).catch(() => {}));
     if (!settings.lowData) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
   } else if (!settings.lowData) {
-    jobs.push(photos(item, tg).then(p => ex.photos = p).catch(() => ex.photos = []));
+    if (!item.ov) jobs.push(photos(item, tg).then(p => ex.photos = p).catch(() => ex.photos = []));
     jobs.push(wiki(tg).then(w => ex.wiki = w).catch(() => {}));
   }
   for (const j of jobs) j.then(() => { if (my === token && cur === item) applyExtras(ex); });

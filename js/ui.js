@@ -9,7 +9,7 @@ import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
-export const hooks = { restyle: null, relabel: null, rerenderUI: null, set3d: null };
+export const hooks = { overture: null, restyle: null, relabel: null, rerenderUI: null, set3d: null };
 
 // ---------- brand lockup (light/dark variant switched in CSS via the theme tokens) ----------
 const brandLogo = cls => `<span class="klogo ${cls}" role="img" aria-label="Khareeta · خريطة"><img class="klogo-l" src="icons/logo-lockup.svg" alt="" width="964" height="208" decoding="async"><img class="klogo-d" src="icons/logo-lockup-dark.svg" alt="" width="964" height="208" decoding="async"></span>`;
@@ -103,7 +103,7 @@ function showAbout() {
   openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
   <div class="prow">${ic('info')}<div class="pv wiki">${t('aboutText')}</div></div>
   <div class="prow">${ic('map')}<div class="pv"><b>${t('sources')}</b><small>
-  ${t('cMapData')} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('cOsm')}</a> (ODbL)<br>${t('cPlaces', { g: '<a href="https://download.geofabrik.de/asia/syria.html" target="_blank" rel="noopener">Geofabrik</a>', d: '<bdi>2026-10-31</bdi>' })} (ODbL)<br>
+  ${t('cMapData')} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('cOsm')}</a> (ODbL)<br>${t('cPlaces', { g: '<a href="https://download.geofabrik.de/asia/syria.html" target="_blank" rel="noopener">Geofabrik</a>', d: '<bdi>2026-10-31</bdi>' })} (ODbL)<br>${t('cOverture')}: <a href="https://overturemaps.org" target="_blank" rel="noopener">© Overture Maps Foundation</a> (<a href="https://cdla.dev/permissive-2-0/" target="_blank" rel="noopener">CDLA-Permissive-2.0</a>) · <a href="./data/overture/LICENSE.txt" target="_blank" rel="noopener">${t('ovLicense')}</a><br>
   ${t('cTiles')}: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>, <a href="https://openmaptiles.org" target="_blank" rel="noopener">© OpenMapTiles</a><br>
   ${t('cRenderer')}: <a href="https://maplibre.org" target="_blank" rel="noopener">MapLibre GL JS</a> (BSD-3) · RTL: mapbox-gl-rtl-text (BSD-2)<br>
   ${t('cSearch')}: <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon by komoot</a> · <a href="https://nominatim.org" target="_blank" rel="noopener">Nominatim</a> (OSMF)<br>
@@ -135,6 +135,7 @@ function renderLayers() {
    <button class="lrow" data-t="hillshade">${t('hillshade')}${sw(settings.hillshade)}</button>
    <button class="lrow" data-t="terrain3d">${t('terrain3d')}${sw(settings.terrain3d)}</button>
    <button class="lrow" data-t="bilingual">${t('bilingual')}${sw(settings.bilingual !== false)}</button>
+   <button class="lrow" data-t="overture"><span class="lrow-t">${t('ovLayer')}<small>${t('ovLayerSub')}</small></span>${sw(settings.overture !== false)}</button>
    </div>`;
   p.onclick = e => {
     if (e.target.closest('#lClose')) { p.classList.add('hidden'); $('#scrim').classList.add('hidden'); return; }
@@ -144,6 +145,7 @@ function renderLayers() {
     if (s) { settings.style = s.dataset.s; track('layer', { style: settings.style }); }
     else if (tg) {
       const k = tg.dataset.t;
+      if (k === 'overture') { settings.overture = settings.overture === false; saveSettings(); hooks.overture?.(); renderLayers(); return; }
       if (k === 'bilingual') { settings.bilingual = settings.bilingual === false; saveSettings(); hooks.relabel(); renderLayers(); return; }
       settings[k] = !settings[k];
       if (k === 'b3dOn') { saveSettings(); hooks.set3d(settings.b3dOn); renderLayers(); return; }

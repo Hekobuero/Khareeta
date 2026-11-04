@@ -437,3 +437,17 @@ button,a,[role=button],summary{touch-action:manipulation}
 .pnote{margin:0 var(--k-gutter) 8px;font-size:var(--k-text-sub)}
 /* place sheet: inline links (phone, website, e-mail, OSM) get a ≥44px tap height */
 .igroup .val a{display:inline-flex;align-items:center;min-height:44px;margin-block:-10px;max-width:100%}
+
+/* Overture shops layer (unverified): attribution line while shown, toggle subtitle, sheet badge */
+.kattr-ov{padding:0 0 4px;padding-inline-end:6px;color:var(--k-text-2)}
+.kattr-ov a{display:inline-block;min-height:20px}
+.lrow-t{display:flex;flex-direction:column;align-items:flex-start;text-align:start;gap:1px}
+.lrow-t small{font-size:var(--k-text-micro,11px);color:var(--k-text-3)}
+.tag.ov-tag{background:var(--k-warn-bg,#FFF4E0);color:var(--k-warn,#8A5300);font-weight:600}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]):not(.light) .tag.ov-tag{background:#3A2E1A;color:#F5C26B}}
+:root[data-theme="dark"] .tag.ov-tag,:root.dark .tag.ov-tag{background:#3A2E1A;color:#F5C26B}
+.kattr-ovn{white-space:nowrap;margin-inline-start:-2px}
+.kattr-ovn a{position:relative}.kattr-ovn a::before{content:"";position:absolute;inset:-10px 0}
+.kattr.ov{max-width:min(360px,calc(100vw - 96px))}
+.kattr-ov{display:flex;align-items:center;gap:2px;min-height:24px}
+.psub.ov-src{display:flex;align-items:center;gap:6px;margin-top:4px}
