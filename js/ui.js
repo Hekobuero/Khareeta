@@ -7,6 +7,7 @@ import { getTheme, setTheme } from './mapstyle.js';
 import { openOfflinePanel } from './offline.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
+import { openReport } from './report.js';
 import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
 export const hooks = { overture: null, restyle: null, relabel: null, rerenderUI: null, set3d: null };
@@ -41,6 +42,7 @@ export function openDrawer() {
     <div class="dgroup">
       <button class="ditem" data-a="saved">${ic('bookmark')}${t('savedPlaces')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="offline">${ic('download')}${t('offlineMaps')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
+      <button class="ditem" data-a="report">${ic('plus')}${t('rpMissingMenu')}</button>
       <button class="ditem" data-a="measure">${ic('ruler')}${t('measure')}</button>
       <button class="ditem" data-a="install" id="dInstall">${ic('download')}${t('install')}</button>
       <button class="ditem" data-a="lowData">${ic('data')}${t('lowData')}${sw(settings.lowData)}</button>
@@ -80,6 +82,7 @@ export function initDrawer() {
     if (a === 'saved') showSaved();
     if (a === 'offline') openOfflinePanel();
     if (a === 'measure') startMeasure();
+    if (a === 'report') { closeDrawer(); openReport(null, 'missing'); return; }
     if (a === 'about') showAbout();
     if (a === 'install') install();
   });

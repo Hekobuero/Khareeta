@@ -11,6 +11,7 @@ import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
+import { openReport } from './report.js';
 import { photoSources, loadPhotos, photoTags } from './photos.js';
 // Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
 const PHK = 'kh.phtags', PH_MAX = 200;
@@ -251,6 +252,7 @@ function render(item, tg, loading) {
   <div class="igroup">${rows.join('')}</div>
   ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic('flag')}<span>${esc(t('ovReport'))}</span></button>
     <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
+  <div class="rp-open"><button class="abtn" id="pReport">${ic(item.coord ? 'plus' : 'flag')}<span>${esc(t(item.coord ? 'rpAddHere' : 'rpOpen'))}</span></button></div>
   <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
   <div id="pPano"></div>
   <div id="pNearby"></div>
@@ -264,6 +266,7 @@ function render(item, tg, loading) {
   const body = openSheet(html, keep === 'full' || keep === 'half' ? keep : 'half', onPlaceClose);
   const it = { ...item, name: title };
   body.querySelector('#pClose').onclick = () => closeSheet();
+  body.querySelector('#pReport').onclick = () => openReport(item.coord ? item : { ...item, name: title }, item.coord ? 'missing' : 'wrong');
   body.querySelector('#pDir').onclick = () => openDirections({ to: it });
   body.querySelector('#pStart')?.addEventListener('click', () => openDirections({ to: it, autostart: true }));
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };

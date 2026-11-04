@@ -1,4 +1,4 @@
-# PR checks: voice tests, place-info + photos unit tests, lang tests, world (names/worldwide) tests, iOS voice, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+# PR checks: voice tests, report tests, place-info + photos unit tests, lang tests, world (names/worldwide) tests, iOS voice, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
 name: pr-checks
 on:
   pull_request:
@@ -182,6 +182,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/photos/*.test.mjs'
+
+  report-tests:
+    # Pure Node unit tests for in-app reports (js/report-core.js + analytics.sendNow): link allowlist, lookalike/Cyrillic
+    # blocking, local rate limit, payload size, i18n EN/AR/DE. fetch is mocked – nothing is sent to Supabase.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/report/*.test.mjs'
 
   version:
     runs-on: ubuntu-latest
