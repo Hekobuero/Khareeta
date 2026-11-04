@@ -1,4 +1,4 @@
-# PR checks: voice tests, lang tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+# PR checks: voice tests, place-info unit tests, lang tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
 name: pr-checks
 on:
   pull_request:
@@ -73,6 +73,21 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/lang/*.test.mjs'
+
+  placeinfo-tests:
+    # Pure Node unit tests (no npm deps): opening_hours parser, phone/website/social link builders.
+    # Run in several device time zones – results must be identical (times are always Asia/Damascus).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: |
+          for tz in UTC America/Los_Angeles Asia/Damascus Pacific/Kiritimati; do
+            echo "TZ=$tz"; TZ=$tz node --test 'tests/placeinfo/*.test.mjs' || exit 1
+          done
 
   version:
     runs-on: ubuntu-latest
