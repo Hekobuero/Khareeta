@@ -95,3 +95,15 @@ test('city buttons use UI-language names (EN/AR/DE)', async () => {
   for (const [k, v] of [['trC_damascus', 'Damascus'], ['trC_damascus', 'دمشق'], ['trC_damascus', 'Damaskus'], ['trC_aleppo', 'Aleppo'], ['trC_aleppo', 'حلب']]) assert.ok(src.includes(`${k}: "${v}"`), k + v);
   assert.match(read('js/transit.js'), /const k = 'trC_' \+ c, v = t\(k\)/);
 });
+
+test('P3: Arabic stop plurals via Intl.PluralRules; list sheet hides the pill; desktop fitLine symmetric', () => {
+  const i18n = read('js/i18n.js'), tr = read('js/transit.js');
+  const ar = i18n.split('\n').find(l => l.includes('trC_aleppo: "حلب"'));
+  const form = (n, lang, line) => { const c = new Intl.PluralRules(lang).select(n); const m = line.match(new RegExp(`trStopsN_${c}: "([^"]+)"`)) || line.match(/trStopsN_other: "([^"]+)"/); return m[1].replace('{n}', n); };
+  assert.equal(form(13, 'ar', ar), '13 موقفًا'); assert.equal(form(1, 'ar', ar), 'موقف واحد'); assert.equal(form(2, 'ar', ar), 'موقفان');
+  assert.equal(form(5, 'ar', ar), '5 مواقف'); assert.equal(form(100, 'ar', ar), '100 موقف');
+  const de = i18n.split('\n').find(l => l.includes('trOpenList: "Linien zeigen"')); assert.equal(form(1, 'de', de), '1 Haltestelle'); assert.equal(form(7, 'de', de), '7 Haltestellen');
+  assert.match(tr, /new Intl\.PluralRules\(lang\)/); assert.doesNotMatch(tr, /\$\{l\.stops\.length\} \$\{t\('trStops'\)\}/);
+  assert.match(tr, /openSheet\(html, 'half', trSheetClosed\);\n\s*document\.body\.classList\.add\('tr-line-open'\)/);
+  assert.match(tr, /if \(desktop\(\)\) \{ const c = map\.getPadding\(\), e = 60; fitTo\(bb, \{ top: c\.top \+ e, bottom: c\.bottom \+ e, left: c\.left \+ e, right: c\.right \+ e \}/);
+});

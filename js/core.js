@@ -10,7 +10,7 @@ export const App = { map: null, me: null, heading: null, mode: 'browse', markers
 // ---------- bottom sheet (DESIGN §4.2: JS detents, velocity, spring) ----------
 const sheet = () => $('#sheet');
 let sheetCloseCb = null, curY = null, anim = 0;
-const desktop = () => innerWidth >= 900;
+export const desktop = () => innerWidth >= 900;
 const safeB = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--k-safe-bottom')) || 0;
 function detentPx(state) {
   const vh = innerHeight, H = sheet().offsetHeight || vh;
