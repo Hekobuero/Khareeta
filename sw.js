@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-1947';
+const VERSION = '20261104-2008';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -29,6 +29,7 @@ const SHELL_FILES = [
   'js/map-i18n.js',
   'js/mapstyle.js',
   'js/offline.js',
+  'js/cities.js',
   'js/place.js',
   'js/photos.js',
   'js/poi.js',
@@ -106,6 +107,8 @@ const isTile = u => /tiles\.openfreemap\.org\/(planet|natural_earth)\//.test(u) 
 const isStatic = u => /tiles\.openfreemap\.org\/(fonts|sprites)\//.test(u);
 const isStyle = u => /tiles\.openfreemap\.org\/(styles\/|planet$)/.test(u) || /tiles\.mapterhorn\.com\/tilejson/.test(u);
 
+const isCityDl = u => /[?&]kh-city=1(&|$)/.test(u);
+const unmarkCity = u => u.replace(/([?&])kh-city=1(&|$)/, (m, a, b) => (b ? a : '')).replace(/[?&]$/, '');
 let puts = 0;
 async function trim() {
   const c = await caches.open(TILES); const ks = await c.keys();
@@ -113,7 +116,10 @@ async function trim() {
 }
 async function tileFetch(req) {
   const key = tileKey(req.url);
-  const hit = (await caches.match(key, { cacheName: OFFLINE })) || (await caches.match(key, { cacheName: TILES }));
+  let hit = await caches.match(key, { cacheName: OFFLINE });
+  // whole-city packs (js/cities.js): one cache per city, kh-city-<id>, never trimmed – checked before the LRU-ish tile cache
+  if (!hit) for (const k of await caches.keys()) if (k.startsWith('kh-city-') && (hit = await caches.match(key, { cacheName: k }))) break;
+  if (!hit) hit = await caches.match(key, { cacheName: TILES });
   const fresh = hit && Date.now() - (+hit.headers.get('x-kh-date') || 0) < MAX_AGE;
   if (hit && (fresh || !navigator.onLine)) return hit;
   try {
@@ -276,6 +282,9 @@ async function photoFetch(req, e) {
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const u = req.url;
+  // whole-city pack downloads (js/cities.js) carry the marker kh-city=1: straight to the network, marker stripped,
+  // nothing written to kh-tiles / kh-rt – the page stores them in kh-city-<id> itself (no duplicate, clean delete)
+  if (isCityDl(u)) return e.respondWith(fetch(unmarkCity(u), { mode: 'cors', credentials: 'omit' }));
   if (isTile(u)) return e.respondWith(tileFetch(req));
   if (isWorldPoi(u)) return e.respondWith(wpoiFetch(req));
   if (isStatic(u)) return e.respondWith(cacheFirst(req, RT));
