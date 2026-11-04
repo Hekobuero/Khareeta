@@ -12,11 +12,12 @@
 -- insert-only RLS policy still applies; ON CONFLICT DO NOTHING needs no SELECT right).
 
 -- Step 1 (may run in a transaction): remove existing duplicates, keep the oldest row per rid.
-delete from public.kh_events a
- using public.kh_events b
- where a.props->>'rid' is not null
-   and a.props->>'rid' = b.props->>'rid'
-   and a.id > b.id;
+delete from public.kh_events e
+ using (select id, row_number() over (partition by props->>'rid' order by id) as rn
+          from public.kh_events
+         where props->>'rid' is not null) d
+ where e.id = d.id
+   and d.rn > 1;
 
 -- Step 2: SEPARATE statement, OUTSIDE any transaction block (CREATE INDEX CONCURRENTLY cannot run inside one).
 -- If it fails it leaves an INVALID index: drop index concurrently kh_events_rid_uq; then repeat step 1 + 2.
@@ -29,7 +30,7 @@ create or replace function public.kh_report_insert(ev jsonb)
 returns void
 language sql
 security invoker
-set search_path = public
+set search_path = pg_catalog, public
 as $$
   insert into public.kh_events (client_ts, install_id, session_id, type, lang, device, os, standalone, app_version,
                                 country, city, geo_src, lat_r, lon_r, referrer, utm_source, props)

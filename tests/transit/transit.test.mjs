@@ -88,3 +88,10 @@ test('wiring: SW precaches + caches transit, i18n EN/AR/DE, layer off by default
   assert.doesNotMatch(src, /google|mapbox\.com|here\.com|bing|apple\.com|api[_-]?key/i);
   assert.ok(existsSync(new URL('CNAME', root)));
 });
+
+test('city buttons use UI-language names (EN/AR/DE)', async () => {
+  const { S } = await import('../../js/i18n.js').catch(() => ({}));
+  const src = read('js/i18n.js');
+  for (const [k, v] of [['trC_damascus', 'Damascus'], ['trC_damascus', 'دمشق'], ['trC_damascus', 'Damaskus'], ['trC_aleppo', 'Aleppo'], ['trC_aleppo', 'حلب']]) assert.ok(src.includes(`${k}: "${v}"`), k + v);
+  assert.match(read('js/transit.js'), /const k = 'trC_' \+ c, v = t\(k\)/);
+});

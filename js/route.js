@@ -443,7 +443,7 @@ function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id
 export function startNav(sim = false) {
   if (settings.voice !== false) unlockSpeech(); // must run synchronously inside the tap on "Go" (iOS Safari)
   const r = R.routes[R.sel]; if (!r) return;
-  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim || !('geolocation' in navigator); /* no geolocation: simulated below */ N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
   track('nav_start', { mode: R.mode, sim });
   $('#dirPanel').classList.add('hidden'); closeSheet();
   $('#navHud').classList.remove('hidden');

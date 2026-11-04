@@ -88,7 +88,8 @@ function listHtml(d) {
 }
 function renderList(map) {
   const d = S.cur, lang = getLang(), cities = Object.keys(S.index?.cities || {});
-  const cname = c => (lang === 'ar' ? S.index.cities[c].name_ar : S.index.cities[c].name);
+  // UI language names (EN/AR/DE) from i18n; the data file's name/name_ar only as a fallback for new cities
+  const cname = c => { const k = 'trC_' + c, v = t(k); return v !== k ? v : (lang === 'ar' ? S.index.cities[c].name_ar : S.index.cities[c].name); };
   const html = `<div class="phead"><div><h2 class="ptitle">${esc(t('trTitle'))}</h2>
     <p class="psub">${esc(t('trCount', { n: d.lines.length, s: d.stops.length }))}</p></div><button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
     <div class="seg tr-city" role="group" aria-label="${esc(t('trCity'))}">${cities.map(c => `<button data-c="${c}" class="${c === S.city ? 'on' : ''}" aria-pressed="${c === S.city}">${esc(cname(c))}</button>`).join('')}</div>
