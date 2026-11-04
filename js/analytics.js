@@ -167,6 +167,31 @@ export function track(type, props = {}) {
     return true; // queued for sending (delivery happens later in flush())
   } catch { return false; }
 }
+// Explicit user submission (in-app report): sent right away, NOT queued, so the UI can say "sent" only after Supabase
+// accepted the row (HTTP 2xx). Same table, same publishable insert-only key and same event shape as track().
+// Reports are an explicit action, so they are also sent when usage analytics is switched off – but then without the
+// install/session ids and coarse geo. Local/dev copies never send (tests intercept fetch themselves with kh.trackDev = 1).
+export const REPORT_DEV_BLOCKED = () => { try { return DEV_HOST && localStorage.getItem('kh.trackDev') !== '1'; } catch { return true; } };
+export async function sendNow(type, props, { fetchImpl = globalThis.fetch, timeout = 12000 } = {}) {
+  if (!ALLOWED.has(type)) return { ok: false, why: 'type' };
+  if (REPORT_DEV_BLOCKED()) return { ok: false, why: 'dev' };
+  if (navigator.onLine === false) return { ok: false, why: 'offline' };
+  const anon = OFF;
+  const ev = {
+    client_ts: new Date().toISOString(), install_id: anon ? 'anon' : installId, session_id: anon ? null : sessionId, type, lang: getLang(),
+    device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
+    country: anon ? null : geo.country || null, city: null, geo_src: anon ? null : geo.geo_src || null, lat_r: null, lon_r: null,
+    referrer: null, utm_source: null, props: { ...props },
+  };
+  const ac = typeof AbortController === 'function' ? new AbortController() : null;
+  const tm = ac && setTimeout(() => ac.abort(), timeout);
+  try {
+    const r = await fetchImpl(SB_URL + '/rest/v1/kh_events', { method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify([ev]), signal: ac?.signal });
+    try { r.text().catch(() => {}); } catch {}
+    return r.ok ? { ok: true } : { ok: false, why: 'http', status: r.status };
+  } catch { return { ok: false, why: 'network' }; }
+  finally { if (tm) clearTimeout(tm); }
+}
 let timer = null, sending = false, leaving = false;
 function schedule(ms = 8000) { if (!timer) timer = setTimeout(() => { timer = null; flush(); }, ms); }
 // Delivery is at-most-once: a batch is removed from the stored queue BEFORE it is sent (so a reload, the SW update
