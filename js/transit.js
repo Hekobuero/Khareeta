@@ -103,7 +103,7 @@ function renderList(map) {
   body.onclick = async e => {
     const c = e.target.closest('[data-c]');
     if (c && c.dataset.c !== S.city) {
-      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 30, duration: 500 }); renderList(map); } catch { toast(t('trLoadErr')); }
+      try { S.city = c.dataset.c; S.cur = await cityData(S.city); S.sel = null; draw(map); const b = S.index.cities[S.city].bbox; if (b) fitTo([[b[0], b[1]], [b[2], b[3]]], { top: 30, bottom: 30, left: 30, right: 30 }, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 500 }); renderList(map); } catch { toast(t('trLoadErr')); }
       return;
     }
     const li = e.target.closest('[data-l]'); if (li) showLine(map, +li.dataset.l);
@@ -111,10 +111,11 @@ function renderList(map) {
 }
 // Fit the selected line into the map area above the sheet. fitTo() subtracts the map's own (sheet) padding,
 // so these are total insets; left/right are symmetric, so LTR and RTL frame the same.
+export const TR_MIN_Z = 12; // a whole city / long line must not zoom out to ~z9 (Aleppo was 9.4)
 const trSheetClosed = () => document.body.classList.remove('tr-line-open');
 function fitLine(map, bb) {
   const sh = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || Math.round(innerHeight * 0.5);
-  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh + 72, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { maxZoom: 15.5, duration: 600 });
+  fitTo(bb, { top: (App.topPad ?? 120) + 16, bottom: sh + 72, left: 76, right: 76 } /* clears the FAB column on either side (LTR right, RTL left) */, { minZoom: TR_MIN_Z, maxZoom: 15.5, duration: 600 });
 }
 export function showLine(map, id, fly = true) {
   const d = S.cur, l = d?.lines.find(x => x.id === id); if (!l) return;

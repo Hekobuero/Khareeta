@@ -1,14 +1,15 @@
 // In-app report sheet: (a) missing place, (b) wrong data on an OSM/Overture place, (c) suggest a social link.
-// Everything is moderated – nothing a user sends is shown in the app. Sent via analytics.sendNow() (publishable,
+// Everything is moderated – nothing a user sends is shown in the app. Sent via analytics.submitReport() → sendNow() (publishable,
 // insert-only Supabase key); the "thank you" toast appears only after the server accepted the row.
 import { $, esc, toast, fmtCoord } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
-import { sendNow } from './analytics.js';
+import { submitReport, reportQuiet, reportQuietOff } from './analytics.js';
 import { REPORT_CATS, REPORT_FIELDS, LINK_KINDS, buildReport, rateCheck, rateNote } from './report-core.js';
 
 let busy = false;
+const quietOff = () => reportQuietOff();
 const placeOf = item => item && !item.coord && item.id ? { id: String(item.ovId || item.id), src: item.ov ? 'ov' : 'osm', name: item.name || '', lat: item.lat, lon: item.lon } : null;
 
 /** item: a place (OSM/Overture) or a dropped pin (item.coord); without item the map centre is used for "missing place". */
@@ -18,6 +19,7 @@ export function openReport(item, type) {
   let cur = types.includes(type) ? type : types[0];
   const pos = () => item ? { lat: item.lat, lon: item.lon } : (() => { const c = App.map?.getCenter?.(); return c ? { lat: c.lat, lon: c.lng } : {}; })();
   let p = pos();
+  reportQuiet(Infinity); // drop held place/point events and record none while the sheet is open (+60 s after)
   const draw = () => {
     const seg = types.length > 1 ? `<div class="seg rp-seg" role="tablist">${types.map(k => `<button role="tab" data-t="${k}" aria-selected="${k === cur}" class="${k === cur ? 'on' : ''}">${esc(t('rpT_' + k))}</button>`).join('')}</div>` : '';
     const hdrName = place && cur !== 'missing' ? `<p class="psub" dir="auto">${esc(place.name)}</p>` : '';
@@ -37,7 +39,7 @@ export function openReport(item, type) {
       <p class="rp-err" id="rpErr" role="alert" hidden></p>
       <button class="rp-send" id="rpSend" type="submit">${esc(t('rpSend'))}</button>
       <p class="rp-note">${ic('info', 'xs')}<span>${esc(t('rpModerated'))}</span></p></form>`;
-    const body = openSheet(html, 'full');
+    const body = openSheet(html, 'full', quietOff);
     body.querySelector('#rpClose').onclick = () => closeSheet();
     body.querySelectorAll('.rp-seg button').forEach(b => b.onclick = () => { cur = b.dataset.t; draw(); });
     body.querySelector('#rpCenter')?.addEventListener('click', () => { p = pos(); body.querySelector('#rpPos').textContent = p.lat != null ? fmtCoord(p.lat, p.lon) : '—'; });
@@ -53,7 +55,7 @@ export function openReport(item, type) {
     const rl = rateCheck();
     if (!rl.ok) return err(body, rl.why === 'gap' ? 'rpE_gap' : 'rpE_rate');
     busy = true; const btn = body.querySelector('#rpSend'); btn.disabled = true; btn.textContent = t('rpSending');
-    const r = await sendNow('layer', b.props);
+    const r = submitReport('layer', b.props); // stored, sent after a random 2–10 min delay (see analytics)
     busy = false;
     if (!body.isConnected) return;
     btn.disabled = false; btn.textContent = t('rpSend');
