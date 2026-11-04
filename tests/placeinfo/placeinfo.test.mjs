@@ -148,3 +148,29 @@ test('IDN websites are accepted (punycode host)', () => {
   assert.ok(u); assert.match(u.hostname, /^xn--.*\.xn--/);
   assert.ok(safeUrl('https://xn--mgbh0fb.xn--ogbpf8fl/'));
 });
+
+// fix/deeplink-offline
+import { readFileSync, readdirSync } from 'node:fs';
+import { rowRec, toItem } from '../../js/poi.js';
+import { punyDecode, unicodeHost, domainOf } from '../../js/links.js';
+test('deep link: bundled data/poi has full local tags for n14304758001 (Katrangi)', () => {
+  const dir = new URL('../../data/poi/', import.meta.url);
+  const idx = JSON.parse(readFileSync(new URL('index.json', dir)));
+  let item = null;
+  for (const f of readdirSync(dir).filter(f => /^p\d+\.json$/.test(f))) {
+    const row = JSON.parse(readFileSync(new URL(f, dir))).f.find(r => r[4] === 'n14304758001');
+    if (row) { item = toItem({ ...rowRec(row, idx), i: 0 }); break; }
+  }
+  assert.ok(item, 'POI in local data');
+  assert.equal(item.osm_type, 'node'); assert.equal(item.osm_id, 14304758001);
+  assert.match(item.tags.name, /\S/);
+  assert.ok(item.tags.opening_hours); assert.ok(phones(item.tags).length >= 1);
+});
+test('IDN hosts are shown in Unicode, href stays punycode; mixed-script spoofs stay punycode', () => {
+  assert.equal(punyDecode('mnchen-3ya'), 'münchen');
+  assert.equal(domainOf(safeUrl('https://موقع.سوريا')), 'موقع.سوريا');
+  const w = website({ website: 'https://www.xn--mgbh0fb.xn--ogbpf8fl/' });
+  assert.equal(w.href, 'https://www.xn--mgbh0fb.xn--ogbpf8fl/'); assert.equal(w.domain, 'مثال.سورية');
+  assert.equal(unicodeHost('xn--pypal-4ve.com'), 'xn--pypal-4ve.com'); // "pаypal" with Cyrillic а
+  assert.equal(unicodeHost('xn--zz'), 'xn--zz'); // invalid punycode → unchanged
+});

@@ -106,10 +106,8 @@ export function loadPois() {
       await yieldNow(); t0 = performance.now();
       for (let k = 0; k < rows.length; k++) {
         if ((k & 63) === 0 && performance.now() - t0 > 8) { await yieldNow(); t0 = performance.now(); }
-        const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = rows[k];
-        const c = j.cats[ci], s = j.subs[si], [grp, imp0] = CAT[c] || ['civic', 1];
+        const rec = rowRec(rows[k], j), { lon, lat, c, osm, name, ar, en, st, grp } = rec, imp0 = (CAT[c] || ['civic', 1])[1];
         const named = !!(name || ar || en);
-        const rec = { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
         rec.tok = null; // search tokens: built later in idle slices (buildTokens) or on the first search
         rec.i = all.length; all.push(rec); byOsm.set(osm, rec.i);
         const props = { i: rec.i, c, g: grp, sp: rec.sp, imp: named ? imp0 : 0, rank: (3 - imp0) * 10 + (st ? 0 : 5) + (named ? 0 : 9) };
@@ -137,6 +135,18 @@ function buildTokens() {
   next();
 }
 function ensureTokens() { while (tokAt < P.all.length) { const r = P.all[tokAt++]; r.tok = tokOf(r); } }
+// One compact data/poi row → record (index j provides the category/sub-category tables). Pure, also used by tests.
+export function rowRec(row, j) {
+  const [lon, lat, ci, si, osm, name = '', ar = '', en = '', oh = '', ph = '', w = '', st = '', ex = ''] = row;
+  const c = j.cats[ci], s = j.subs[si], [grp] = CAT[c] || ['civic', 1];
+  return { lon, lat, c, s, osm, name, ar, en, oh, ph, w, st, ex, grp, sp: SPRITE[s] || (c === 'shop' ? 'shop' : 'generic') };
+}
+// Local (bundled, SW-cached) record for an OSM id like "n14304758001" → toItem() or null. Used for deep links,
+// so name, hours, phone … show even offline before Nominatim/Overpass answer.
+export async function localItem(osmKey) {
+  try { await loadPois(); } catch { return null; }
+  const i = P.byOsm.get(osmKey); return i == null ? null : toItem(P.all[i]);
+}
 export function toItem(rec) {
   const tags = Object.assign({}, (TAGS[rec.c] || (() => ({})))(rec.s));
   if (rec.name) tags.name = rec.name; if (rec.ar) tags['name:ar'] = rec.ar; if (rec.en) tags['name:en'] = rec.en;
