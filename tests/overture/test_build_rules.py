@@ -47,6 +47,27 @@ class NearDup(unittest.TestCase):
         self.assertFalse(b.coarse(36.29635) or b.coarse(35.79145))
 
 
+class Hospitals(unittest.TestCase):
+    def test_hospitals_exempt_from_stack_and_coarse(self):
+        rs = [row(1, 36.63258, 35.93165, 'مشفى إدلب الوطني', 'hospital'),
+              row(2, 36.63258, 35.93165, 'معرض المأمون لتجارة الأدوات المنزليه', 'hardware_home_and_garden_store'),  # mixed stack → dropped
+              row(3, 36.35, 35.05, 'الهيئة العامة لمشفى مصياف الوطني', 'health_care'),   # coarse, name says hospital
+              row(4, 36.25, 33.5, 'مشفى الرازي', 'hospital'),                              # coarse
+              row(5, 36.3, 33.6, 'مخبر سكر للتحاليل الطبية', 'hospital'),                 # a lab filed as hospital → not exempt
+              row(6, 36.3, 33.5, 'الدكتور محمد القدسي Dr. MHD Al-Qudsi', 'hospital'),     # a doctor → not exempt
+              row(7, 36.2333, 33.35, 'صيدلية أبي بكر الصديق', 'pharmacy_and_drug_store')]  # coarse → dropped
+        kept, cnt = b.stack_filter(rs)
+        self.assertEqual(sorted(r[3] for r in kept), sorted(['مشفى إدلب الوطني', 'الهيئة العامة لمشفى مصياف الوطني', 'مشفى الرازي']))
+        self.assertEqual(cnt, {'mixed_stack': 1, 'coarse_coordinates': 3, 'same_group_stack': 0})
+
+    def test_same_group_stack_keeps_two_best(self):
+        rs = [row(1, 41.2264, 37.0497, 'ASO Group', 'shopping', ph='+963521234567'), row(2, 41.2264, 37.0497, 'Bindarûk', 'shopping'),
+              row(3, 41.2264, 37.0497, 'Salon Takush', 'shopping', fb='https://www.facebook.com/x'), row(4, 41.31234, 37.06789, 'Other', 'shopping')]
+        kept, cnt = b.stack_filter(rs)
+        self.assertEqual(sorted(r[3] for r in kept), ['ASO Group', 'Other', 'Salon Takush'])
+        self.assertEqual(cnt['same_group_stack'], 1)
+
+
 class Links(unittest.TestCase):
     def test_webmail_dropped(self):
         for u in ('https://blu178.mail.live.com/default.aspx?id=64855', 'http://gmail.com/', 'https://mail.google.com/mail/u/0/',

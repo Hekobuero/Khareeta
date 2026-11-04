@@ -353,7 +353,11 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
    UI overlays allow panning/scrolling only (no pinch-zoom, no double-tap zoom); gesture events outside #map are
    cancelled in js/app.js. +/- buttons are always visible in the right control column (Apple Maps style). */
 html,body{width:100%;max-width:100%;overscroll-behavior:none}
-#top,#fabs,#fabsBottom,.sheet,.dirpanel,.pop,.updbar,.toast,.pill,.nav-banner,.nav-bottom,.maplibregl-ctrl{touch-action:pan-x pan-y}
+/* .sheet is NOT listed: it keeps touch-action:none (own pointer drag in core.js; none also blocks page pinch),
+   .sheet-body keeps pan-y. */
+#top,#fabs,#fabsBottom,.dirpanel,.pop,.updbar,.toast,.pill,.nav-banner,.nav-bottom,.maplibregl-ctrl{touch-action:pan-x pan-y}
+#chips{touch-action:pan-x pan-y} /* horizontal chip scrolling, no page pinch */
+#q{touch-action:pan-x pan-y} /* text field: tap/caret + pan, no pinch/double-tap zoom */
 #zoomGrp{display:flex}
 #zoomGrp button:active,#fabs .cgroup button:active{background:var(--k-surface-2)}
 .drawer .ditem{color:var(--k-text);font-weight:400}
