@@ -181,3 +181,14 @@ Optional layer "Shops (Overture, unverified)" with business places from the [Ove
 Privacy (QA 2026-11-04): only an allowlist of business categories (food & drink, shops, lodging, services, health facilities, fuel) is kept. Homes (منزل/بيت/دار, "house of"), clerics (امام/شيخ/خطيب), kunya names (أبو/أم …), person-only names, institutions, locality names, records with foreign phones or non-SY addresses, exact duplicates and centroid stacks (>3 places on one point) are dropped. Mobile numbers stay only for clearly commercial categories, and tracking parameters are stripped from links. `scripts/overture/last_build_stats.json` lists the counts per rule. The layer only loads inside a simplified Syria outline (`OV_SY` in `js/overture-data.js`). Every Overture place sheet has **Report / remove**: the place is hidden on this device right away (`localStorage kh.ovHidden`), and one anonymous event (`type 'layer'`, `props {k:'ov_report', id, r}`) goes through the existing analytics path (`js/analytics.js`). That path respects kh.noTrack, DNT and GPC and sends nothing on dev hosts.
 
 Rebuild: `pip install duckdb==1.4.1 && python3 scripts/overture/build_overture.py` (reads the public release from S3 anonymously; `--input file.parquet` uses a local extract). Tests: `node --test 'tests/overture/*.test.mjs'`.
+
+## Lines layer (Servis & bus, OpenStreetMap)
+Layers › "Lines (Servis & bus)" (off by default) draws the bus / Servis (`route=bus|share_taxi|minibus`) route relations that
+OpenStreetMap has for **Damascus** and **Aleppo**, with a searchable list per city, a line sheet (name AR/EN, ref, from/to,
+operator, stops) and a stop sheet (lines serving the stop). The data is only what OSM contains – often incomplete; the UI says
+so and links to the [OSM public-transport wiki](https://wiki.openstreetmap.org/wiki/Public_transport) for adding lines.
+- Build: `python3 scripts/transit/build_transit.py [--refresh] [--city aleppo]` – one Overpass query per city (bbox), answers cached in
+  `scripts/transit/.cache/` (git-ignored), geometry simplified (Douglas–Peucker, 8 m), output `data/transit/{index,damascus,aleppo}.json`,
+  size/count report in `scripts/transit/last_build_stats.json`. Data © OpenStreetMap contributors, ODbL.
+- App: `js/transit.js` (map + sheets), `js/transit-core.js` (pure helpers, `tests/transit/`). Data is fetched only while the layer is on
+  (in data-saving mode only when the list is opened) and cached by the service worker in `kh-transit` (works offline afterwards).

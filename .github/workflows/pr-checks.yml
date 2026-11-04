@@ -194,6 +194,17 @@ jobs:
           node-version: 24
       - run: node --test 'tests/offline/*.test.mjs'
 
+  transit-tests:
+    # Pure Node unit tests for the Servis/bus lines layer (js/transit-core.js, data/transit/*.json, SW/i18n wiring). No network.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/transit/*.test.mjs'
+
   report-tests:
     # Pure Node unit tests for in-app reports (js/report-core.js + analytics.sendNow): link allowlist, lookalike/Cyrillic
     # blocking, local rate limit, payload size, i18n EN/AR/DE. fetch is mocked – nothing is sent to Supabase.

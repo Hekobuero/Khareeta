@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261104-2008';
+const VERSION = '20261104-2123';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -47,6 +47,8 @@ const SHELL_FILES = [
   'js/names.js',
   'js/world-core.js',
   'js/world-poi.js',
+  'js/transit.js',
+  'js/transit-core.js',
   'fonts/glyphs-empty.pbf',
   'icons/icon.svg',
   'icons/icon-192.png'];
@@ -234,6 +236,16 @@ async function ovFetch(req, e) {
     return r;
   } catch (err) { const h = await c.match(req.url); if (h) return h; throw err; }
 }
+// ----- Transit lines (data/transit/, js/transit.js): own cache kh-transit (kept across app updates) -----
+// index: network first (offline → cached); city files: stale-while-revalidate, keyed without ?v= (one entry per city).
+const TRANSIT = 'kh-transit';
+const isTransit = p => /\/data\/transit\/[a-z0-9_-]+\.json$/.test(p);
+async function transitFetch(req, e) {
+  const c = await caches.open(TRANSIT), key = assetKey(req.url), hit = await c.match(key);
+  const net = fetch(req, { cache: 'no-cache' }).then(r => { if (r.ok && r.status === 200) return c.put(key, r.clone()).then(() => r); return r; });
+  if (hit && !/\/index\.json$/.test(key)) { e.waitUntil(net.catch(() => {})); return hit; }
+  try { return await net; } catch (err) { if (hit) return hit; throw err; }
+}
 const isAsset = p => /\/(fonts\/[^/]+\.woff2|sprites\/[^/]+|data\/(poi\/)?[^/]+\.json|icons\/[^/]+\.(png|svg)|favicon[^/]*)$/.test(p) && !p.endsWith('/icons/og-image.png');
 const assetKey = u => { const x = new URL(u); x.search = ''; x.hash = ''; return x.href; };
 async function swr(req, e) {
@@ -297,6 +309,7 @@ self.addEventListener('fetch', e => {
     if (req.mode === 'navigate') return e.respondWith(networkFirst(req, SHELL, 4000).catch(() => caches.match('index.html')));
     if (url.pathname.endsWith('/admin.html') || url.pathname.includes('/admin')) return;
     if (isOv(url.pathname)) return e.respondWith(ovFetch(req, e));
+    if (isTransit(url.pathname)) return e.respondWith(transitFetch(req, e));
     if (isPoi(url.pathname)) return e.respondWith(poiFetch(req, e));
     if (isAsset(url.pathname)) return e.respondWith(swr(req, e));
     return e.respondWith(caches.match(req, { ignoreSearch: true }).then(h => h || fetch(req).then(r => { if (r.ok) { const cl = r.clone(); caches.open(SHELL).then(c => c.put(req, cl)); } return r; })));

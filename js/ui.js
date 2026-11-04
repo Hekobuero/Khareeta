@@ -10,7 +10,7 @@ import { track } from './analytics.js';
 import { openReport } from './report.js';
 import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
-export const hooks = { overture: null, restyle: null, relabel: null, rerenderUI: null, set3d: null };
+export const hooks = { overture: null, restyle: null, transit: null, relabel: null, rerenderUI: null, set3d: null };
 
 // ---------- brand lockup (light/dark variant switched in CSS via the theme tokens) ----------
 const brandLogo = cls => `<span class="klogo ${cls}" role="img" aria-label="Khareeta · خريطة"><img class="klogo-l" src="icons/logo-lockup.svg" alt="" width="964" height="208" decoding="async"><img class="klogo-d" src="icons/logo-lockup-dark.svg" alt="" width="964" height="208" decoding="async"></span>`;
@@ -139,6 +139,7 @@ function renderLayers() {
    <button class="lrow" data-t="terrain3d">${t('terrain3d')}${sw(settings.terrain3d)}</button>
    <button class="lrow" data-t="bilingual">${t('bilingual')}${sw(settings.bilingual !== false)}</button>
    <button class="lrow" data-t="overture"><span class="lrow-t">${t('ovLayer')}<small>${t('ovLayerSub')}</small></span>${sw(settings.overture !== false)}</button>
+   <button class="lrow" data-t="transit"><span class="lrow-t">${t('trLayer')}<small>${t('trLayerSub')}</small></span>${sw(settings.transit === true)}</button>
    </div>`;
   p.onclick = e => {
     if (e.target.closest('#lClose')) { p.classList.add('hidden'); $('#scrim').classList.add('hidden'); return; }
@@ -148,6 +149,7 @@ function renderLayers() {
     if (s) { settings.style = s.dataset.s; track('layer', { style: settings.style }); }
     else if (tg) {
       const k = tg.dataset.t;
+      if (k === 'transit') { settings.transit = settings.transit !== true; saveSettings(); hooks.transit?.(); renderLayers(); return; }
       if (k === 'overture') { settings.overture = settings.overture === false; saveSettings(); hooks.overture?.(); renderLayers(); return; }
       if (k === 'bilingual') { settings.bilingual = settings.bilingual === false; saveSettings(); hooks.relabel(); renderLayers(); return; }
       settings[k] = !settings[k];

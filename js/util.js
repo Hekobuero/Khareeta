@@ -1,13 +1,13 @@
 import { t, getLang } from './i18n.js';
 
-export const VERSION = '20261104-2008';
+export const VERSION = '20261104-2123';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ---------- settings ----------
-const DEF = { mapLang: 'auto', arabicDigits: false, lowData: false, dark: false, voice: true, style: 'standard', hillshade: false, b3d: true, terrain3d: false, hybridLabels: true, satHD: false, overture: true };
+const DEF = { mapLang: 'auto', arabicDigits: false, lowData: false, dark: false, voice: true, style: 'standard', hillshade: false, b3d: true, terrain3d: false, hybridLabels: true, satHD: false, overture: true, transit: false };
 export const settings = Object.assign({}, DEF, (() => { try { return JSON.parse(localStorage.getItem('kh.settings') || '{}'); } catch { return {}; } })());
 export function saveSettings() { try { localStorage.setItem('kh.settings', JSON.stringify(settings)); } catch {} }
 export function lsGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
