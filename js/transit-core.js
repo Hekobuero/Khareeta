@@ -22,11 +22,14 @@ export function tAlt(o, lang) { // the other script, when different
   const p = tName(o, lang), q = lang === 'ar' ? (o.name_en || o.name) : (o.name_ar || o.name);
   return q && q !== p ? q : '';
 }
+// Only short refs ("12", "B4", "١٥") fit a badge; long ones are usually names stuffed into ref=*.
+export const REF_MAX = 6;
+export function shortRef(ref) { const r = String(ref ?? '').trim(); return r && [...r].length <= REF_MAX ? r : ''; }
 export function lineLabel(l, lang) {
   const n = tName(l, lang);
   if (n) return n;
   if (l.from || l.to) return [l.from, l.to].filter(Boolean).join(' → ');
-  return l.ref ? String(l.ref) : '#' + l.id;
+  return l.ref && !shortRef(l.ref) ? String(l.ref) : ''; // long OSM refs (often a full name) become the title; '' = unnamed (UI: trNoName)
 }
 // search lines by ref / names / from / to / operator / served stop names
 export function searchLines(data, q) {

@@ -5,7 +5,7 @@ import { esc, settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, fitTo } from './core.js';
-import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
+import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
 
 export const TR_LAYERS = ['kh-tr-line', 'kh-tr-sel-case', 'kh-tr-sel', 'kh-tr-stop'];
 const S = { index: null, ix: null, data: {}, city: null, sel: null, q: '' };
@@ -72,7 +72,7 @@ export function toggleTransit(map) {
 }
 const srcNote = () => `<p class="tr-src">${ic('info')}<span>${esc(t('trSrc'))} <a href="${OSM_WIKI_URL}" target="_blank" rel="noopener">${esc(t('trImprove'))}</a> · <span dir="ltr">© OpenStreetMap contributors (ODbL)</span></span></p>`;
 const modeLbl = m => t(m === 'bus' ? 'trBus' : 'trServis');
-const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(l.ref || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
+const refBadge = l => `<span class="tr-ref ${l.mode === 'bus' ? 'bus' : 'servis'}"><bdi>${esc(shortRef(l.ref) || (l.mode === 'bus' ? 'B' : 'S'))}</bdi></span>`;
 
 export async function openLines(map) {
   if (!transitOn()) { settings.transit = true; saveSettings(); }
@@ -84,7 +84,7 @@ function listHtml(d) {
   const lang = getLang(), res = sortLines(searchLines(d, S.q));
   if (!d.lines.length) return `<p class="tr-empty">${esc(t('trEmpty'))}</p>`;
   if (!res.length) return `<p class="tr-empty">${esc(t('trNone'))}</p>`;
-  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? `${l.stops.length} ${t('trStops')}` : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
+  return res.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc([modeLbl(l.mode), l.from && l.to ? `${l.from} → ${l.to}` : '', (l.stops || []).length ? `${l.stops.length} ${t('trStops')}` : ''].filter(Boolean).join(' · '))}</label></div></button>`).join('');
 }
 function renderList(map) {
   const d = S.cur, lang = getLang(), cities = Object.keys(S.index?.cities || {});
@@ -122,8 +122,8 @@ export function showLine(map, id, fly = true) {
   const bb = lineBounds(l, d);
   const alt = tAlt(l, lang), row = (k, v) => v ? `<div class="irow"><div class="iv"><label>${esc(t(k))}</label><div class="val" dir="auto">${esc(v)}</div></div></div>` : '';
   const stops = (l.stops || []).map((i, n) => { const s = d.stops[i]; return `<button class="irow click tr-stop" data-s="${i}"><span class="tr-dot">${n + 1}</span><div class="iv"><div class="val" dir="auto">${esc(tName(s, lang) || t('trUnnamed'))}</div>${tAlt(s, lang) ? `<label dir="auto">${esc(tAlt(s, lang))}</label>` : ''}</div></button>`; }).join('');
-  const html = `<div class="phead"><div style="display:flex;gap:10px;align-items:flex-start">${refBadge(l)}<div><h2 class="ptitle" dir="auto">${esc(lineLabel(l, lang))}</h2>
-    ${alt ? `<p class="psub" dir="auto">${esc(alt)}</p>` : ''}<p class="psub">${esc(modeLbl(l.mode))}${l.ref ? ` · ${esc(t('trRef'))} <bdi>${esc(l.ref)}</bdi>` : ''}</p></div></div>
+  const html = `<div class="phead"><div style="display:flex;gap:10px;align-items:flex-start">${refBadge(l)}<div><h2 class="ptitle" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</h2>
+    ${alt ? `<p class="psub" dir="auto">${esc(alt)}</p>` : ''}<p class="psub">${esc(modeLbl(l.mode))}${shortRef(l.ref) ? ` · ${esc(t('trRef'))} <bdi>${esc(shortRef(l.ref))}</bdi>` : ''}</p></div></div>
     <button class="pclose" id="trBack" aria-label="${t('back')}">${ic('close')}</button></div>
     <div class="arow"><button class="abtn" id="trAll">${ic('back')}<span>${esc(t('trTitle'))}</span></button><a class="abtn" href="${osmUrl('relation', l.id)}" target="_blank" rel="noopener">${ic('web')}<span>${esc(t('trOsmView'))}</span></a></div>
     <div class="igroup">${row('trFrom', l.from)}${row('trTo', l.to)}${row('trOperator', l.operator)}</div>
@@ -145,7 +145,7 @@ export function showStop(map, i) {
     <button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
     <div class="arow"><a class="abtn" href="${osmUrl('node', s.id)}" target="_blank" rel="noopener">${ic('web')}<span>${esc(t('trOsmView'))}</span></a></div>
     <div class="dlabel">${esc(t('trAtStop')).toUpperCase()} · ${ls.length}</div>
-    <div class="igroup">${ls.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang))}</div><label>${esc(modeLbl(l.mode))}</label></div></button>`).join('')}</div>
+    <div class="igroup">${ls.map(l => `<button class="irow click tr-line" data-l="${l.id}">${refBadge(l)}<div class="iv"><div class="val" dir="auto">${esc(lineLabel(l, lang) || t('trNoName'))}</div><label>${esc(modeLbl(l.mode))}</label></div></button>`).join('')}</div>
     ${srcNote()}<div style="height:16px"></div>`;
   const body = openSheet(html, 'half', null); App.sheetKind = 'transit';
   body.querySelector('#trClose').onclick = () => { S.sel = null; draw(map); closeSheet(); };

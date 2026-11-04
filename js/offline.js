@@ -1,5 +1,6 @@
 // Offline area download (vector tiles + glyphs + sprites) into Cache Storage, respecting the
 // OpenFreeMap policy: max 3000 tiles per download, max 4 parallel requests.
+import { TRANSIT_DIR, TRANSIT_CITIES } from './transit-core.js';
 import { $, esc, fmtBytes, nf, lsGet, lsSet, toast, sleep } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
@@ -158,6 +159,18 @@ function cityExtras() {
   if (sp && /^https:\/\/tiles\.openfreemap\.org\//.test(sp)) ['.json', '.png', '@2x.json', '@2x.png'].forEach(s => out.push(sp + s));
   return out;
 }
+// Servis/bus lines for this city (if OSM has any) go into the SW's kh-transit cache, so the Lines layer works offline too.
+export async function cacheTransit(id, cacheApi = globalThis.caches, fetchFn = fetch) {
+  if (!TRANSIT_CITIES.includes(id) || !cacheApi) return false;
+  try {
+    const c = await cacheApi.open('kh-transit');
+    for (const f of ['index.json', id + '.json']) {
+      const u = new URL(TRANSIT_DIR + f, location.href).href, r = await fetchFn(u, { cache: 'no-cache' });
+      if (r.ok) await c.put(u, r.clone());
+    }
+    return true;
+  } catch { return false; }
+}
 export async function downloadCity(city, body) {
   const tpl = vectorTemplate(); if (!tpl || !city) return;
   const need = estimateCityBytes(city);
@@ -173,6 +186,7 @@ export async function downloadCity(city, body) {
     row.querySelector('.prog i')?.style.setProperty('width', (d / n * 100) + '%'); const t2 = row.querySelector('.t2'); if (t2) t2.textContent = t('downloading', { a: nf(d), b: nf(n) });
   } });
   cityJob = null;
+  if (!res.aborted) await cacheTransit(city.id);
   if (res.aborted) { await purgeCity(caches, city.id, cityKeys(city)); toast(t('cityCancelled')); }
   else {
     let bytes = 0; try { for (const k of await cache.keys()) { const r = await cache.match(k); bytes += +(r.headers.get('content-length')) || (await r.blob()).size; } } catch { bytes = res.bytes; }
