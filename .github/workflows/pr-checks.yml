@@ -74,6 +74,50 @@ jobs:
           node-version: 24
       - run: node --test 'tests/lang/*.test.mjs'
 
+  ios-voice-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/ios/*.test.mjs'
+
+  ios-webkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: tests/voice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tests/voice/package-lock.json
+      - run: npm ci
+      - name: Install WebKit (+ system deps)
+        timeout-minutes: 15
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install --with-deps webkit && exit 0
+            echo "::warning::playwright webkit install attempt $i failed/stalled, retrying"
+            rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
+          done
+          exit 1
+      - run: node ios-webkit.test.js
+        timeout-minutes: 5
+      - name: Upload iPhone screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-webkit-shots
+          path: tests/voice/out/ios/
+          if-no-files-found: ignore
+          retention-days: 7
+
   version:
     runs-on: ubuntu-latest
     timeout-minutes: 5
