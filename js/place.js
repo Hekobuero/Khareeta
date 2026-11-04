@@ -1,6 +1,6 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
-import { poiIndexFor, toItem, P as POIS } from './poi.js';
+import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
@@ -82,6 +82,19 @@ export async function openPlace(item, opts = {}) {
   if (App.selPoi != null && !item.poi) { const b = toItem(POIS.all[App.selPoi]).tags; item.tags = Object.assign({}, b, item.tags || {}); }
   { const [icn, col] = catIcon(item.tags || {}); setSelMarker(ll, item.coord ? '#E5484D' : col, item.coord ? null : icn, item.tags?.name || item.name); }
   render(item, item.tags || {}, !item.coord && !item.full);
+  // Deep link (?p=n…): the POI may be in the bundled data/poi (SW-cached) → name, hours, phone … at once, also offline
+  if (App.selPoi == null && !item.poi && !item.coord && item.osm_type && item.osm_id != null) {
+    localItem(item.osm_type[0] + item.osm_id).then(li => {
+      if (!li || my !== token || cur !== item) return;
+      App.selPoi = li.poi;
+      item.tags = Object.assign({}, li.tags, item.tags || {});
+      if (item.lon == null) { item.lon = li.lon; item.lat = li.lat; }
+      { const [icn, col] = catIcon(item.tags); setSelMarker([item.lon, item.lat], col, icn, item.tags.name || item.name); }
+      render(item, item.tags, !item._done);
+      if (item._noData) noDataNote();
+      if (item._extras) applyExtras(item._extras); // repaint already loaded weather/address/nearby, no refetch
+    });
+  }
   if (!opts.noFly) {
     const e = item.extent;
     if (e && e.length === 4 && item.osm_type !== 'node' && Math.abs(e[2] - e[0]) > 0.005) {
@@ -96,21 +109,27 @@ export async function openPlace(item, opts = {}) {
   if (item.coord || !item.osm_type || item.full) { extras(item, item.tags || {}, my, true); return; }
   await loadDetails(item, my);
 }
+function noDataNote() {
+  $('#pNoData')?.remove();
+  const n = document.createElement('p'); n.className = 'pnote muted'; n.id = 'pNoData'; n.setAttribute('role', 'status');
+  n.textContent = t(navigator.onLine === false ? 'detailsOffline' : 'detailsFailed');
+  $('.phead')?.after(n);
+}
 // Full OSM tags (Nominatim → Overpass) → re-render the sheet when they arrive; offline → note + retry on "online".
 async function loadDetails(item, my) {
   const r = await loadTags(item);
   if (my !== token || cur !== item) return;
   if (!r) {
     // offline / Nominatim+Overpass both failed (e.g. deep link while offline): graceful state, retry when back online
+    item._done = true; item._noData = true;
     render(item, item.tags || {}, false);
-    const n = document.createElement('p'); n.className = 'pnote muted'; n.id = 'pNoData'; n.setAttribute('role', 'status');
-    n.textContent = t(navigator.onLine === false ? 'detailsOffline' : 'detailsFailed');
-    $('.phead')?.after(n);
+    noDataNote();
     extras(item, item.tags || {}, my, true);
-    const retry = () => { if (my === token && cur === item) { $('#pNoData')?.remove(); loadDetails(item, my); } };
+    const retry = () => { if (my === token && cur === item) { item._noData = false; $('#pNoData')?.remove(); loadDetails(item, my); } };
     addEventListener('online', retry, { once: true });
     return;
   }
+  item._done = true; item._noData = false;
   if (r) { item.tags = Object.assign({}, item.tags, r.tags); if (r.parts) item.addrParts = r.parts; if (r.addr && !addrFromTags(item.tags)) item.sub = r.addr; if (r.ll && r.ll[0] != null && !item.lon) { item.lon = r.ll[0]; item.lat = r.ll[1]; } }
   render(item, item.tags, false);
   extras(item, item.tags, my, true);
@@ -149,7 +168,7 @@ function render(item, tg, loading) {
     const tbl = ohTable(tg.opening_hours);
     const td = tbl && (tbl.find(r => r.today) || tbl[0]);
     rows.push(tbl
-      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
+      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi> <small class="hours-tz-short">(${t('tzShort')})</small><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
       : irow(t('hours'), `<bdi class="oh-raw">${esc(String(tg.opening_hours).slice(0, 300))}</bdi>`));
   }
   phones.forEach(p => rows.push(irow(t('phone'), `<a href="tel:${esc(p.tel)}" dir="ltr">${esc(digits(p.display))}</a>`)));
@@ -231,7 +250,7 @@ function render(item, tg, loading) {
   body.querySelector('#pMore')?.addEventListener('click', () => { const g = body.querySelector('.igroup'); setSheet('full'); g?.scrollIntoView({ behavior: 'smooth' }); });
   const hr = body.querySelector('#pHours');
   if (hr) {
-    const tog = () => { const open = hr.getAttribute('aria-expanded') !== 'true'; hr.setAttribute('aria-expanded', String(open)); hr.classList.toggle('open', open); hr.querySelectorAll('table, .hours-tz').forEach(el => el.classList.toggle('hidden', !open)); };
+    const tog = () => { const open = hr.getAttribute('aria-expanded') !== 'true'; hr.setAttribute('aria-expanded', String(open)); hr.classList.toggle('open', open); hr.querySelectorAll('table, .hours-tz').forEach(el => el.classList.toggle('hidden', !open)); hr.querySelector('.hours-tz-short')?.classList.toggle('hidden', open); };
     hr.addEventListener('click', e => { if (!e.target.closest('a')) tog(); });
     hr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tog(); } });
   }
