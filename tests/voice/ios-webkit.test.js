@@ -18,7 +18,14 @@ const MOCK = `(() => {
   const voices = [{ name: 'Daniel', lang: 'en-GB', localService: true, voiceURI: 'Daniel' }, { name: 'Markus', lang: 'de-DE', localService: true, voiceURI: 'Markus' }, { name: 'Majed', lang: 'ar-001', localService: true, voiceURI: 'Majed' }];
   let list = [], unlocked = false, lastCancel = -1e9;
   window.__spoken = []; window.__dropped = [];
-  const inGesture = () => !!(navigator.userActivation && navigator.userActivation.isActive) || window.__gesture;
+  // STRICT iOS model: speech only counts while a touchend / click event is being dispatched. Playwright's
+  // navigator.userActivation also counts pointerdown, real iOS does not – so it is NOT used here.
+  let gesture = false;
+  for (const n of ['touchend', 'click']) {
+    window.addEventListener(n, () => { gesture = true; setTimeout(() => { gesture = false; }, 0); }, true);
+    window.addEventListener(n, () => { gesture = false; }, false);
+  }
+  const inGesture = () => gesture;
   class U { constructor(t) { this.text = t; this.lang = ''; this.voice = null; this.volume = 1; this.rate = 1; this.pitch = 1; } addEventListener() {} }
   window.SpeechSynthesisUtterance = U;
   const syn = { speaking: false, pending: false, paused: false, _c: null, getVoices: () => list.slice(),
@@ -63,6 +70,10 @@ async function shot(page, name) { const p = path.join(OUT, name); await page.scr
     await page.waitForTimeout(800);
     const before = await page.evaluate(() => ({ list: speechSynthesis.getVoices().length, hidden: getComputedStyle(document.querySelector('#navVoice')).display }));
     ok(`${tag}: iOS-like start: empty voice list, speaker button hidden outside navigation`, before.list === 0 && before.hidden === 'none', JSON.stringify(before));
+    // a touch pointerdown alone must not unlock (not activation-triggering on iOS)
+    await page.evaluate(() => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' })); });
+    const pd = await page.evaluate(async () => { const v = await import(new URL('js/voice.js', location.href)); return { u: v.isUnlocked(), c: v.isConfirmed(), n: window.__spoken.length }; });
+    ok(`${tag}: pointerdown alone does not unlock`, !pd.u && !pd.c && pd.n === 0, JSON.stringify(pd));
     // start navigation from a real tap (button injected for the test → startNav runs inside the gesture, like "Go")
     await page.evaluate(async rt => {
       const m = await import(new URL('js/route.js', location.href));
@@ -74,6 +85,9 @@ async function shot(page, name) { const p = path.join(OUT, name); await page.scr
     await page.waitForTimeout(2500);
     const s = await page.evaluate(() => ({ spoken: window.__spoken.filter(x => x.vol !== 0).map(x => x.text + '|' + x.lang + '|' + x.voice), unlock: window.__spoken.filter(x => x.vol === 0).length, dropped: window.__dropped }));
     ok(`${tag}: unlock utterance inside the "Go" tap`, s.unlock >= 1, JSON.stringify(s));
+    const LANGRE = { en: /^Follow the road/, de: /^Dem Straßenverlauf/, ar: /^تابع|^كمّل/ }[lang];
+    ok(`${tag}: ${lang.toUpperCase()} announcement spoken under strict iOS mock`, s.spoken.some(x => LANGRE.test(x)), JSON.stringify(s.spoken));
+    ok(`${tag}: unlock confirmed by the engine`, await page.evaluate(async () => (await import(new URL('js/voice.js', location.href))).isConfirmed()));
     ok(`${tag}: start prompt spoken later from the GPS/sim timer (not dropped by iOS)`, s.spoken.length >= 1 && !s.dropped.some(d => d.why === 'no-gesture' && d.text.trim()), JSON.stringify(s));
     const b = await page.evaluate(() => { const e = document.querySelector('#navVoice'), r = e.getBoundingClientRect(), cs = getComputedStyle(e);
       return { w: r.width, h: r.height, x: r.x, vis: cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0, label: e.getAttribute('aria-label'), pressed: e.getAttribute('aria-pressed'), dir: document.documentElement.dir, vw: innerWidth }; });

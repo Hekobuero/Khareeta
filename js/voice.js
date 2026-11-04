@@ -55,7 +55,7 @@ function score(v, lang) {
 // ---------- voice list (async) ----------
 let all = [], loaded = false;
 const subs = new Set();
-export const _test = { reset() { all = []; loaded = false; unlocked = false; cur = null; queue = []; last = ''; warned = {}; live.clear(); }, refresh: () => refresh(), live: () => live.size };
+export const _test = { reset() { all = []; loaded = false; unlocked = false; confirmed = false; cur = null; queue = []; last = ''; warned = {}; live.clear(); }, refresh: () => refresh(), live: () => live.size };
 export function onVoices(cb) { subs.add(cb); return () => subs.delete(cb); }
 function refresh() {
   const s = SYN(); if (!s) return;
@@ -71,12 +71,15 @@ function init() {
   let n = 0; const poll = setInterval(() => { refresh(); if (loaded || ++n > 20) clearInterval(poll); }, 250); // iOS: no voiceschanged
   // iOS/Safari only speak after a user gesture: unlock on the first tap (also when the voice list is still empty –
   // iOS PWAs often report no voices until speech has been used once)
-  const unlock = () => { if (settings.voice === false) return; if (unlockSpeech()) document.removeEventListener('pointerdown', unlock, true); };
-  document.addEventListener('pointerdown', unlock, true);
+  // Only activation-triggering events count (HTML spec: touchend / click / pointerup for touch – NOT pointerdown/touchstart).
+  // The listeners stay until the engine confirms the unlock (an unlock utterance actually started or ended).
+  const EVS = ['touchend', 'click'];
+  const unlock = () => { if (settings.voice === false) return; unlockSpeech(); if (confirmed) EVS.forEach(n => document.removeEventListener(n, unlock, true)); };
+  EVS.forEach(n => document.addEventListener(n, unlock, true));
   // iOS pauses/stops the engine when the app goes to the background → resume when visible again
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refresh(); try { if (s.paused || cur) s.resume(); } catch {} } });
 }
-let unlocked = false;
+let unlocked = false, confirmed = false; // unlocked: speak() was called inside a gesture; confirmed: the engine played it
 const live = new Set(); // keep utterances referenced until they end (Safari/Chrome GC them → onend never fires, speech stops)
 const keep = u => { live.add(u); const done = () => live.delete(u); u.addEventListener ? (u.addEventListener('end', done), u.addEventListener('error', done)) : 0; const tm = setTimeout(done, 30000); tm?.unref?.(); return u; };
 /** Call synchronously inside a user gesture (tap on "Go", speaker button): speaks a silent utterance so that iOS Safari
@@ -84,18 +87,22 @@ const keep = u => { live.add(u); const done = () => live.delete(u); u.addEventLi
 export function unlockSpeech() {
   const s = SYN(); if (!s) return false;
   refresh();
-  if (unlocked) { try { s.resume(); } catch {} return true; }
+  if (confirmed) { try { s.resume(); } catch {} return true; }
+  // not confirmed yet: speak a silent utterance in THIS gesture (also when something is speaking – it just queues)
   try {
     const u = keep(new SpeechSynthesisUtterance(' ')); u.volume = 0; u.rate = 1;
     const v = chosenVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = langTag();
-    if (!s.speaking && !cur) s.speak(u);
-    s.resume(); unlocked = true;
+    const ok = () => { confirmed = true; };
+    u.onstart = ok; u.onend = ok;
+    s.speak(u); unlocked = true; // speak() really happened inside the caller's gesture
+    s.resume();
     let n = 0; const poll = setInterval(() => { refresh(); if (loaded || ++n > 20) clearInterval(poll); }, 250); // voices often appear only now
   } catch {}
   return unlocked;
 }
 export const isIOS = () => OS === 'ios';
 export const isUnlocked = () => unlocked;
+export const isConfirmed = () => confirmed;
 init();
 
 /** Candidates for a language, best first. Cloud voices are never returned. */

@@ -36,7 +36,9 @@ export function installIOS({ voices = [], voicesAfterUnlock = true, ua = 'Mozill
   Object.defineProperty(globalThis, 'navigator', { value: { userAgent: ua, language: 'en-US', languages: ['en-US'], maxTouchPoints: 5 }, configurable: true });
   return {
     syn, log, store,
-    tap(fn) { gesture = true; try { docL.pointerdown?.forEach(f => f({})); return fn?.(); } finally { gesture = false; } }, // a user gesture
+    // strict iOS: pointerdown / touchstart are NOT activation-triggering → speak() there is ignored
+    pointerdown() { docL.pointerdown?.forEach(f => f({})); docL.touchstart?.forEach(f => f({})); },
+    tap(fn) { this.pointerdown(); gesture = true; try { docL.touchend?.forEach(f => f({})); docL.click?.forEach(f => f({})); return fn?.(); } finally { gesture = false; } }, // a real tap (touchend + click)
     hide() { document.visibilityState = 'hidden'; syn.pause(); docL.visibilitychange?.forEach(f => f({})); },
     show() { document.visibilityState = 'visible'; docL.visibilitychange?.forEach(f => f({})); },
   };

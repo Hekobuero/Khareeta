@@ -10,10 +10,17 @@ const v = await import('../../js/voice.js');
 const { settings, saveSettings } = await import('../../js/util.js');
 const i18n = await import('../../js/i18n.js');
 
+test('strict iOS: pointerdown alone neither unlocks nor marks unlocked', async () => {
+  env.pointerdown(); await wait(20);
+  assert.equal(v.isUnlocked(), false); assert.equal(v.isConfirmed(), false);
+  assert.equal(env.log.spoken.length, 0);
+});
+
 test('before unlock: speech from a timer (GPS fix) is blocked by iOS → unlock inside the tap fixes it', async () => {
   assert.equal(v.voiceState(), 'unknown'); // iOS: empty voice list at first
-  env.tap(() => v.unlockSpeech());
+  env.tap(() => v.unlockSpeech()); // Go tap: global touchend/click listener + startNav both run in the gesture
   assert.ok(v.isUnlocked());
+  await wait(20); assert.ok(v.isConfirmed(), 'engine played the unlock utterance');
   assert.equal(env.log.spoken.at(-1).vol, 0, 'silent unlock utterance spoken inside the gesture');
   await wait(30);
   const ok = v.speak('In 300 metres, turn right'); // later, outside any gesture
@@ -53,6 +60,13 @@ test('visibilitychange → resume()', async () => {
   const r = env.log.resumes; v.speak('Background prompt');
   env.hide(); env.show();
   assert.ok(env.log.resumes > r); assert.equal(env.syn.paused, false);
+  await wait(100);
+});
+
+test('unlock while speaking still speaks (queued) instead of skipping', async () => {
+  await wait(100); v._test.reset(); v.speak('Some running prompt');
+  const n = env.log.spoken.length; env.tap(() => v.unlockSpeech());
+  assert.ok(env.log.spoken.slice(n).some(x => x.vol === 0), JSON.stringify(env.log.spoken.slice(n)));
   await wait(100);
 });
 
