@@ -210,6 +210,17 @@ jobs:
           node-version: 24
       - run: node --test 'tests/report/*.test.mjs'
 
+  admin-tests:
+    # Pure Node: nav-stats migration SQL expectations + admin.html nav rendering with mocked old/new payloads (no network).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/admin/*.test.mjs'
+
   version:
     runs-on: ubuntu-latest
     timeout-minutes: 5

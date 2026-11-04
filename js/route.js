@@ -439,7 +439,7 @@ function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id
 export function startNav(sim = false) {
   if (settings.voice !== false) unlockSpeech(); // must run synchronously inside the tap on "Go" (iOS Safari)
   const r = R.routes[R.sel]; if (!r) return;
-  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
   track('nav_start', { mode: R.mode, sim });
   $('#dirPanel').classList.add('hidden'); closeSheet();
   $('#navHud').classList.remove('hidden');
@@ -515,7 +515,7 @@ function onPos(p, heading, speed, acc) {
   navPrompt(r, idx, distTo, R.mode, speed, instr, N.spoken);
   const remain = N.cum[N.cum.length - 1] - along;
   drawRoutes(along);
-  if (remain < 25 && !N.arrived) { N.arrived = true; speak(arriveText(r.steps[r.steps.length - 1])); track('nav_arrive', {}); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
+  if (remain < 25 && !N.arrived) { N.arrived = true; speak(arriveText(r.steps[r.steps.length - 1])); track('nav_arrive', { mode: R.mode, sim: !!N.isSim }); setTimeout(() => { if (R.active && N.arrived) stopNav(); }, 8000); }
   if (N.follow) App.map.easeTo({ center: shown, bearing: hdg, pitch: 58, zoom: camZoom(speed), duration: 1000, easing: x => x, padding: { top: innerHeight * 0.5, bottom: 0, left: 0, right: 0 } });
   N.lastDist = distTo; N.lastRemain = remain;
   renderHud(p, distTo, remain);
@@ -523,7 +523,7 @@ function onPos(p, heading, speed, acc) {
 async function reroute(p) {
   N.rerouting = true; renderHud(N.pos, N.lastDist, N.lastRemain);
   if (settings.voice) voiceSpeak(reroutingText(), { interrupt: true });
-  track('reroute', {});
+  track('reroute', { mode: R.mode, sim: !!N.isSim });
   const remainingStops = R.stops.slice(1).filter((s, i) => { const d = haversine(p, [s.lon, s.lat]); return i === R.stops.length - 2 || d > 50; });
   try {
     const routes = await computeRoutes([{ lon: p[0], lat: p[1] }, ...remainingStops], R.mode, { heading: N.speed > 2 && N.hdg != null ? N.hdg : null });
