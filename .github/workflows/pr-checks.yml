@@ -83,6 +83,7 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/overture/*.test.mjs'
+      - run: python3 -m unittest discover -s tests/overture -p 'test_*.py' -v
 
   ios-voice-mock:
     runs-on: ubuntu-latest

@@ -145,7 +145,7 @@ const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => m
 let q = lsGet(QKEY, []);
 const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
 export function track(type, props = {}) {
-  if (OFF || !ALLOWED.has(type)) return;
+  if (OFF || !ALLOWED.has(type)) return false;
   if (type === 'visit') { try { if (sessionStorage.getItem('kh.visit') === sessionId) return; sessionStorage.setItem('kh.visit', sessionId); } catch {} }
   try {
     const pr = { ...props };
@@ -164,7 +164,8 @@ export function track(type, props = {}) {
     };
     q.push(ev); if (q.length > MAXQ) q = q.slice(-MAXQ);
     lsSet(QKEY, q); schedule();
-  } catch {}
+    return true; // queued for sending (delivery happens later in flush())
+  } catch { return false; }
 }
 let timer = null, sending = false, leaving = false;
 function schedule(ms = 8000) { if (!timer) timer = setTimeout(() => { timer = null; flush(); }, ms); }

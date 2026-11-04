@@ -283,8 +283,9 @@ function render(item, tg, loading) {
     const why = body.querySelector('#pOvWhy');
     rep.onclick = () => { const open = why.hidden; why.hidden = !open; rep.setAttribute('aria-expanded', String(open)); };
     why.querySelectorAll('button[data-r]').forEach(b => b.onclick = () => {
-      if (!ovReport(item.ovId, b.dataset.r, { track })) return;
-      ovRefresh(App.map); closeSheet(); toast(t('ovReported'), 3500);
+      const res = ovReport(item.ovId, b.dataset.r, { track });
+      if (!res) return;
+      ovRefresh(App.map); closeSheet(); toast(t(res === 'queued' ? 'ovReportQueued' : 'ovReported'), 3500);
     });
   }
   if (item._extras) applyExtras(item._extras);
