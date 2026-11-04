@@ -7,7 +7,8 @@ import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
 import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking, unlockSpeech, sampleText, isIOS } from './voice.js';
-import { photonSearch, rank, dedupe, combobox, biasBox } from './suggest.js';
+import { dedupe, combobox, cleanQuery } from './suggest.js';
+import { placeSuggest } from './search.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
 export const routeState = R;
@@ -269,15 +270,14 @@ function initPanel() {
     const q = inp.value.trim(), c = center(), my = ++sseq;
     let res = [];
     if (App.me) res.push({ name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true, sub: '' });
-    lsGet('kh.saved', []).filter(s => !q || (s.name || '').toLowerCase().includes(q.toLowerCase())).slice(0, 4).forEach(s => res.push({ ...s, saved: true }));
-    if (q.length >= 2) {
+    // empty field: saved places as quick picks; typing: the SAME pipeline as the main search (QA P2: Arabic stops)
+    if (!q) lsGet('kh.saved', []).slice(0, 4).forEach(s => res.push({ ...s, saved: true }));
+    if (cleanQuery(q).length >= 2) {
       ctl?.abort(); ctl = new AbortController();
       try {
-        const fs = await photonSearch(q, { lang: getLang() === 'ar' ? 'default' : getLang(), center: c, zoom: App.map.getZoom(), view: (b => [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()])(App.map.getBounds()), limit: 8, signal: ctl.signal });
-        const list = fs.map(f => { const p = f.properties; return { name: p.name || p.street, sub: [p.city || p.town || p.village, p.state, p.country].filter((v, i, a) => v && v !== p.name && a.indexOf(v) === i).join(', '), lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], cc: p.countrycode, placeHit: !!p.placeHit, tags: { [p.osm_key]: p.osm_value } }; }).filter(r => r.name);
-        // settlements (Homs city, Damascus …) first, then Syria before neighbours (QA P1-1/P1-3)
-        const rk = rank(list, q, biasBox(c, (b => [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()])(App.map.getBounds())));
-        res = dedupe([...rk.settlements, ...res, ...rk.rest]).slice(0, 10);
+        const r = await placeSuggest(q, { signal: ctl.signal });
+        const hits = r.items.filter(x => x.lon != null && x.lat != null && !x.chip).map(x => ({ ...x, name: x.name || x.sub, saved: x.icon?.[0] === 'star' }));
+        res = dedupe([...res, ...hits]).slice(0, 10);
       } catch (e) { if (e.name === 'AbortError' && my !== sseq) return; }
     }
     // the panel may have been rebuilt meanwhile (route finished): compare the stop index, not the element
