@@ -1,12 +1,12 @@
 // Directions (OSRM @ FOSSGIS with Valhalla @ FOSSGIS failover), alternatives, multi-stop,
 // turn-by-turn list, live GPS navigation with rerouting + voice guidance.
 import { setPoiVisible } from './poi.js';
-import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, toast, settings, lsGet } from './util.js';
+import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, toast, settings, saveSettings, lsGet } from './util.js';
 import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
-import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking } from './voice.js';
+import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking, unlockSpeech, sampleText, isIOS } from './voice.js';
 import { photonSearch, rank, dedupe, combobox, biasBox } from './suggest.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -437,6 +437,7 @@ function navArrowEl() {
 const NAV_HIDE = ['label-housenumber'];
 function setNavLayers(hide) { for (const id of NAV_HIDE) if (App.map.getLayer(id)) App.map.setLayoutProperty(id, 'visibility', hide ? 'none' : 'visible'); setPoiVisible(App.map, !hide); }
 export function startNav(sim = false) {
+  if (settings.voice !== false) unlockSpeech(); // must run synchronously inside the tap on "Go" (iOS Safari)
   const r = R.routes[R.sel]; if (!r) return;
   R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.pos = null; N.lastDist = null; N.lastRemain = null; r._stepAlong = null;
   track('nav_start', { mode: R.mode, sim });
@@ -555,18 +556,34 @@ function renderHud(p, distTo, remain) {
   const arr = fmtTime(new Date(Date.now() + tleft * 1000));
   const mins = Math.max(1, Math.round(tleft / 60));
   if (N.arrived) $('#navBottom').innerHTML = `<button class="endbtn done" id="navStop" style="flex:1;background:var(--k-accent);color:var(--k-text-on-accent)">${t('done')}</button>`;
-  else $('#navBottom').innerHTML = `<button class="ib" id="navVoice" aria-label="${t('voice')}">${ic(settings.voice ? 'volume' : 'volumeOff')}</button>
-    <div class="m arr"><b>${arr}</b><small>${t('arrival')}</small></div>
+  else $('#navBottom').innerHTML = `<div class="m arr"><b>${arr}</b><small>${t('arrival')}</small></div>
     <div class="m"><b>${mins >= 60 ? digits(Math.floor(mins / 60) + ':' + String(mins % 60).padStart(2, '0')) : nf(mins)}</b><small>${mins >= 60 ? t('h') : t('min')}</small></div>
     <div class="m"><b>${nf(remain < 10000 ? Math.round(remain / 100) / 10 : Math.round(remain / 1000), { maximumFractionDigits: 1 })}</b><small>${t('km')}</small></div>
     <button class="endbtn" id="navStop">${t('navEnd')}</button>`;
   $('#navStop').onclick = stopNav;
-  $('#navVoice')?.addEventListener('click', () => { settings.voice = !settings.voice; if (!settings.voice) stopSpeaking(); renderHud(p, distTo, remain); });
+  voiceBtn();
   const rc = $('#navRecenter');
   rc.classList.toggle('hidden', N.follow);
   rc.innerHTML = `${ic('navigation')}<span>${t('recenter')}</span>`;
   rc.onclick = () => { N.follow = true; clearTimeout(recT); if (N.pos) onPos(N.pos, N.hdg, N.speed || 0, 5); else renderHud(); };
 }
+// floating speaker button (Apple-Maps style, DESIGN §4.8 map controls): tap = mute / unmute; unmuting plays a test announcement
+function voiceBtn() {
+  const b = $('#navVoice'); if (!b) return;
+  const on = settings.voice !== false;
+  b.innerHTML = ic(on ? 'volume' : 'volumeOff');
+  b.classList.toggle('off', !on);
+  b.setAttribute('aria-pressed', String(!on));
+  b.setAttribute('aria-label', t(on ? 'vMute' : 'vUnmute'));
+  b.title = t(on ? 'vMute' : 'vUnmute');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest?.('#navVoice')) return;
+  settings.voice = settings.voice === false; saveSettings(); // persisted in localStorage (kh.settings)
+  if (settings.voice) { unlockSpeech(); voiceSpeak(sampleText(), { force: true }); toast(isIOS() ? t('vOnT') + ' · ' + t('vIosSilent') : t('vOnT'), isIOS() ? 5000 : 1800); }
+  else { stopSpeaking(); toast(t('vOffT'), 1800); }
+  voiceBtn();
+});
 export function stopNav() {
   R.active = false; App.navMode = false; document.body.classList.remove('nav');
   if (N.watch != null) navigator.geolocation.clearWatch(N.watch); N.watch = null; clearTimeout(N.sim); clearTimeout(recT); cancelAnimationFrame(interp);

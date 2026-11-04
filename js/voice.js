@@ -12,6 +12,9 @@ const SYN = () => ('speechSynthesis' in window ? window.speechSynthesis : null);
 const UA = navigator.userAgent || '';
 const OS = /Android/i.test(UA) ? 'android' : /CrOS/.test(UA) ? 'cros' : /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1) ? 'ios' : /Macintosh/.test(UA) ? 'mac' : /Windows/.test(UA) ? 'win' : 'other';
 // region preference per app language (index = rank, earlier = better); anything else in that language comes last
+// BCP-47 tag used when the browser lists no matching voice (engine picks its own voice for that language)
+const TAG = { ar: 'ar-SA', en: 'en-GB', de: 'de-DE' };
+const langTag = (lang = getLang()) => TAG[lang] || lang;
 const REGIONS = { ar: ['ar-sy', 'ar-sa', 'ar-001'], en: ['en-gb', 'en-us'], de: ['de-de'] };
 
 // ---------- gender / quality heuristics (names from the Readium speech voice lists) ----------
@@ -52,6 +55,7 @@ function score(v, lang) {
 // ---------- voice list (async) ----------
 let all = [], loaded = false;
 const subs = new Set();
+export const _test = { reset() { all = []; loaded = false; unlocked = false; confirmed = false; cur = null; queue = []; last = ''; warned = {}; live.clear(); }, refresh: () => refresh(), live: () => live.size };
 export function onVoices(cb) { subs.add(cb); return () => subs.delete(cb); }
 function refresh() {
   const s = SYN(); if (!s) return;
@@ -65,16 +69,40 @@ function init() {
   refresh();
   try { s.addEventListener ? s.addEventListener('voiceschanged', refresh) : (s.onvoiceschanged = refresh); } catch {}
   let n = 0; const poll = setInterval(() => { refresh(); if (loaded || ++n > 20) clearInterval(poll); }, 250); // iOS: no voiceschanged
-  // iOS/Safari only speak after a user gesture: unlock with a silent utterance on the first tap
-  // (only once a local voice is known – never an utterance without a known on-device voice)
-  const unlock = () => {
-    refresh(); const v = chosenVoice();
-    if (!v || settings.voice === false) return; // try again on the next tap
-    document.removeEventListener('pointerdown', unlock, true);
-    try { if (!s.speaking && !cur) { const u = new SpeechSynthesisUtterance(' '); u.voice = v; u.lang = v.lang; u.volume = 0; s.speak(u); } } catch {}
-  };
-  document.addEventListener('pointerdown', unlock, true);
+  // iOS/Safari only speak after a user gesture: unlock on the first tap (also when the voice list is still empty –
+  // iOS PWAs often report no voices until speech has been used once)
+  // Only activation-triggering events count (HTML spec: touchend / click / pointerup for touch – NOT pointerdown/touchstart).
+  // The listeners stay until the engine confirms the unlock (an unlock utterance actually started or ended).
+  const EVS = ['touchend', 'click'];
+  const unlock = () => { if (settings.voice === false) return; unlockSpeech(); if (confirmed) EVS.forEach(n => document.removeEventListener(n, unlock, true)); };
+  EVS.forEach(n => document.addEventListener(n, unlock, true));
+  // iOS pauses/stops the engine when the app goes to the background → resume when visible again
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { refresh(); try { if (s.paused || cur) s.resume(); } catch {} } });
 }
+let unlocked = false, confirmed = false; // unlocked: speak() was called inside a gesture; confirmed: the engine played it
+const live = new Set(); // keep utterances referenced until they end (Safari/Chrome GC them → onend never fires, speech stops)
+const keep = u => { live.add(u); const done = () => live.delete(u); u.addEventListener ? (u.addEventListener('end', done), u.addEventListener('error', done)) : 0; const tm = setTimeout(done, 30000); tm?.unref?.(); return u; };
+/** Call synchronously inside a user gesture (tap on "Go", speaker button): speaks a silent utterance so that iOS Safari
+ *  allows later speech that is started from timers / GPS callbacks. Returns true once unlocked. */
+export function unlockSpeech() {
+  const s = SYN(); if (!s) return false;
+  refresh();
+  if (confirmed) { try { s.resume(); } catch {} return true; }
+  // not confirmed yet: speak a silent utterance in THIS gesture (also when something is speaking – it just queues)
+  try {
+    const u = keep(new SpeechSynthesisUtterance(' ')); u.volume = 0; u.rate = 1;
+    const v = chosenVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = langTag();
+    const ok = () => { confirmed = true; };
+    u.onstart = ok; u.onend = ok;
+    s.speak(u); unlocked = true; // speak() really happened inside the caller's gesture
+    s.resume();
+    let n = 0; const poll = setInterval(() => { refresh(); if (loaded || ++n > 20) clearInterval(poll); }, 250); // voices often appear only now
+  } catch {}
+  return unlocked;
+}
+export const isIOS = () => OS === 'ios';
+export const isUnlocked = () => unlocked;
+export const isConfirmed = () => confirmed;
 init();
 
 /** Candidates for a language, best first. Cloud voices are never returned. */
@@ -241,15 +269,20 @@ export function navPrompt(r, idx, distTo, mode, speed, fallback, spoken) {
 
 // ---------- speaking (own queue: a running prompt is never cut by the next one) ----------
 let last = '', lastT = 0, warned = {}, cur = null, guard = null, queue = [];
+const CANCEL_GAP = 150; // ms between cancel() and the next speak() (iOS bug)
+// states in which we still speak with just a language tag: list empty (iOS PWA reports none) / no voice listed for the language
+const FALLBACK = new Set(['unknown', 'none']);
 const MAX_WAIT = 8000; // queued prompts older than this are dropped (stale distance)
 function finish(u) { if (cur !== u) return; cur = null; clearTimeout(guard); const now = Date.now(); while (queue.length) { const q = queue.shift(); if (now - q.t < q.ttl && play(q.text)) return; } } // a failing prompt does not block the rest
 function play(text) {
-  const s = SYN(), lang = getLang(), v = chosenVoice(lang);
-  if (!s || !v) return false;
+  const s = SYN(), lang = getLang(), st = voiceState(lang), v = st === 'ok' ? chosenVoice(lang) : null;
+  if (!s || (!v && !FALLBACK.has(st))) return false;
   try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.voice = v; u.lang = v.lang; u.rate = 1; u.pitch = 1;
-    u.onend = u.onerror = () => finish(u);
+    const u = keep(new SpeechSynthesisUtterance(text));
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = langTag(lang); // fallback: language tag only, the engine picks its voice
+    u.rate = 1; u.pitch = 1; u.volume = 1;
+    u.onstart = () => { confirmed = true; }; // the engine really played something → unlocked
+    u.onend = () => { confirmed = true; finish(u); }; u.onerror = () => finish(u);
     cur = u; last = text; lastT = Date.now();
     clearTimeout(guard); guard = setTimeout(() => finish(u), Math.min(15000, 1500 + text.length * 110)); // engines that never fire onend
     s.speak(u);
@@ -269,10 +302,18 @@ export function speak(text, { force = false, interrupt = false, ttl = MAX_WAIT }
   refresh();
   const lang = getLang(), st = voiceState(lang);
   if (st !== 'ok') {
-    if (st !== 'unsupported' && !warned[lang]) { warned[lang] = 1; toast(t('noVoice', { l: t('vLang') }), 4000); }
-    return false; // never a cloud voice, a wrong-language voice or an unknown engine default
+    if ((st === 'none' || st === 'online') && !warned[lang]) { warned[lang] = 1; toast(t('noVoice', { l: t('vLang') }), 4000); }
+    if (!FALLBACK.has(st)) return false; // never a cloud voice
   }
-  if (interrupt || force) { queue = []; const c = cur; cur = null; clearTimeout(guard); if (c || s.speaking || s.pending) try { s.cancel(); } catch {} return play(text); }
+  if (interrupt || force) {
+    queue = []; const c = cur; cur = null; clearTimeout(guard);
+    if (c) { // a real prompt is running (the silent unlock utterance is not cut – the new one simply queues behind it)
+      // iOS WebKit drops an utterance that is spoken right after cancel() → short pause before the new prompt
+      try { s.cancel(); } catch {}
+      const p = { text }; cur = p; setTimeout(() => { if (cur === p) { cur = null; play(text); } }, CANCEL_GAP); return true;
+    }
+    return play(text);
+  }
   if (cur) { queue.push({ text, t: Date.now(), ttl }); if (queue.length > 2) queue.shift(); return true; }
   return play(text);
 }
@@ -298,11 +339,12 @@ export function voiceRowsHtml(icon) {
     h += `<div class="ditem vblock"><div class="vsub">${t('vDialect')}</div><div class="seg" id="dVoiceDial" role="radiogroup">${[['auto', t('vDialAuto')], ['syr', t('vDialSyr')], ['msa', t('vDialMsa')]].map(([k, n]) => `<button data-v="${k}" role="radio" aria-checked="${d === k}" class="${d === k ? 'on' : ''}">${n}</button>`).join('')}</div>
       ${arVariant() === 'msa' && d === 'auto' ? `<div class="vhint">${t('vMsaHint')}</div>` : ''}</div>`;
   }
-  if (st !== 'unsupported') h += `<button class="ditem" id="dVoiceTest" ${st !== 'ok' ? 'disabled aria-disabled="true"' : ''}>${icon('volume')}<span>${t('vTest')}<small class="vsample" dir="auto">${escH(sampleText())}</small></span></button>`;
+  if (st !== 'unsupported') h += `<button class="ditem" id="dVoiceTest" ${st !== 'ok' && !FALLBACK.has(st) ? 'disabled aria-disabled="true"' : ''}>${icon('volume')}<span>${t('vTest')}<small class="vsample" dir="auto">${escH(sampleText())}</small></span></button>`;
   if (st === 'none' || st === 'online' || st === 'unknown' || st === 'unsupported') {
     const K = { online: 'vOnline', unknown: 'vList', unsupported: 'vNoTts' }[st] || 'vNone';
     h += `<div class="ditem vnote" id="dVoiceNote" data-state="${st}" role="status">${icon('info')}<div><b>${t(K + 'T', { l: t('vLang') })}</b><p>${t(K + 'B', { l: t('vLang') })}</p>${st === 'unsupported' ? '' : `<p class="vtip">${tip()}</p>`}</div></div>`;
-  } else if (OS === 'android') h += `<div class="ditem vnote">${icon('info')}<div><p>${t('vAndroidHint')}</p></div></div>`;
+  } else if (OS === 'ios') h += `<div class="ditem vnote" id="dVoiceIos">${icon('info')}<div><p>${t('vIosSilent')}</p></div></div>`;
+  else if (OS === 'android') h += `<div class="ditem vnote">${icon('info')}<div><p>${t('vAndroidHint')}</p></div></div>`;
   return h;
 }
 /** Wire the rows; rerender() redraws the drawer (also called when the voice list arrives late). */

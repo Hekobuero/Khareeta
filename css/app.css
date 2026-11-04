@@ -186,7 +186,7 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
    on touch devices every text field/select gets at least 16px (AR stays at its 17px). No viewport zoom lock (a11y). */
 @media (hover:none),(pointer:coarse){
   input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:max(16px,var(--k-text-body))!important}
-  .vsel-row .vsel{padding-block:10px} /* keeps the voice row height at 16px text */
+  .vsel-row .vsel{padding-block:10px;line-height:22px} /* fixed line box: AR (17px, taller glyph metrics) no longer +3px in WebKit */ /* keeps the voice row height at 16px text */
 }
 .stop .ib{width:34px;height:34px}
 .addstop{font-size:var(--k-text-sub);color:var(--k-accent);font-weight:600;padding:2px 32px;text-align:start}
@@ -231,6 +231,12 @@ body.sugg-open .dirpanel,body.sugg-open #top{z-index:34}
 .nav-bottom .ib{background:var(--k-surface-2)}
 .endbtn{background:var(--k-danger-tint);color:var(--k-danger);border-radius:var(--k-radius-pill);padding:0 22px;height:48px;font-weight:600;font-size:var(--k-text-body)}
 .recenter{pointer-events:auto;position:absolute;inset-inline-start:var(--k-gutter);bottom:calc(var(--k-safe-bottom) + 100px);height:44px;padding:0 16px;border-radius:var(--k-radius-pill);display:flex;align-items:center;gap:6px;font-weight:600;color:var(--k-accent)}
+.navvoice{pointer-events:auto;position:absolute;inset-inline-end:var(--k-gutter);bottom:calc(var(--k-safe-bottom) + 100px);width:48px;height:48px;border-radius:50%;display:grid;place-items:center;color:var(--k-accent);box-shadow:var(--k-shadow-2,0 2px 8px rgba(0,0,0,.18));-webkit-tap-highlight-color:transparent}
+.navvoice .ic{width:24px;height:24px}
+.navvoice.off{color:var(--k-text-2)}
+.navvoice:active{transform:scale(.94)}
+.navvoice:focus-visible{outline:2px solid var(--k-accent);outline-offset:2px}
+body:not(.nav) .navvoice{display:none}
 .speed{pointer-events:none;position:absolute;inset-inline-start:var(--k-gutter);bottom:calc(var(--k-safe-bottom) + 156px);width:60px;height:60px;border-radius:50%;background:#fff;border:6px solid #D93025;color:#111;display:grid;place-items:center;font-weight:700;font-size:20px;box-shadow:var(--k-shadow-2);font-variant-numeric:tabular-nums}
 body.nav .sheet,body.nav #top,body.nav #dirPanel,body.nav #fabs,body.nav #fabsBottom{display:none!important}
 
@@ -431,3 +437,18 @@ button,a,[role=button],summary{touch-action:manipulation}
 .pnote{margin:0 var(--k-gutter) 8px;font-size:var(--k-text-sub)}
 /* place sheet: inline links (phone, website, e-mail, OSM) get a ≥44px tap height */
 .igroup .val a{display:inline-flex;align-items:center;min-height:44px;margin-block:-10px;max-width:100%}
+.hours-tz-short{color:var(--k-text-2);font-size:var(--k-text-sub)}
+.irow .val small.hours-tz-short{display:inline}
+/* ---- place photos (Wikimedia Commons): fixed 4:3 boxes, attribution under each photo ---- */
+.pphotos{display:flex;gap:var(--k-space-2);overflow-x:auto;padding:4px var(--k-gutter) 4px;scrollbar-width:none;scroll-snap-type:x mandatory;scroll-padding-inline:var(--k-gutter);touch-action:pan-x}
+.pphotos::-webkit-scrollbar{display:none}
+.pphotos .ph{margin:0;flex:none;width:min(240px,calc(100vw - 2 * var(--k-gutter)));scroll-snap-align:start}
+.pphotos .ph:only-child{width:100%}
+.pphotos .ph-box{display:block;position:relative;aspect-ratio:4/3;width:100%;border-radius:12px;overflow:hidden;background:var(--k-surface-2);min-height:44px}
+.pphotos .ph-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.pphotos .skel-box{background:linear-gradient(90deg,var(--k-surface-2),var(--k-surface-3),var(--k-surface-2));background-size:200% 100%;animation:sk 1.2s infinite}
+.pphotos .ph-empty .ph-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--k-text-3);font-size:var(--k-text-sub);text-align:center;padding:12px}
+.pphotos .ph-cap{font-size:var(--k-text-caption);line-height:1.35;color:var(--k-text-3);overflow-wrap:anywhere}
+.pphotos .ph-cap a{display:inline-flex;align-items:center;min-height:var(--k-tap);color:var(--k-accent);font-weight:500}
+.pphotos .ph-cap .skel{display:block;height:12px;margin:16px 0}
+@media (prefers-reduced-motion: reduce){.pphotos .skel-box{animation:none}}

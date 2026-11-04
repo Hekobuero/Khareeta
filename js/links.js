@@ -49,7 +49,34 @@ export function safeUrl(v) {
   if (u.username || u.password) return null;
   return u;
 }
-export const domainOf = u => u.hostname.replace(/^www\.|^m\./i, '').toLowerCase();
+// Punycode (RFC 3492) decoder for IDN labels "xn--…" → Unicode, for display only (href keeps the ASCII form).
+export function punyDecode(label) {
+  const base = 36, tMin = 1, tMax = 26, skew = 38, damp = 700;
+  const out = [], b = label.lastIndexOf('-');
+  for (let j = 0; j < Math.max(b, 0); j++) { if (label.charCodeAt(j) >= 0x80) return null; out.push(label.charCodeAt(j)); }
+  let n = 128, bias = 72, i = 0;
+  const adapt = (d, num, first) => { d = first ? Math.floor(d / damp) : d >> 1; d += Math.floor(d / num); let k = 0; for (; d > ((base - tMin) * tMax) >> 1; k += base) d = Math.floor(d / (base - tMin)); return k + Math.floor((base - tMin + 1) * d / (d + skew)); };
+  for (let p = b > 0 ? b + 1 : 0; p < label.length;) {
+    const oldi = i;
+    for (let w = 1, k = base; ; k += base) {
+      if (p >= label.length) return null;
+      const c = label.charCodeAt(p++), dg = c - 48 < 10 ? c - 22 : c - 65 < 26 ? c - 65 : c - 97 < 26 ? c - 97 : base;
+      if (dg >= base) return null;
+      i += dg * w; const tt = k <= bias ? tMin : k >= bias + tMax ? tMax : k - bias;
+      if (dg < tt) break; w *= base - tt;
+      if (i > 0x10FFFF * 4) return null;
+    }
+    bias = adapt(i - oldi, out.length + 1, oldi === 0);
+    n += Math.floor(i / (out.length + 1)); i %= out.length + 1;
+    if (n > 0x10FFFF) return null;
+    out.splice(i++, 0, n);
+  }
+  try { return String.fromCodePoint(...out); } catch { return null; }
+}
+// Anti-spoofing: a decoded label that mixes Latin letters with another script (e.g. Cyrillic "а" in "pаypal") stays punycode.
+const mixed = s => /[a-z]/i.test(s) && /[^\x00-\x7F\u00C0-\u024F]/.test(s);
+export const unicodeHost = h => h.split('.').map(l => { if (!/^xn--/i.test(l)) return l; const u = punyDecode(l.slice(4).toLowerCase()); return u && !mixed(u) ? u : l; }).join('.');
+export const domainOf = u => unicodeHost(u.hostname.replace(/^www\.|^m\./i, '').toLowerCase());
 
 const SOC = {
   facebook: { hosts: /(^|\.)(facebook\.com|fb\.com|fb\.me)$/i, handle: /^[A-Za-z0-9.\-]{2,80}$/, base: 'https://www.facebook.com/' },

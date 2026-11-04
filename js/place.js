@@ -1,6 +1,6 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
-import { poiIndexFor, toItem, P as POIS } from './poi.js';
+import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
@@ -9,6 +9,21 @@ import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
+import { photoSources, loadPhotos, photoTags } from './photos.js';
+// Known photo tags per OSM id (from earlier online views) → photo box also on offline deep links (SW kh-photos cache).
+const PHK = 'kh.phtags', PH_MAX = 200;
+const phRead = () => { try { return JSON.parse(localStorage.getItem(PHK)) || {}; } catch { return {}; } };
+function withPhotoTags(item, tg) {
+  const id = item.osm_type && item.osm_id ? item.osm_type[0] + item.osm_id : null;
+  const own = photoTags(tg);
+  if (!id) return tg;
+  const m = phRead();
+  if (Object.keys(own).length) {
+    if (JSON.stringify(m[id]) !== JSON.stringify(own)) { delete m[id]; m[id] = own; const ks = Object.keys(m); ks.slice(0, Math.max(0, ks.length - PH_MAX)).forEach(k => delete m[k]); try { localStorage.setItem(PHK, JSON.stringify(m)); } catch {} }
+    return tg;
+  }
+  return m[id] ? { ...m[id], ...tg } : tg;
+}
 
 let cur = null, token = 0;
 const navActiveSafe = () => document.body.classList.contains('nav');
@@ -82,6 +97,19 @@ export async function openPlace(item, opts = {}) {
   if (App.selPoi != null && !item.poi) { const b = toItem(POIS.all[App.selPoi]).tags; item.tags = Object.assign({}, b, item.tags || {}); }
   { const [icn, col] = catIcon(item.tags || {}); setSelMarker(ll, item.coord ? '#E5484D' : col, item.coord ? null : icn, item.tags?.name || item.name); }
   render(item, item.tags || {}, !item.coord && !item.full);
+  // Deep link (?p=n…): the POI may be in the bundled data/poi (SW-cached) → name, hours, phone … at once, also offline
+  if (App.selPoi == null && !item.poi && !item.coord && item.osm_type && item.osm_id != null) {
+    localItem(item.osm_type[0] + item.osm_id).then(li => {
+      if (!li || my !== token || cur !== item) return;
+      App.selPoi = li.poi;
+      item.tags = Object.assign({}, li.tags, item.tags || {});
+      if (item.lon == null) { item.lon = li.lon; item.lat = li.lat; }
+      { const [icn, col] = catIcon(item.tags); setSelMarker([item.lon, item.lat], col, icn, item.tags.name || item.name); }
+      render(item, item.tags, !item._done);
+      if (item._noData) noDataNote();
+      if (item._extras) applyExtras(item._extras); // repaint already loaded weather/address/nearby, no refetch
+    });
+  }
   if (!opts.noFly) {
     const e = item.extent;
     if (e && e.length === 4 && item.osm_type !== 'node' && Math.abs(e[2] - e[0]) > 0.005) {
@@ -96,21 +124,27 @@ export async function openPlace(item, opts = {}) {
   if (item.coord || !item.osm_type || item.full) { extras(item, item.tags || {}, my, true); return; }
   await loadDetails(item, my);
 }
+function noDataNote() {
+  $('#pNoData')?.remove();
+  const n = document.createElement('p'); n.className = 'pnote muted'; n.id = 'pNoData'; n.setAttribute('role', 'status');
+  n.textContent = t(navigator.onLine === false ? 'detailsOffline' : 'detailsFailed');
+  $('.phead')?.after(n);
+}
 // Full OSM tags (Nominatim → Overpass) → re-render the sheet when they arrive; offline → note + retry on "online".
 async function loadDetails(item, my) {
   const r = await loadTags(item);
   if (my !== token || cur !== item) return;
   if (!r) {
     // offline / Nominatim+Overpass both failed (e.g. deep link while offline): graceful state, retry when back online
+    item._done = true; item._noData = true;
     render(item, item.tags || {}, false);
-    const n = document.createElement('p'); n.className = 'pnote muted'; n.id = 'pNoData'; n.setAttribute('role', 'status');
-    n.textContent = t(navigator.onLine === false ? 'detailsOffline' : 'detailsFailed');
-    $('.phead')?.after(n);
+    noDataNote();
     extras(item, item.tags || {}, my, true);
-    const retry = () => { if (my === token && cur === item) { $('#pNoData')?.remove(); loadDetails(item, my); } };
+    const retry = () => { if (my === token && cur === item) { item._noData = false; $('#pNoData')?.remove(); loadDetails(item, my); } };
     addEventListener('online', retry, { once: true });
     return;
   }
+  item._done = true; item._noData = false;
   if (r) { item.tags = Object.assign({}, item.tags, r.tags); if (r.parts) item.addrParts = r.parts; if (r.addr && !addrFromTags(item.tags)) item.sub = r.addr; if (r.ll && r.ll[0] != null && !item.lon) { item.lon = r.ll[0]; item.lat = r.ll[1]; } }
   render(item, item.tags, false);
   extras(item, item.tags, my, true);
@@ -149,7 +183,7 @@ function render(item, tg, loading) {
     const tbl = ohTable(tg.opening_hours);
     const td = tbl && (tbl.find(r => r.today) || tbl[0]);
     rows.push(tbl
-      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
+      ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi> <small class="hours-tz-short">(${t('tzShort')})</small><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
       : irow(t('hours'), `<bdi class="oh-raw">${esc(String(tg.opening_hours).slice(0, 300))}</bdi>`));
   }
   phones.forEach(p => rows.push(irow(t('phone'), `<a href="tel:${esc(p.tel)}" dir="ltr">${esc(digits(p.display))}</a>`)));
@@ -207,7 +241,7 @@ function render(item, tg, loading) {
     ${fourth}
   </div>
   ${contactRow}
-  <div class="photos" id="pPhotos"></div>
+  ${!settings.lowData && photoSources(withPhotoTags(item, tg)).any ? photoBox() : ''}
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
@@ -231,7 +265,7 @@ function render(item, tg, loading) {
   body.querySelector('#pMore')?.addEventListener('click', () => { const g = body.querySelector('.igroup'); setSheet('full'); g?.scrollIntoView({ behavior: 'smooth' }); });
   const hr = body.querySelector('#pHours');
   if (hr) {
-    const tog = () => { const open = hr.getAttribute('aria-expanded') !== 'true'; hr.setAttribute('aria-expanded', String(open)); hr.classList.toggle('open', open); hr.querySelectorAll('table, .hours-tz').forEach(el => el.classList.toggle('hidden', !open)); };
+    const tog = () => { const open = hr.getAttribute('aria-expanded') !== 'true'; hr.setAttribute('aria-expanded', String(open)); hr.classList.toggle('open', open); hr.querySelectorAll('table, .hours-tz').forEach(el => el.classList.toggle('hidden', !open)); hr.querySelector('.hours-tz-short')?.classList.toggle('hidden', open); };
     hr.addEventListener('click', e => { if (!e.target.closest('a')) tog(); });
     hr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tog(); } });
   }
@@ -254,7 +288,11 @@ async function extras(item, tg, my, phase) {
     jobs.push(nearby(item).then(n => ex.nearby = n).catch(() => {}));
     if (!settings.lowData) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
   } else if (!settings.lowData) {
-    jobs.push(photos(item, tg).then(p => ex.photos = p).catch(() => ex.photos = []));
+    tg = withPhotoTags(item, tg);
+    if (photoSources(tg).any) jobs.push(loadPhotos(tg, u => fetchJSON(u, {}, 8000)).then(p => {
+      ex.photos = p;
+      if (p.error === 'offline') addEventListener('online', () => { if (my === token && cur === item) extras(item, tg, my, true); }, { once: true });
+    }).catch(() => ex.photos = { photos: [], error: 'offline' }));
     jobs.push(wiki(tg).then(w => ex.wiki = w).catch(() => {}));
   }
   for (const j of jobs) j.then(() => { if (my === token && cur === item) applyExtras(ex); });
@@ -266,9 +304,9 @@ function applyExtras(ex) {
   if (ex.addr !== undefined) { const a = body.querySelector('#pAddr'); if (a && a.querySelector('.muted')) a.innerHTML = ex.addr ? `<bdi>${esc(ex.addr)}</bdi>` : '—'; }
   if (ex.wx) { const w = body.querySelector('#pWx .val'); if (w) w.innerHTML = ex.wx; }
   else if (ex.wx === null) body.querySelector('#pWxG')?.remove();
-  if (ex.photos?.length) {
+  if (ex.photos) {
     const p = body.querySelector('#pPhotos');
-    if (p && !p.children.length) p.innerHTML = ex.photos.map(ph => `<figure><a href="${esc(ph.link)}" target="_blank" rel="noopener" title="${esc(ph.credit || '')}"><img loading="lazy" src="${esc(ph.src)}" alt="" referrerpolicy="no-referrer"></a></figure>`).join('');
+    if (p && p.dataset.state === 'loading') fillPhotos(p, ex.photos);
   }
   if (ex.wiki) {
     const w = body.querySelector('#pWiki'); if (w && !w.innerHTML) w.innerHTML = `<p class="wiki-sum" dir="auto">${esc(ex.wiki.extract)}</p>`;
@@ -299,31 +337,27 @@ async function weather(lat, lon) {
   return `<div class="wx"><span style="font-size:28px">${e}</span><div><div class="t">${nf(Math.round(c.temperature_2m))}°C</div><small>${esc(txt)} · ${t('feels')} ${nf(Math.round(c.apparent_temperature))}° · ↑${nf(Math.round(j.daily.temperature_2m_max[0]))}° ↓${nf(Math.round(j.daily.temperature_2m_min[0]))}°</small><small>${t('wind')} ${nf(Math.round(c.wind_speed_10m))} km/h · ${t('humidity')} ${nf(c.relative_humidity_2m)}% · ${t('elevation')} ${nf(Math.round(j.elevation))} m</small><small><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0)</small></div></div>`;
 }
 
-async function photos(item, tg) {
-  const out = [];
-  const add = (file, credit) => { file = file.replace(/^(File|Image):/i, ''); out.push({ src: `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=480`, link: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(file)}`, credit: credit || 'Wikimedia Commons' }); };
-  if (tg.wikimedia_commons && /^File:/i.test(tg.wikimedia_commons)) add(tg.wikimedia_commons);
-  if (tg.image && /commons\.wikimedia\.org\/wiki\/File:/.test(tg.image)) add(decodeURIComponent(tg.image.split('File:')[1]));
-  else if (tg.image && /^https:\/\/.*\.(jpe?g|png|webp)$/i.test(tg.image)) out.push({ src: tg.image, link: tg.image, credit: '' });
-  if (tg.wikidata) {
-    try {
-      const j = await fetchJSON(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${tg.wikidata}&props=claims&format=json&origin=*`, {}, 8000);
-      const cl = j.entities?.[tg.wikidata]?.claims?.P18; if (cl) cl.slice(0, 2).forEach(c => add(c.mainsnak.datavalue.value));
-    } catch {}
-  }
-  if (tg.wikimedia_commons && /^Category:/i.test(tg.wikimedia_commons)) {
-    try {
-      const j = await fetchJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=${encodeURIComponent(tg.wikimedia_commons)}&gcmtype=file&gcmlimit=6&prop=imageinfo&iiprop=url&iiurlwidth=480&format=json&origin=*`, {}, 8000);
-      Object.values(j.query?.pages || {}).forEach(p => p.imageinfo && out.push({ src: p.imageinfo[0].thumburl, link: p.imageinfo[0].descriptionurl, credit: 'Wikimedia Commons' }));
-    } catch {}
-  }
-  if (out.length < 4 && !item.coord) {
-    try {
-      const j = await fetchJSON(`https://commons.wikimedia.org/w/api.php?action=query&generator=geosearch&ggscoord=${item.lat}|${item.lon}&ggsradius=${tg.place ? 3000 : 120}&ggslimit=8&ggsnamespace=6&prop=imageinfo&iiprop=url&iiurlwidth=480&format=json&origin=*`, {}, 8000);
-      Object.values(j.query?.pages || {}).slice(0, 8 - out.length).forEach(p => p.imageinfo && /\.(jpe?g|png|webp)$/i.test(p.title) && out.push({ src: p.imageinfo[0].thumburl, link: p.imageinfo[0].descriptionurl, credit: 'Wikimedia Commons' }));
-    } catch {}
-  }
-  const seen = new Set(); return out.filter(o => !seen.has(o.link) && seen.add(o.link));
+// ---------- photos (Wikimedia Commons) ----------
+// Fixed 4:3 box reserved as soon as the tags name a photo source → no layout jump when the image arrives.
+function photoBox() {
+  return `<section class="pphotos" id="pPhotos" data-state="loading" aria-label="${esc(t('photos'))}" aria-busy="true"><figure class="ph"><div class="ph-box skel-box"></div><figcaption class="ph-cap"><span class="skel" style="width:60%"></span></figcaption></figure></section>`;
+}
+function photoEmpty(key) {
+  return `<figure class="ph ph-empty"><div class="ph-box" role="img" aria-label="${esc(t(key))}">${ic('image', 'sm')}<span>${esc(t(key))}</span></div></figure>`;
+}
+function fillPhotos(box, res) {
+  box.removeAttribute('aria-busy');
+  const list = res.photos || [];
+  if (!list.length) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(res.error === 'offline' || navigator.onLine === false ? 'photoOffline' : 'photoNone'); return; }
+  box.dataset.state = 'ok';
+  box.innerHTML = list.map(ph => `<figure class="ph">
+    <a class="ph-box" href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(t('photoOpen'))}: ${esc(ph.alt)}"><img src="${esc(ph.thumb)}" alt="${esc(ph.alt)}" width="${+ph.width}" height="${+ph.height}" loading="lazy" decoding="async" crossorigin="anonymous" referrerpolicy="no-referrer"></a>
+    <figcaption class="ph-cap" dir="auto"><bdi>${esc(ph.artist ? t('photoBy', { a: ph.artist }) : t('photoUnknown'))}</bdi>${ph.license ? ` · ${ph.licenseUrl ? `<a href="${esc(ph.licenseUrl)}" target="_blank" rel="noopener noreferrer license"><bdi dir="ltr">${esc(ph.license)}</bdi></a>` : `<bdi dir="ltr">${esc(ph.license)}</bdi>`}` : ''} · <a href="${esc(ph.page)}" target="_blank" rel="noopener noreferrer">${esc(t('photoSource'))}</a></figcaption>
+  </figure>`).join('');
+  box.querySelectorAll('img').forEach(img => img.addEventListener('error', () => {
+    img.closest('.ph')?.remove();
+    if (!box.querySelector('.ph')) { box.dataset.state = 'empty'; box.innerHTML = photoEmpty(navigator.onLine === false ? 'photoOffline' : 'photoNone'); }
+  }, { once: true }));
 }
 
 async function wiki(tg) {

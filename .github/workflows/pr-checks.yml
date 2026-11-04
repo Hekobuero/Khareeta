@@ -1,8 +1,8 @@
-# PR checks: voice tests, place-info unit tests, lang tests, world (names/worldwide) tests, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+# PR checks: voice tests, place-info + photos unit tests, lang tests, world (names/worldwide) tests, iOS voice, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
 name: pr-checks
 on:
   pull_request:
-    branches: [main]
+    # all base branches, so stacked PRs (e.g. on feat/place-info) are checked too
   workflow_dispatch:
 permissions:
   contents: read
@@ -85,6 +85,50 @@ jobs:
           node-version: 24
       - run: node --test 'tests/world/*.test.mjs'
 
+  ios-voice-mock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/ios/*.test.mjs'
+
+  ios-webkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: tests/voice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tests/voice/package-lock.json
+      - run: npm ci
+      - name: Install WebKit (+ system deps)
+        timeout-minutes: 15
+        run: |
+          for i in 1 2 3; do
+            timeout 300 npx playwright install --with-deps webkit && exit 0
+            echo "::warning::playwright webkit install attempt $i failed/stalled, retrying"
+            rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
+          done
+          exit 1
+      - run: node ios-webkit.test.js
+        timeout-minutes: 5
+      - name: Upload iPhone screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-webkit-shots
+          path: tests/voice/out/ios/
+          if-no-files-found: ignore
+          retention-days: 7
+
   placeinfo-tests:
     # Pure Node unit tests (no npm deps): opening_hours parser, phone/website/social link builders.
     # Run in several device time zones – results must be identical (times are always Asia/Damascus).
@@ -99,6 +143,17 @@ jobs:
           for tz in UTC America/Los_Angeles Asia/Damascus Pacific/Kiritimati; do
             echo "TZ=$tz"; TZ=$tz node --test 'tests/placeinfo/*.test.mjs' || exit 1
           done
+
+  photos-tests:
+    # Pure Node unit tests for js/photos.js (Commons/Wikidata photo sources, attribution parsing, SW cache bounds).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/photos/*.test.mjs'
 
   version:
     runs-on: ubuntu-latest
