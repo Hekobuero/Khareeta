@@ -1,6 +1,7 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
 import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
+import { loadOHLib, ohLibReady } from './oh-lib.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
@@ -176,6 +177,7 @@ function render(item, tg, loading) {
   const second = nm.secondary && nm.secondary !== title ? nm.secondary : '';
   const cat = item.coord ? t('droppedPin') : item.ov ? ovCatLabel(item.ovCat, getLang()) : catLabel(tg);
   const st = ohStatus(tg.opening_hours);
+  if (!st && tg.opening_hours && !ohLibReady()) loadOHLib().then(() => { if (document.querySelector('.ptitle')?.textContent === title) { const s2 = ohStatus(tg.opening_hours); const h = document.querySelector('.phead .psub'); if (s2 && h && !document.querySelector('.pstatus')) h.insertAdjacentHTML('afterend', `<p class="pstatus"><span class="${s2.cls}">${esc(s2.text)}</span></p>`); } }).catch(() => {});
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
   const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
   const saved = isSaved(item.id);

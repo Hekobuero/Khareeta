@@ -1,6 +1,7 @@
 // Opening-hours presentation on top of the pure parser in oh.js. All times are Syrian local time (Asia/Damascus,
 // UTC+3 all year) regardless of the device time zone. Unknown syntax → null (callers show the raw text).
 import { t, getLang } from './i18n.js';
+import { libState } from './oh-lib.js';
 import { digits } from './fmt.js';
 import { parseOH, ohState, ohWeek, hhmm } from './oh.js';
 export { parseOH };
@@ -11,7 +12,7 @@ const tm = m => digits(hhmm(m));
 // `text` keeps the "<state> · <detail>" shape (search.js shows the first part on its own).
 export function ohStatus(str, now = new Date()) {
   const s = ohState(str, now);
-  if (!s) return null;
+  if (!s) return libStatus(str, now);
   // A quoted OSM comment ("summer only") → never a definite open/closed: amber "Possibly …" + the comment,
   // and not counted as open by the "Open now" filter.
   if (s.note) return { open: false, uncertain: true, text: t(s.open ? 'maybeOpen' : 'maybeClosed') + ' · “' + s.note + '”', cls: 'soon', soon: false };
@@ -23,6 +24,16 @@ export function ohStatus(str, now = new Date()) {
     : s.opens.inDays === 1 ? t('opensTomorrow', { t: tm(s.opens.min) })
     : t('opensDay', { d: t('daysLong')[s.opens.dow], t: tm(s.opens.min) });
   return { open: false, text: t('closedNow') + ' · ' + when, cls: 'closed', soon: false };
+}
+
+// Fallback: syntax our parser doesn't know → vendored opening_hours.js (if already lazy-loaded), device-local time.
+function libStatus(str, now) {
+  const l = libState(str, now); if (!l) return null;
+  const hm = d => tm(d.getHours() * 60 + d.getMinutes());
+  if (l.unknown) return { open: false, uncertain: true, text: t('maybeOpen'), cls: 'soon', soon: false };
+  if (l.open) return { open: true, text: t('openNow') + (l.closes ? ' · ' + t('closesAt', { t: hm(l.closes) }) : ''), cls: 'open', soon: false };
+  const sameDay = l.opens && l.opens.toDateString() === now.toDateString();
+  return { open: false, text: t('closedNow') + (l.opens ? ' · ' + (sameDay ? t('opensAt', { t: hm(l.opens) }) : t('opensDay', { d: t('daysLong')[l.opens.getDay()], t: hm(l.opens) })) : ''), cls: 'closed', soon: false };
 }
 
 // Week view rows in locale order (AR: Saturday first, EN/DE: Monday first): [{ day, txt, today }] or null.
