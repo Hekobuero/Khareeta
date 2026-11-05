@@ -1,6 +1,6 @@
 import { t, getLang } from './i18n.js';
 
-export const VERSION = '20261105-0505';
+export const VERSION = '20261105-0731';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -108,17 +108,23 @@ export async function nominatim(path) {
 // Overpass with multiple community endpoints
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
 let opIdx = 0;
-// hedged requests: start with the last good endpoint, add the next one if no answer after `hedge` ms
-export function overpass(q, timeout = 20000, hedge = 3500) {
+// hedged requests: start with the last good endpoint, add the next one if no answer after `hedge` ms.
+// `tries` caps the endpoints used per call. A 5xx (502/503/504 = overloaded) answer caps it further to 2 in total, so the
+// caller's fallback (e.g. Nominatim) starts after ≤ 2 failed attempts instead of walking every mirror (P3).
+export function overpass(q, timeout = 20000, hedge = 3500, { tries = OVERPASS.length } = {}) {
   return new Promise((resolve, reject) => {
-    let done = false, fails = 0, started = 0; const timers = [];
+    let done = false, fails = 0, started = 0, max = Math.max(1, Math.min(tries, OVERPASS.length)); const timers = [];
     const start = () => {
-      if (done || started >= OVERPASS.length) return;
+      if (done || started >= max) return;
       const k = (opIdx + started++) % OVERPASS.length;
       fetchJSON(OVERPASS[k], { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, timeout)
         .then(j => { if (done) return; if (!j || !Array.isArray(j.elements)) throw new Error('bad'); done = true; opIdx = k; timers.forEach(clearTimeout); resolve(j); })
-        .catch(e => { if (done) return; fails++; if (fails >= OVERPASS.length) { done = true; reject(e); } else start(); });
-      if (started < OVERPASS.length) timers.push(setTimeout(start, hedge));
+        .catch(e => {
+          if (done) return; fails++;
+          if (/^HTTP 5\d\d$/.test(e?.message || '')) { max = Math.min(max, 2); e.overloaded = true; }
+          if (fails >= max) { done = true; timers.forEach(clearTimeout); reject(e); } else start();
+        });
+      if (started < max) timers.push(setTimeout(start, hedge));
     };
     start();
   });

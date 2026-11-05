@@ -10292,7 +10292,16 @@
      12,
      15
     ],
-    "text-max-width": 7
+    "text-max-width": 7,
+    "text-variable-anchor": [
+     "center",
+     "bottom",
+     "top",
+     "left",
+     "right"
+    ],
+    "text-radial-offset": 0.5,
+    "text-justify": "auto"
    },
    "paint": {
     "text-color": "#EBEBF0",
@@ -10399,7 +10408,16 @@
     "symbol-sort-key": [
      "get",
      "rank"
-    ]
+    ],
+    "text-variable-anchor": [
+     "center",
+     "bottom",
+     "top",
+     "left",
+     "right"
+    ],
+    "text-radial-offset": 0.5,
+    "text-justify": "auto"
    },
    "paint": {
     "text-color": "#F2F2F7",

@@ -63,6 +63,12 @@ const visible = page => page.evaluate(() => {
     await page.waitForSelector('#pRmBtn'); await page.waitForTimeout(700);
     await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('half'); }); await page.waitForTimeout(500);
     await page.locator('#pRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    // since P2 (#37) the closed menu no longer pads the half sheet, so "Report…" can sit below the fold → pull the sheet up like a user
+    if (await page.evaluate(() => { const r = document.querySelector('#pRmBtn').getBoundingClientRect(); return r.bottom > innerHeight; })) {
+      await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(500);
+      await page.locator('#pRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    }
+    ok(`${lang}: POI – choice closed before tap`, await page.$eval('#pRmMenu', m => m.hidden && getComputedStyle(m).display === 'none'));
     await shot(page, `${lang}-poi-1-before.png`);
     const edits = await page.$$eval('.sheet a[href*="openstreetmap.org/edit"], #sheet a[href*="openstreetmap.org/edit"]', a => a.length);
     ok(`${lang}: POI – exactly one edit link`, edits <= 1 && (await page.$$('#pRm .rm-edit')).length === 0, String(edits));

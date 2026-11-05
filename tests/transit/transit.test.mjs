@@ -106,7 +106,7 @@ test('P3: Arabic stop plurals via Intl.PluralRules; list sheet hides the pill; d
   assert.equal(form(13, 'ar', ar), '13 موقفًا'); assert.equal(form(1, 'ar', ar), 'موقف واحد'); assert.equal(form(2, 'ar', ar), 'موقفان');
   assert.equal(form(5, 'ar', ar), '5 مواقف'); assert.equal(form(100, 'ar', ar), '100 موقف');
   const de = i18n.split('\n').find(l => l.includes('trOpenList: "Linien zeigen"')); assert.equal(form(1, 'de', de), '1 Haltestelle'); assert.equal(form(7, 'de', de), '7 Haltestellen');
-  assert.match(tr, /new Intl\.PluralRules\(lang\)/); assert.doesNotMatch(tr, /\$\{l\.stops\.length\} \$\{t\('trStops'\)\}/);
+  assert.match(tr, /tN\('trStopsN', n, \{ lang/); assert.doesNotMatch(tr, /\$\{l\.stops\.length\} \$\{t\('trStops'\)\}/);
   assert.match(tr, /openSheet\(html, 'half', trSheetClosed\);\n\s*document\.body\.classList\.add\('tr-line-open'\)/);
   assert.match(tr, /if \(desktop\(\)\) \{ const map = App\.map, c = map\.getPadding\(\), e = 60; fitTo\(bb, \{ top: c\.top \+ e, bottom: c\.bottom \+ e, left: c\.left \+ e, right: c\.right \+ e \}/);
 });

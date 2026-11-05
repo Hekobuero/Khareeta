@@ -27,6 +27,7 @@ export function wireReportEntry(root, id, { onKh, onOsm }) {
   const btn = root.querySelector('#' + id + 'Btn'), menu = root.querySelector('#' + id + 'Menu');
   if (!btn || !menu) return;
   const set = open => { menu.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+  set(false); // every (re)opened sheet starts with the choice closed
   // half-open sheet (iPhone): the menu would open below the visible area → expand the sheet and scroll the menu into view
   const reveal = () => {
     if (sheetState() !== 'full') setSheet('full');

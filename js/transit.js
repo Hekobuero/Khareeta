@@ -1,8 +1,8 @@
 // "Lines" layer: Servis (microbus) and bus routes for Damascus and Aleppo from OpenStreetMap (static data/transit/*.json).
 // Off by default. Data is fetched only while the layer is on (with data saving: only when the list is opened);
 // sw.js caches it (stale-while-revalidate) so it works offline afterwards.
-import { esc, settings, saveSettings, toast } from './util.js';
-import { t, getLang } from './i18n.js';
+import { esc, settings, saveSettings, toast, nf } from './util.js';
+import { t, tN, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, fitTo, desktop } from './core.js';
 import { TRANSIT_DIR, OSM_WIKI_URL, tName, tAlt, lineLabel, shortRef, badgeRef, cityFitBounds, searchLines, sortLines, linesAtStop, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl } from './transit-core.js';
@@ -81,10 +81,10 @@ export async function openLines(map) {
   S.sel = null; draw(map); renderList(map);
 }
 // "13 stops" with real plural forms (AR: موقف واحد / موقفان / 3–10 مواقف / 11–99 موقفًا / 100+ موقف)
-export function stopsN(n, lang = getLang()) {
-  const cat = new Intl.PluralRules(lang).select(n), k = 'trStopsN_' + cat, v = t(k, { n });
-  return v !== k ? v : t('trStopsN_other', { n });
-}
+// P3: plural category AND the strings AND the number all follow `lang` (was: only the rule; text from the UI language, raw digits)
+const numFor = lang => lang === getLang() ? nf : undefined;
+export function stopsN(n, lang = getLang()) { return tN('trStopsN', n, { lang, num: numFor(lang) }); }
+export function linesN(n, lang = getLang()) { return tN('trLinesN', n, { lang, num: numFor(lang) }); }
 function listHtml(d) {
   const lang = getLang(), res = sortLines(searchLines(d, S.q));
   if (!d.lines.length) return `<p class="tr-empty">${esc(t('trEmpty'))}</p>`;
@@ -96,7 +96,7 @@ function renderList(map) {
   // UI language names (EN/AR/DE) from i18n; the data file's name/name_ar only as a fallback for new cities
   const cname = c => { const k = 'trC_' + c, v = t(k); return v !== k ? v : (lang === 'ar' ? S.index.cities[c].name_ar : S.index.cities[c].name); };
   const html = `<div class="phead"><div><h2 class="ptitle">${esc(t('trTitle'))}</h2>
-    <p class="psub">${esc(t('trCount', { n: d.lines.length, s: d.stops.length }).replace(/[\d,.٬]+\s+\S+$/, stopsN(d.stops.length)))}</p></div><button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
+    <p class="psub">${esc(linesN(d.lines.length) + ' · ' + stopsN(d.stops.length))}</p></div><button class="pclose" id="trClose" aria-label="${t('close')}">${ic('close')}</button></div>
     <div class="seg tr-city" role="group" aria-label="${esc(t('trCity'))}">${cities.map(c => `<button data-c="${c}" class="${c === S.city ? 'on' : ''}" aria-pressed="${c === S.city}">${esc(cname(c))}</button>`).join('')}</div>
     <div class="tr-q"><input id="trQ" type="search" dir="auto" placeholder="${esc(t('trSearch'))}" value="${esc(S.q)}" autocomplete="off"></div>
     ${srcNote()}
