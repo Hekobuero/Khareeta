@@ -37,7 +37,12 @@ const closed = s => s.found && s.hidden && s.display === 'none' && s.h === 0 && 
       for (let i = 0; i < pts.length; i++) {
         await page.evaluate(async p => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere(p); }, pts[i]);
         await page.waitForSelector('#whRmBtn'); await page.waitForTimeout(500);
-        await page.locator('#whRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+        await page.evaluate(() => document.querySelector('#whRmBtn').scrollIntoView({ block: 'nearest' })); await page.waitForTimeout(200);
+        // "Report…" below the fold of the half sheet (it is no longer padded by the menu) → pull the sheet up like a user
+        if (await page.evaluate(() => document.querySelector('#whRmBtn').getBoundingClientRect().bottom > innerHeight)) {
+          await page.evaluate(async () => (await import(new URL('js/core.js', location.href))).setSheet('full')); await page.waitForTimeout(500);
+          await page.evaluate(() => document.querySelector('#whRmBtn').scrollIntoView({ block: 'nearest' })); await page.waitForTimeout(200);
+        }
         const s0 = await state(page); ok(`${bn} ${lang} open #${i + 1}: choice closed before tap`, closed(s0), JSON.stringify(s0));
         if (i === 0 && bn === 'webkit') await shot(page, `${TAG}${lang}-wh-menu-before-tap.png`);
         if (process.env.ONLY_SHOT) continue;
