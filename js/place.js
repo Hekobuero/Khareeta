@@ -12,7 +12,7 @@ import { phones as phoneList, website as websiteOf, socials as socialList } from
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
-import { reportEntryHtml, wireReportEntry } from './report-entry.js';
+import { reportEntryHtml, wireReportEntry, REPORT_ICON } from './report-entry.js';
 import { openClosureReport, snapToRoad } from './closures.js';
 import { photoSources, loadPhotos, photoTags, geoEligible, photoEmptyKey } from './photos.js';
 const hasPhotoSrc = (item, tg) => photoSources(tg).any || (navigator.onLine !== false && item.lat != null && geoEligible(tg));
@@ -254,9 +254,9 @@ function render(item, tg, loading) {
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
-  ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic('flag')}<span>${esc(t('ovReport'))}</span></button>
+  ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic(REPORT_ICON)}<span>${esc(t('ovReport'))}</span></button>
     <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
-  ${reportEntryHtml('pRm', item.ov ? '' : (item.osm_type && item.osm_id ? `https://www.openstreetmap.org/edit?${item.osm_type}=${item.osm_id}` : `https://www.openstreetmap.org/edit#map=19/${item.lat}/${item.lon}`))}
+  ${reportEntryHtml('pRm', '', 'rmKhSubPoi')}
   <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
   <div id="pPano"></div>
   <div id="pNearby"></div>

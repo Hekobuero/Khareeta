@@ -19,7 +19,7 @@ test('i18n: Report… + choice strings EN/AR/DE', () => {
 });
 test('place + whats-here: one entry, same icon, no separate report/note buttons, OSM edit link kept', () => {
   const re = read('js/report-entry.js');
-  assert.match(re, /REPORT_ICON = 'flag'/); assert.match(re, /ic\(REPORT_ICON\)/); assert.match(re, /rm-edit/);
+  assert.match(re, /REPORT_ICON = 'report'/); assert.match(read('js/icons.js'), /"report":"M5,2H7V3\.5H19\.5L16\.5,8\.25L19\.5,13H7V22H5Z"/); assert.match(re, /ic\(REPORT_ICON\)/); assert.match(re, /rm-edit/);
   for (const [f, id] of [['js/place.js', 'pRm'], ['js/whats-here.js', 'whRm']]) {
     const s = read(f);
     assert.ok(s.includes(`reportEntryHtml('${id}'`) && s.includes(`wireReportEntry(body, '${id}'`), f);
@@ -46,4 +46,14 @@ test('analytics: osm_note_sent allowed (props empty), DB constraint too', () => 
   assert.match(read('js/notes.js'), /track\('osm_note_sent', \{\}\)/);
   assert.ok(read('supabase.sql').includes("'osm_note_sent'"));
   assert.ok(read('supabase/migrations/20261107_osm_note_event.sql').includes("'osm_note_sent'"));
+});
+
+test('#36 QA: menu revealed (sheet full + scrollIntoView), POI: one edit link + POI subline', () => {
+  const re = read('js/report-entry.js'), pl = read('js/place.js');
+  assert.match(re, /setSheet\('full'\)/); assert.match(re, /menu\.scrollIntoView/);
+  assert.match(pl, /reportEntryHtml\('pRm', '', 'rmKhSubPoi'\)/);
+  assert.equal((pl.match(/t\('editOsm'\)/g) || []).length, 1);
+  assert.equal([...I.matchAll(/^  rmKhSubPoi:/gm)].length, 3);
+  assert.equal(val('rmKhSubPoi', 2), 'Falsche Angaben, geschlossen, anderes Problem – nur für unser Team');
+  assert.match(read('js/whats-here.js'), /reportEntryHtml\('whRm', `https:\/\/www\.openstreetmap\.org\/edit/);
 });
