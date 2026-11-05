@@ -24,7 +24,7 @@ test('unparsable hours → null (counted as "no opening hours" by the filter)', 
   assert.equal(ohStatus('by appointment, ask Ahmad', new Date(), BER), null);
   const poi = read('js/poi.js');
   assert.match(poi, /known = list\.filter\(r => st\(r\)\)/);
-  assert.match(poi, /list = known\.filter\(r => st\(r\)\.open\)/);
+  assert.match(poi, /list = list\.filter\(r => st\(r\) \? st\(r\)\.open : state\.showNoHours\)/); // unparsable = no hours (hidden unless \"Show anyway\")
 });
 test('no opening_hours.js library shipped', () => {
   assert.equal(existsSync(new URL('../../js/vendor', import.meta.url)), false);

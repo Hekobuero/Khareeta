@@ -1,6 +1,6 @@
 // Search: Photon autocomplete (komoot, key-free) + Nominatim full search (1 req/s) + coordinates / plus codes,
 // recent searches & saved places, category search via Overpass.
-import { nf, $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
+import { nf, locale, $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, center, refPoint, chipRef, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
@@ -9,6 +9,7 @@ import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
+import { hintCount } from './share-core.js';
 import { norm, loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
@@ -267,10 +268,12 @@ export function showFilterSheet(fit = false) {
   const title = cats.map(k => t(k)).join(' · ');
   const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
     [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
-  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '') + (r.hiddenNoHours ? ` · ${t('ohHidden', { n: nf(r.hiddenNoHours) })}` : '');
+  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  // hidden-without-hours hint: no big numbers (≤ 99 exact, else 99+), locale digits (ar-SY for AR), tappable "Show anyway"
+  const hintHtml = r.hiddenNoHours ? `<p class="psub ohhint" id="ohHint"><span>${esc(t('ohHidden', { n: hintCount(r.hiddenNoHours, locale()) }))}</span> <button type="button" class="linkbtn" id="ohShow">${esc(t('ohShowAnyway'))}</button></p>` : '';
   const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`
     : `<div class="sec"><p class="psub">${t(f.openNow ? 'noOpenNow' : 'noResults')}</p></div>`;
-  const body = openSheet(`<div class="sec fhead"><div class="fhrow"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><button class="act" id="fClear">${t('clear')}</button></div><p class="psub">${esc(countTxt)}</p></div>${chipsHtml}${list}<div class="sec"><button class="act" id="fLive">${ic('search')}<span>${t('liveSearch')}</span></button><p class="psub small">${esc(t('poiData', { d: P.meta?.date || '' }))}</p></div>`, fit ? 'half' : (sheetStateSafe() || 'half'),
+  const body = openSheet(`<div class="sec fhead"><div class="fhrow"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><button class="act" id="fClear">${t('clear')}</button></div><p class="psub">${esc(countTxt)}</p>${hintHtml}</div>${chipsHtml}${list}<div class="sec"><button class="act" id="fLive">${ic('search')}<span>${t('liveSearch')}</span></button><p class="psub small">${esc(t('poiData', { d: P.meta?.date || '' }))}</p></div>`, fit ? 'half' : (sheetStateSafe() || 'half'),
     () => { if (sheetStateSafe() === 'hidden') { setFilter(App.map, []); document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); clearMarkers(); } });
   App.sheetKind = 'filter';
   body.querySelector('.list')?.addEventListener('click', e => { const el = e.target.closest('.srow'); if (el) { const x = res[+el.dataset.i]; addRecent(x); openPlace(x); } });
@@ -282,6 +285,7 @@ export function showFilterSheet(fit = false) {
   });
   $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
   $('#fLive').onclick = () => searchCategoryLive(cats[0]);
+  const show = body.querySelector('#ohShow'); if (show) show.onclick = () => { setFilter(App.map, cats, true, true); showFilterSheet(false); };
   const nearView = res.filter(x => x.d < CAT_FIT_M);
   if (fit && nearView.length) { // only fit to results near the current view – never to POIs in another city / country
     const near = nearView.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
