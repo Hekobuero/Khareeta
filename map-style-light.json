@@ -10301,7 +10301,8 @@
      "right"
     ],
     "text-radial-offset": 0.5,
-    "text-justify": "auto"
+    "text-justify": "auto",
+    "text-padding": 8
    },
    "paint": {
     "text-color": "#2C2C30",
@@ -10417,7 +10418,8 @@
      "right"
     ],
     "text-radial-offset": 0.5,
-    "text-justify": "auto"
+    "text-justify": "auto",
+    "text-padding": 8
    },
    "paint": {
     "text-color": "#1C1C1E",

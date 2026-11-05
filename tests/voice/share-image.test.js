@@ -145,6 +145,9 @@ async function composePlace(page, meta, lang) {
       await page.evaluate(async () => (await import(new URL('js/core.js', location.href))).closeSheet());
 
       // Compose PNG (no map tiles – outbound already aborted)
+      // settle: requests started by earlier steps (place sheet extras; the map weather chip fires 1.5 s after the sheet-close moveend) must land before the
+      // baseline, so the check measures only what compose itself would fetch
+      for (let n = outbound.length, i = 0; i < 6; i++) { await page.waitForTimeout(2200); if (outbound.length === n) break; n = outbound.length; }
       const beforeOut = outbound.length;
       const placeMeta = {
         kind: 'place',
@@ -156,7 +159,7 @@ async function composePlace(page, meta, lang) {
       };
       const info = await composePlace(page, placeMeta, lang);
       const afterOut = outbound.length;
-      ok(`${pre}: compose made no new outbound`, afterOut === beforeOut, `${beforeOut}→${afterOut}`);
+      ok(`${pre}: compose made no new outbound`, afterOut === beforeOut, `${beforeOut}→${afterOut}` + (afterOut > beforeOut ? ' extra: ' + outbound.slice(beforeOut).join(' ') : ''));
       ok(`${pre}: blob is image/png`, info.type === 'image/png', info.type);
       ok(`${pre}: blob size reasonable`, info.size > 2000 && info.size < 2_500_000, String(info.size));
       const head = Buffer.from(info.bytes);

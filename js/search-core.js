@@ -5,7 +5,7 @@
 // ---------- normalisation ----------
 const AR_DIGITS = '٠١٢٣٤٥٦٧٨٩', FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
 export function normText(s) {
-  return String(s || '').toLowerCase()
+  return String(s || '').normalize('NFKC').toLowerCase()     // Arabic presentation forms (ﺣﻠﺐ → حلب), ligatures
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')                 // Latin diacritics (ā, é …)
     .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')           // tashkeel, superscript alef, tatweel
     .replace(/[\u200c-\u200f\u202a-\u202e\u2066-\u2069]/g, '')          // zero-width / bidi marks
@@ -137,7 +137,8 @@ export function searchIndex(index, q, { limit = 8, minScore = 40 } = {}) {
   const qb = qk.map(bigrams), out = [];
   for (const it of index) {
     // cheap pre-filter: a match (even with typos) shares at least ~1/3 of the query's letter pairs
-    if (!qb.some(b => { let n = 0; for (const x of b) if (it.bg.has(x)) n++; return n >= Math.max(1, Math.floor(b.size / 3)); })) continue;
+    // …except major cities: a short Latin typo can share no letter pair at all ("hmos" ↔ "homs")
+    if (it.e.place !== 'city' && !qb.some(b => { let n = 0; for (const x of b) if (it.bg.has(x)) n++; return n >= Math.max(1, Math.floor(b.size / 3)); })) continue;
     let best = 0;
     for (const a of qk) for (const k of it.keys) { const s = matchScore(a, k); if (s > best) best = s; if (best === 100) break; }
     if (best >= minScore) out.push({ ...it.e, score: best + (it.e.w || 0) });
