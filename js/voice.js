@@ -7,6 +7,7 @@
 // - Own queue: a running prompt is never cut by the next one (only "recalculating" and the test button interrupt); no repeats.
 import { settings, saveSettings, toast } from './util.js';
 import { t, getLang } from './i18n.js';
+import { stepUsesLandmark, formatLandmarkInstr, deArticle, stripNestedArAfter } from './landmarks.js';
 
 const SYN = () => ('speechSynthesis' in window ? window.speechSynthesis : null);
 const UA = navigator.userAgent || '';
@@ -170,8 +171,18 @@ function nameFor(s) {
   const ar = /[\u0600-\u06FF]/.test(n);
   return getLang() === 'ar' ? (ar || /^[A-Z]{0,2}\d+$/.test(n) ? n : '') : (ar ? '' : n);
 }
+function lmVoiceAction(s, o) {
+  const m = s.modifier || 'straight';
+  if ((s.type === 'new name' || s.type === 'continue' || s.type === 'notification') && (m === 'straight' || !o.mods[m])) return o.cont;
+  return o.mods[m] || o.mods.straight;
+}
 function maneuver(s, fallback) {
   const o = V(), m = s.modifier || 'straight', n = nameFor(s);
+  // Landmark cue (same relation/name as the banner) – keep voice + HUD in sync
+  if (stepUsesLandmark(s) && (o.lmAfter || o.lmAt)) {
+    const tpl = { text: s.landmark.relation === 'after' ? o.lmAfter : o.lmAt, art: getLang() === 'de' ? deArticle(s.landmark.kind, s.landmark.name) : '' };
+    return formatLandmarkInstr(s.landmark, lmVoiceAction(s, o), tpl);
+  }
   const ord = x => o.ord[x - 1] || String(x);
   const withName = a => n ? fill(o.onto, { a, n }) : a;
   const own = (k, kOnto) => o[k] ? (n && o[kOnto] ? fill(o[kOnto], { n }) : o[k]) : null; // variant-specific text (Syrian) if defined
@@ -205,6 +216,8 @@ export function announce(s, stage, dist, fallback, next = null) {
   }
   let i = maneuver(s, fallback);
   if (next) i += next.type === 'arrive' && next.last ? arriveFrag(next, 'then') : fill(o.then, { b: maneuver(next, fallback) });
+  // AR distance prompts already start with «بعد {d}» — do not also emit landmark «بعد {n}»
+  if (stage !== 'now') i = stripNestedArAfter(i, getLang());
   return cap(stage === 'now' ? fill(o.now, { i }) : fill(o.inDist, { d: spokenDist(dist), i }));
 }
 export function arriveText(s) { return arriveFrag(s || {}, 'arrive'); }
