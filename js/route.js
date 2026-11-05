@@ -517,6 +517,15 @@ function simulate(r) {
   };
   N.sim = setTimeout(tick, 600);
 }
+// Predictive camera/arrow (P3): the arrow and camera ease linearly for 1 s towards each fix, so without a lead they sit
+// one fix interval (≈ speed × 1 s, 16–19 m at 60–70 km/h) behind the real position. Dead-reckon the target ahead along the
+// heading by speed × NAV_LEAD_S (capped, only when moving steadily) – the animation then tracks the true position. The lead
+// changes only with speed/heading (both smoothed), so the camera does not jump. Self-contained (unit-tested by source).
+export function navLead(p, hdg, speed, { lead = 0.9, max = 25, minSpeed = 2.5 } = {}) {
+  if (!p || hdg == null || !(speed >= minSpeed)) return p;
+  const d = Math.min(max, speed * lead), R = 6371008.8, br = hdg * Math.PI / 180, la = p[1] * Math.PI / 180;
+  return [p[0] + (d * Math.sin(br) / (R * Math.cos(la))) * 180 / Math.PI, p[1] + (d * Math.cos(br) / R) * 180 / Math.PI];
+}
 function camZoom(speed) { if (R.mode !== 'car') return 18; const kmh = (speed || 0) * 3.6; return kmh > 80 ? 15 : kmh >= 50 ? 16 : 17; }
 // 1 s linear interpolation of the arrow (§3.7); jumps > 100 m snap
 let interp = 0;
@@ -537,7 +546,7 @@ function onPos(p, heading, speed, acc) {
   const near = nearestOnLine(p, r.coords, N.cum);
   const hdg = navHeading({ heading, speed, compass: N.compass, compassAge: Date.now() - (N.compassT || 0), prev: N.prev, p, routeBearing: near.idx < r.coords.length - 1 ? bearing(r.coords[near.idx], r.coords[near.idx + 1]) : null, last: N.hdg });
   N.hdg = hdg; if (!N.prev || haversine(N.prev, p) >= 4) N.prev = p;
-  const shown = near.dist < 30 ? near.point : p;
+  const shown = navLead(near.dist < 30 ? near.point : p, hdg, good && N.moved ? speed : 0);
   moveArrow(shown, hdg);
   // off-route: > 40 m for 3 fixes in a row (§4.6)
   const lim = 40;

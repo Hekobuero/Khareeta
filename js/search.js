@@ -308,13 +308,13 @@ export async function searchCategoryLive(key) {
   const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(App.map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, ref, tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
   openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
-    let j;
+    let j, opDown = false; // Overpass 5xx/failed once → the wider steps go straight to Nominatim (P3: faster fallback)
     for (const [s, w, n, e] of boxes) { // nothing found: widen the radius automatically (2.5 km, 5 km, 10 km)
       const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
       const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
       const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
-      try { j = await overpass(q, 9000, 2500); }
-      catch (opErr) { // fallback: Nominatim special phrase search in the box
+      try { if (opDown) throw new Error('overpass down'); j = await overpass(q, 9000, 2500, { tries: 2 }); }
+      catch (opErr) { opDown = true; // fallback: Nominatim special phrase search in the box
         const word = { restaurants: 'restaurant', cafes: 'cafe', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', atm: 'atm', mosque: 'mosque', church: 'church', hotel: 'hotel', supermarket: 'supermarket', bakery: 'bakery', tourism: 'attraction', parking: 'parking', police: 'police', toilets: 'toilets' }[key];
         const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
         j = { elements: r.map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
