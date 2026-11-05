@@ -29,6 +29,11 @@ test('installLabelGuard adds a top collision-only layer and feeds it the locate 
   const f = srcData['kh-ui-guard'].data.features;
   assert.equal(f.length, 1); assert.equal(f[0].properties.s, 60);
   assert.ok(handlers.moveend && handlers['style.load']);
+  let sets = 0; const src = map.getSource; map.getSource = id => { const r = src(id); return r && { setData: d => { sets++; r.setData(d); } }; };
+  handlers.moveend({ type: 'moveend' }); handlers.moveend({ type: 'moveend' });
+  assert.equal(sets, 0, 'unchanged view + controls → no setData');
+  map.getCenter = () => ({ lng: 1, lat: 2 }); handlers.moveend({ type: 'moveend' });
+  assert.equal(sets, 1, 'view changed → one update');
   assert.match(read('js/app.js'), /installLabelGuard\(map\)/);
   assert.match(read('sw.js'), /'js\/label-guard\.js'/);
 });

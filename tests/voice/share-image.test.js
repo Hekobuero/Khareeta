@@ -156,7 +156,7 @@ async function composePlace(page, meta, lang) {
       };
       const info = await composePlace(page, placeMeta, lang);
       const afterOut = outbound.length;
-      ok(`${pre}: compose made no new outbound`, afterOut === beforeOut, `${beforeOut}→${afterOut}`);
+      ok(`${pre}: compose made no new outbound`, afterOut === beforeOut, `${beforeOut}→${afterOut}` + (afterOut > beforeOut ? ' extra: ' + outbound.slice(beforeOut).join(' ') : ''));
       ok(`${pre}: blob is image/png`, info.type === 'image/png', info.type);
       ok(`${pre}: blob size reasonable`, info.size > 2000 && info.size < 2_500_000, String(info.size));
       const head = Buffer.from(info.bytes);

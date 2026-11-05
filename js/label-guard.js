@@ -1,7 +1,7 @@
 // Map labels must not hide under the floating map controls (QA: «al-Kamishli» under the locate button).
 // A transparent, collision-only symbol sits under each control: it is placed first (top layer, icon-allow-overlap)
 // and occupies the control's screen box in MapLibre's collision index, so place labels move (variable anchors) or
-// yield instead of being drawn invisibly beneath the button. Updated after every move/resize. No network.
+// yield instead of being drawn invisibly beneath the button. Updated only when the view or the control boxes actually changed. No network.
 
 export const GUARD_SRC = 'kh-ui-guard', GUARD_LAYER = 'kh-ui-guard', GUARD_IMG = 'kh-ui-guard-px';
 export const GUARD_SELECTORS = ['#btnLocate', '#fabs .cgroup', '#btnCompass:not(.hide)'];
@@ -27,11 +27,18 @@ export function installLabelGuard(map, doc = document, selectors = GUARD_SELECTO
       'icon-image': GUARD_IMG, 'icon-size': ['/', ['get', 's'], IMG_PX], 'icon-allow-overlap': true, 'icon-ignore-placement': false,
       'icon-pitch-alignment': 'viewport', 'icon-rotation-alignment': 'viewport' } }); // last layer = placed first
   };
-  const update = () => {
+  let lastKey = '';
+  const update = (ev) => {
     try {
+      const fresh = !map.getSource(GUARD_SRC) || ev?.type === 'style.load';
       ensure();
       const mr = map.getContainer().getBoundingClientRect();
       const rects = selectors.flatMap(s => [...doc.querySelectorAll(s)]).map(el => el.getBoundingClientRect());
+      const c = map.getCenter?.(), z = map.getZoom?.(), br = map.getBearing?.(), pt = map.getPitch?.();
+      const key = JSON.stringify([guardBoxes(rects, mr).map(b => [Math.round(b.cx), Math.round(b.cy), Math.round(b.size)]),
+        c ? [c.lng.toFixed(6), c.lat.toFixed(6)] : 0, z?.toFixed(3), br?.toFixed(1), pt?.toFixed(1), Math.round(mr.width), Math.round(mr.height)]);
+      if (!fresh && key === lastKey) return; // nothing moved → no setData, no re-placement
+      lastKey = key;
       const features = guardBoxes(rects, mr).map(b => {
         const ll = map.unproject([b.cx, b.cy]);
         return { type: 'Feature', properties: { s: b.size }, geometry: { type: 'Point', coordinates: [ll.lng, ll.lat] } };
