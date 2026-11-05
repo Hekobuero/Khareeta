@@ -1,0 +1,3 @@
+{ "name": "khareeta-sprite", "private": true, "type": "module", "description": "Builds sprites/khareeta-* (not deployed)",
+  "scripts": { "build": "node build-sprite.mjs" },
+  "dependencies": { "@mapbox/maki": "8.2.0", "@resvg/resvg-js": "2.6.2" } }

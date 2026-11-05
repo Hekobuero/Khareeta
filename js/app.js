@@ -6,7 +6,8 @@ import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center,
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
 import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
-import { addWorldLayers, initWorldPois, WLAYERS } from './world-poi.js';
+import { WLAYERS } from './world-poi.js';
+import { tileTags, tileOsm } from './tile-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
 import { mapIsDark } from './mapstyle.js';
 import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
@@ -154,13 +155,11 @@ $('#trPill').onclick = () => openLines(map);
 map.on('moveend', ovSync);
 map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
 map.once('idle', startPois); setTimeout(startPois, 5000);
-// outside Syria: live OpenStreetMap POIs for the visible area (world-poi.js)
-function worldLayers() { if (!map.isStyleLoaded() || map.getSource('kh-wpoi')) return; addWorldLayers(map, mapIsDark()); relabel(map); if (navActive()) setPoiVisible(map, false); }
-map.once('idle', () => { worldLayers(); initWorldPois(map); });
+// outside Syria the POIs come from the vector tiles (style layers poi-dot / poi-z15 / poi, all named OSM POIs, 0 extra
+// requests). The former automatic Overpass layer (world-poi.js) is no longer started: it would double every label.
 addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
-  addWorldLayers(map, mapIsDark());
   ovLayers(); trLayers();
   if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
@@ -199,7 +198,6 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { 
 hooks.rerenderUI = () => { renderUI(); const p = currentPlace(); if (p && sheetState() !== 'hidden') openPlace(p, { noFly: true }); else if (App.sheetKind === 'home') showHome(true); };
 
 // ---------- POI clicks on base map ----------
-const ptype = { 1: 'node', 2: 'way', 3: 'relation' };
 map.on('click', async e => {
   if (navActive()) return;
   if (measureActive()) { measureClick([e.lngLat.lng, e.lngLat.lat]); return; }
@@ -222,11 +220,10 @@ map.on('click', async e => {
   const feats = map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
   if (feats.length) {
     const f = feats[0], p = f.properties, ll = f.geometry.type === 'Point' ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
-    const tags = { name: p.name, 'name:ar': p['name:ar'], 'name:en': p['name:en'] || p.name_en, 'name:de': p['name:de'] || p.name_de };
-    if (f.sourceLayer === 'poi') { tags[p.class === 'shop' ? 'shop' : 'amenity'] = p.subclass || p.class; }
-    else if (f.sourceLayer === 'place') tags.place = p.class;
+    const tags = f.sourceLayer === 'poi' ? tileTags(p) : { name: p.name, 'name:ar': p['name:ar'], 'name:en': p['name:en'] || p.name_en, 'name:de': p['name:de'] || p.name_de };
+    if (f.sourceLayer === 'place') tags.place = p.class;
     let osm = null;
-    if (f.id && f.sourceLayer === 'poi') { const id = Number(f.id); osm = { osm_type: ptype[id % 10], osm_id: Math.floor(id / 10) }; if (!osm.osm_type) osm = null; }
+    if (f.id && f.sourceLayer === 'poi') osm = tileOsm(f.id);
     const item = { id: osm ? osm.osm_type[0].toUpperCase() + osm.osm_id : 'f' + ll.join(), name: pickName(tags).primary, lon: ll[0], lat: ll[1], tags, ...(osm || {}) };
     if (!osm) {
       // resolve the OSM object by name near the click

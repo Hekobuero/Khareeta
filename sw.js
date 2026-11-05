@@ -49,6 +49,7 @@ const SHELL_FILES = [
   'js/names.js',
   'js/world-core.js',
   'js/world-poi.js',
+  'js/tile-poi.js',
   'js/transit.js',
   'js/transit-core.js',
   'fonts/glyphs-empty.pbf',
