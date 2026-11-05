@@ -76,6 +76,8 @@ const map = App.map = new maplibregl.Map({
   container: 'map', style: await initialStyle(),
   center: view?.c || DEFAULT.center, zoom: view?.z ?? DEFAULT.zoom, bearing: 0, pitch: 0,
   hash: 'map', attributionControl: false, maxPitch: 75,
+  // Needed so share-as-image can read pixels from the WebGL canvas after idle.
+  preserveDrawingBuffer: true,
   pixelRatio: settings.lowData ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 3),
   fadeDuration: 0, dragRotate: true, touchPitch: true, cooperativeGestures: false,
   maxTileCacheZoomLevels: 5, refreshExpiredTiles: false,

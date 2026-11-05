@@ -169,6 +169,9 @@ jobs:
       - name: Action-row labels not clipped at 390 px (What's here + place sheet, DE/EN/AR, light/dark, WebKit + Chromium)
         run: node action-row.test.js
         timeout-minutes: 8
+      - name: Share as image (buttons + PNG card, iPhone 390, DE/EN/AR, light/dark, WebKit + Chromium, mocked)
+        run: node share-image.test.js
+        timeout-minutes: 10
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4

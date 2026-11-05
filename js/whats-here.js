@@ -8,6 +8,7 @@ import { reportEntryHtml, wireReportEntry } from './report-entry.js';
 import { isSaved, toggleSaved } from './saved.js';
 import { coordId } from './saved-core.js';
 import { buildShareUrl, shareText, geoUri, fmt5, RevCache, Throttle, makeReverse, EventGate, pointKey } from './share-core.js';
+import { shareAsImage, placeMetaFrom } from './share-image.js';
 
 const cache = new RevCache((() => { try { return localStorage; } catch { return null; } })());
 const throttle = new Throttle(), fetchFn = u => fetchJSON(u, {}, 10000);
@@ -32,6 +33,7 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
     <button class="abtn primary" id="whRoute">${ic('directions')}<span>${esc(t('whRouteHere'))}</span></button>
     <button class="abtn" id="whSave" aria-pressed="false">${ic('bookmarkOutline')}<span>${esc(t('save'))}</span></button>
     <button class="abtn" id="whShare">${ic('share')}<span>${esc(t('whShare'))}</span></button>
+    <button class="abtn" id="whShareImg" aria-label="${esc(t('shareAsImage'))}" title="${esc(t('shareAsImage'))}">${ic('image')}<span>${esc(t('shareImageShort'))}</span></button>
     <button class="abtn" id="whCopy" aria-label="${esc(t('whCopyCoords'))}" title="${esc(t('whCopyCoords'))}">${ic('copy')}<span>${esc(t('whCopyShort'))}</span></button>
   </div>
   <div class="igroup">
@@ -50,6 +52,10 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
     onOsm: () => import('./notes.js').then(m => m.openMapNote({ lat, lon, name })),
   });
   body.querySelector('#whShare').onclick = () => sharePoint(my);
+  body.querySelector('#whShareImg').onclick = () => shareAsImage({
+    map: App.map,
+    meta: placeMetaFrom({ name: my.name || my.addr || t('whTitle'), address: my.addr || '', lat: my.lat, lon: my.lon }),
+  });
   const sv = body.querySelector('#whSave'), sid = coordId(lat, lon);
   const paint = () => { const on = isSaved(sid); sv.setAttribute('aria-pressed', String(on)); sv.innerHTML = `${ic(on ? 'bookmark' : 'bookmarkOutline')}<span>${esc(t(on ? 'savedOk' : 'save'))}</span>`; };
   paint();

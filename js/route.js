@@ -403,7 +403,7 @@ function showRouteSheet() {
   const warn = near.length ? `<div class="cl-warn" role="status">${ic('warning', 'sm')}<span>${esc(plural(getLang(), near.length, Object.fromEntries(['zero', 'one', 'two', 'few', 'many', 'other'].map(c => [c, t('clRW_' + c)]).filter(([c, v]) => v && v !== 'clRW_' + c))))}: ${[...new Set(near.map(c => t('clK_' + c.kind)))].map(esc).join(', ')}</span></div>` : '';
   const html = `${warn}
     ${R.routes.map((rt, i) => `<div class="rcard ${i === R.sel ? 'on' : ''}" data-i="${i}" role="button" aria-pressed="${i === R.sel}"><div style="flex:1;min-width:0"><div class="rt">${fmtDur(rt.duration)}</div><div class="rd">${fmtDist(rt.distance)}${rt.summary ? ' · ' + t('via', { r: '<bdi>' + esc(rt.summary) + '</bdi>' }) : ''} · ${t('eta')} ${arrive(rt.duration)}</div>${tag(rt)}</div><button class="gobtn" data-go="${i}">${t('go')}</button></div>`).join('')}
-    <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button>${navDev() ? `<button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button>` : ''}<button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
+    <div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button>${navDev() ? `<button class="ochip" id="rSim">${ic('navigation', 'xs')}${t('simulate')}</button>` : ''}<button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>
     <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
     <div class="steps list">${r.steps.map((s, i) => `<div class="srow" data-s="${i}"><div class="sic">${ic(stepIcon(s))}</div><div class="st"><div class="t1" style="white-space:normal" dir="auto">${esc(instr(s))}</div><div class="t2">${s.distance > 0 && s.type !== 'arrive' ? fmtDist(s.distance) : ''}</div></div></div>`).join('')}</div>
     <div class="dfoot">${r.engine === 'OSRM' ? 'Routing: OSRM · FOSSGIS (routing.openstreetmap.de)' : 'Routing: Valhalla · FOSSGIS (valhalla1.openstreetmap.de)'} · © OpenStreetMap contributors</div>`;
@@ -422,11 +422,31 @@ function showRouteSheet() {
     const c = e.target.closest('.rcard'); if (c) { selectRoute(+c.dataset.i); return; }
     if (e.target.closest('#rSim')) return startNav(true);
     if (e.target.closest('#rShare')) return shareRoute();
+    if (e.target.closest('#rShareImg')) return shareRouteImage();
     if (e.target.closest('#rSteps')) { setSheet('full'); setTimeout(() => $('#stepsTitle')?.scrollIntoView({ behavior: 'smooth' }), 350); return; }
     const s = e.target.closest('[data-s]'); if (s) { const st = r.steps[+s.dataset.s]; App.map.flyTo({ center: st.loc, zoom: 17, duration: 600, padding: mapPadding() }); }
   };
   App.onSheetDismiss = () => setSheet('peek');
 }
+
+async function shareRouteImage() {
+  const r = R.routes[R.sel]; if (!r) return;
+  const via = R.stops.slice(1, -1).map(s => s.name).filter(Boolean);
+  const { shareAsImage, routeMetaFrom } = await import('./share-image.js');
+  return shareAsImage({
+    map: App.map,
+    meta: routeMetaFrom({
+      from: R.stops[0]?.name || '',
+      to: R.stops.at(-1)?.name || '',
+      via,
+      modeLabel: t(R.mode),
+      durationLabel: fmtDur(r.duration),
+      distanceLabel: fmtDist(r.distance),
+      title: [fmtDur(r.duration), fmtDist(r.distance), t(R.mode)].filter(Boolean).join(' · '),
+    }),
+  });
+}
+
 async function shareRoute() {
   const u = new URL(location.href.split('#')[0].split('?')[0]);
   u.searchParams.set('r', R.stops.map(s => s.lat.toFixed(5) + ',' + s.lon.toFixed(5)).join(';'));

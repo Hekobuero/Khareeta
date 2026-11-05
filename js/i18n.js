@@ -1,5 +1,6 @@
 // UI strings – English is the default on first load (always), Arabic (RTL) and German selectable.
 import { SHARE_I18N } from './share-core.js';
+import { SHARE_IMAGE_I18N } from './share-image-core.js';
 const S = {
 en: {
 
@@ -565,6 +566,7 @@ de: {
     ord: ['erste', 'zweite', 'dritte', 'vierte', 'fünfte', 'sechste', 'siebte', 'achte', 'neunte', 'zehnte'], m: '{n} Metern', km1: 'einem Kilometer', km15: 'anderthalb Kilometern', km: '{n} Kilometern' },
 }};
 for (const l in SHARE_I18N) if (S[l]) for (const k in SHARE_I18N[l]) S[l][k] ??= SHARE_I18N[l][k];
+for (const l in SHARE_IMAGE_I18N) if (S[l]) for (const k in SHARE_IMAGE_I18N[l]) S[l][k] ??= SHARE_IMAGE_I18N[l][k];
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];
 // Start language: a manual choice (localStorage kh.lang) always wins; otherwise the first entry of navigator.languages
