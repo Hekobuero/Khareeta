@@ -8,6 +8,9 @@ import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
+import { inSyria as inSyriaPoly } from './syria-poly.js';
+import { gateByView, fitTargets } from './search-core.js';
+const gzOpen = (c, text) => inSyriaPoly(c[0], c[1]) || /[\u0600-\u06FF]/.test(text);
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
 import { localSearch, loadGazetteer } from './offline-search.js';
@@ -133,7 +136,8 @@ export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
   const c = center(), z = App.map.getZoom(), view = viewBox(), bbox = biasBox(c, view);
   if (!P.all.length) { try { await loadPois(); } catch {} }
   // local first (saved, recent, offline gazetteer – fuzzy, Arabic/Latin variants), then Photon when online
-  const { mine: local, places: gzHits } = await localSearch(text);
+  const { mine: local, places: gz0 } = await localSearch(text);
+  const gzHits = gateByView(gz0, c, { open: gzOpen(c, text) }); // far fuzzy «Kafr…» hits never show for «Café»
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
   const lp = poiLocal(text);
   const offline = !navigator.onLine;
@@ -144,7 +148,8 @@ export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
   // POIs, then the rest – nearby before the rest of the world
   let { settlements, rest } = rank(res, text, bbox);
   if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
-  const top = [...local, ...settlements, ...gzHits, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
+  const lpItems = lp.items.filter(x => !local.some(l => l.id === x.id) && haversine(c, [x.lon, x.lat]) < 100000); // bundled Syria POIs only near the view
+  const top = [...local, ...settlements, ...gzHits, ...lpItems];
   const seen = new Set();
   return { chip: lp.chip, offline, items: dedupe([...top, ...rest].filter(x => !x.id || (!seen.has(x.id) && seen.add(x.id)))) };
 }
@@ -171,7 +176,9 @@ function poiRow(rec) {
 function chipItem(key) {
   const c = CATS.find(x => x[0] === key);
   const n = P.all.filter(r => CHIP_CATS[key].includes(r.c) && haversine(refPoint(), [r.lon, r.lat]) < 10000).length;
-  return { id: 'chip:' + key, chip: key, name: t(key), sub: t('nearbyN', { n: nf(n), r: nf(10) }), icon: [c[1], c[2]] };
+  // outside Syria the bundled count is always 0 – say where results come from instead of "0 within 10 km"
+  const sub = inSyriaPoly(...chipRef()) ? t('nearbyN', { n: nf(n), r: nf(10) }) : t('liveSearch');
+  return { id: 'chip:' + key, chip: key, name: t(key), sub, icon: [c[1], c[2]] };
 }
 export function choose(item) {
   if (item.chip) { $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden'); const q = $('#q'); q.value = t(item.chip); q.blur(); $('#btnClear').classList.remove('hidden'); track('search', { kind: 'cat', cat: item.chip }); applyChips([item.chip], false); return; }
@@ -195,6 +202,7 @@ export async function fullSearch(text) {
   // bias (never bound: no bounded/countrycodes) to the current map view, worldwide
   const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => (+v).toFixed(4)).join(',');
   const loc0 = await localSearch(text, { limit: 12 }); // local first – answers without network
+  loc0.places = gateByView(loc0.places, c, { open: gzOpen(c, text) }); // gazetteer: name matches anywhere, fuzzy hits only near the view
   const offline = !navigator.onLine;
   let res = [];
   if (!offline) try {
@@ -208,9 +216,11 @@ export async function fullSearch(text) {
   box.innerHTML = ''; box.classList.add('hidden'); document.body.classList.remove('sugg-open');
   try { await loadPois(); } catch {}
   const lr = searchLocal(text, refPoint(), 30);
-  if (lr.chip && !lr.items.length) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
-  const loc = lr.items.map(poiRow);
+  // a pure category word (Café, مقهى, Restaurants) = the chip: current view, worldwide, never a fuzzy place list
+  if (lr.chip && (lr.pure || !lr.items.length)) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
+  const loc = lr.items.filter(x => haversine(c, [x.lon, x.lat]) < 100000).map(poiRow); // bundled Syria POIs only near the view
   const rk = rank(res, text, bbox);
+  rk.settlements.forEach(x => { x.place = true; });
   res = dedupe([...loc0.mine, ...rk.settlements, ...loc0.places, ...loc, ...rk.rest.filter(r => !loc.some(l => l.id === r.id))]);
   track('search', { kind: 'full', n: res.length });
   if (!res.length) { toast(offline ? t('offLocalOnly') : t('noResults'), offline ? 4000 : 2600); return; }
@@ -234,8 +244,14 @@ export function showResultList(res, title, fit = true, offline = false) {
     if (st) { e.stopPropagation(); const r = res[+st.dataset.star]; const on = toggleSaved(r); st.outerHTML = starBtn(r, +st.dataset.star); toast(t(on ? 'savedOk' : 'svRemoved')); return; }
     const el = e.target.closest('.srow'); if (el) { const r = res[+el.dataset.i]; addRecent(r); openPlace(r); } });
   if (fit && res.length > 1) {
-    const b = new maplibregl.LngLatBounds(); res.forEach(r => b.extend([r.lon, r.lat]));
-    { const mp = mapPadding(); fitTo(b, { top: mp.top + 20, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 20, left: mp.left + 30, right: mp.right + 30 }, { maxZoom: 16, duration: 600 }); }
+    // frame only results near the current view (never a Tunisia–Syria box at z2.6); nothing near → camera stays
+    const near = fitTargets(res, center()), top = res[0];
+    // deliberate place search ("Homs" from Damascus): go to that ONE place, never frame several far points
+    if ((top.gz || top.place) && !near.includes(top)) App.map.easeTo({ center: [top.lon, top.lat], zoom: Math.max(CHIP_MIN_Z, Math.min(14, App.map.getZoom())), duration: 600 });
+    else if (near.length) {
+      const b = new maplibregl.LngLatBounds(); near.forEach(r => b.extend([r.lon, r.lat]));
+      const mp = mapPadding(); fitTo(b, { top: mp.top + 20, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 20, left: mp.left + 30, right: mp.right + 30 }, { maxZoom: 16, minZoom: CHIP_MIN_Z, duration: 600 });
+    }
   }
 }
 
@@ -265,7 +281,8 @@ export async function applyChips(cats, openNow, fit = true) {
   if (!cats.length) { clearMarkers(); closeSheet(); return; }
   // Outside Syria the bundled POIs are all far away – never jump there (P1: a chip in Berlin flew to Syria);
   // search live OSM (Overpass) in the current view instead, worldwide, without moving the map.
-  if (!inSyria(...center())) { searchCategoryLive(cats[cats.length - 1]); return; }
+  // P0: gate on the Syria border polygon (not the old rectangle) and on the reference point the user looks at
+  if (!inSyriaPoly(...chipRef())) { searchCategoryLive(cats[cats.length - 1]); return; }
   track('category', { cat: cats.join(',') });
   showFilterSheet(fit);
 }
@@ -278,7 +295,7 @@ export function showFilterSheet(fit = false) {
   const title = cats.map(k => t(k)).join(' · ');
   const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
     [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
-  const countTxt = `${t('nearbyN', { n: nf(r.near), r: nf(10) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  const countTxt = `${t('nearbyN', { n: nf(r.near), r: nf(10) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyriaPoly(...ref) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
   // hidden-without-hours hint: no big numbers (≤ 99 exact, else 99+), locale digits (ar-SY for AR), tappable "Show anyway"
   const hintHtml = r.hiddenNoHours ? `<p class="psub ohhint" id="ohHint"><span>${esc(t('ohHidden', { n: hintCount(r.hiddenNoHours, locale()) }))}</span> <button type="button" class="linkbtn" id="ohShow">${esc(t('ohShowAnyway'))}</button></p>` : '';
   const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`
@@ -296,7 +313,8 @@ export function showFilterSheet(fit = false) {
   $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
   $('#fLive').onclick = () => searchCategoryLive(cats[0]);
   const show = body.querySelector('#ohShow'); if (show) show.onclick = () => { setFilter(App.map, cats, true, true); showFilterSheet(false); };
-  const nearView = res.filter(x => x.d < CAT_FIT_M);
+  // never leave the user's area: only results that are close to the reference point AND whose box stays near it
+  const nearView = res.filter(x => x.d < CAT_FIT_M && haversine(center(), [x.lon, x.lat]) < 2 * CAT_FIT_M);
   if (fit && nearView.length) { // only fit to results near the current view – never to POIs in another city / country
     const near = nearView.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
     if (App.me && haversine(App.me, [near[0].lon, near[0].lat]) < 20000) b.extend(App.me);

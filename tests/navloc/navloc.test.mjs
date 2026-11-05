@@ -8,7 +8,7 @@ test('nav start asks for GPS in the tap and refuses without it', () => {
 });
 test('manual pan disables follow, no silent auto-refollow', () => { assert.match(R, /USER_MOVE/); assert.match(R, /navRecenter/); });
 test('category chips stay in the current view', () => {
-  assert.match(S, /CAT_FIT_M/); assert.match(S, /if \(!inSyria\(/); assert.match(S, /const ref = chipRef\(\), r = filterResults\(ref/);
+  assert.match(S, /CAT_FIT_M/); assert.match(S, /if \(!inSyria(Poly)?\(/); assert.match(S, /const ref = chipRef\(\), r = filterResults\(ref/);
 });
 test('i18n EN/AR/DE', () => { for (const k of ['navLocNeeded', 'recenter']) assert.ok((I.match(new RegExp(k + '\\s*:', 'g')) || []).length >= 3, k); });
 test('navHeading priority', () => {

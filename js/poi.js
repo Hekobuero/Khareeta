@@ -287,7 +287,7 @@ export function searchLocal(text, ref, limit = 6) {
   if (!rest.length) {
     if (!cats) return { chip, items: [] };
     const near = P.all.filter(r => cats.includes(r.c) && (r.name || r.ar || r.en || r.brand)).map(r => [haversine(ref, [r.lon, r.lat]), r]).sort((a, b) => a[0] - b[0]).slice(0, Math.min(limit, 4));
-    return { chip, items: near.map(([d, r]) => Object.assign(r, { d })) };
+    return { chip, pure: true, items: near.map(([d, r]) => Object.assign(r, { d })) };
   }
   for (const r of P.all) {
     if (!r.tok.length) continue;

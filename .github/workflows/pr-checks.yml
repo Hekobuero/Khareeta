@@ -172,6 +172,12 @@ jobs:
       - name: Share as image (buttons + PNG card, iPhone 390, DE/EN/AR, light/dark, WebKit + Chromium, mocked)
         run: node share-image.test.js
         timeout-minutes: 10
+      - name: Category chip never jumps to Syria + GPS start (Germany view, mocked Overpass, DE/AR, WebKit + Chromium)
+        run: node chip-view.test.js
+        timeout-minutes: 8
+      - name: Text search "Café" stays in the view (Berlin/Paris, no far fuzzy gazetteer hits; Homs from Syria; DE/AR, WebKit + Chromium)
+        run: node text-search-view.test.js
+        timeout-minutes: 8
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4

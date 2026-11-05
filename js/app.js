@@ -59,6 +59,20 @@ renderUI();
 // ---------- map ----------
 const DEFAULT = { center: [36.2919, 33.5132], zoom: 12.5 }; // Damascus
 const view = lsGet('kh.view', null);
+// Start position (P0): the real GPS position whenever location is on and permitted – the saved view / Damascus default
+// is only a fallback (location off or denied). Deep links (?p= ?ll= ?r= ?q=) keep their own target.
+const DEEP = /[?&](p|ll|r|q)=/.test(location.search);
+let startUserMoved = DEEP; // the user (or a deep link) already chose a view → a late first fix does not yank the map
+function geoPermission() {
+  try { return navigator.permissions?.query({ name: 'geolocation' }).then(s => s.state, () => 'prompt') ?? Promise.resolve('prompt'); }
+  catch { return Promise.resolve('prompt'); }
+}
+const startPerm = 'geolocation' in navigator ? geoPermission() : Promise.resolve('denied');
+// granted: ask for a (cached) fix in parallel with the style load, so the first frame already shows the user's area
+const startFix = startPerm.then(st => st !== 'granted' || DEEP ? null : new Promise(res => {
+  try { navigator.geolocation.getCurrentPosition(p => res([p.coords.longitude, p.coords.latitude]), () => res(null), { enableHighAccuracy: false, maximumAge: 120000, timeout: 2500 }); } catch { res(null); }
+  setTimeout(() => res(null), 2600);
+}));
 initRTL('vendor/rtl-text/mapbox-gl-rtl-text.js'); // eager: Syrian labels are Arabic in every UI language
 
 async function initialStyle() {
@@ -73,9 +87,10 @@ async function initialStyle() {
   }
 }
 
+const [startStyle, startMe] = await Promise.all([initialStyle(), startFix]);
 const map = App.map = new maplibregl.Map({
-  container: 'map', style: await initialStyle(),
-  center: view?.c || DEFAULT.center, zoom: view?.z ?? DEFAULT.zoom, bearing: 0, pitch: 0,
+  container: 'map', style: startStyle,
+  center: startMe || view?.c || DEFAULT.center, zoom: startMe ? Math.max(view?.z ?? 0, 15) : view?.z ?? DEFAULT.zoom, bearing: 0, pitch: 0,
   hash: 'map', attributionControl: false, maxPitch: 75,
   // Needed so share-as-image can read pixels from the WebGL canvas after idle.
   preserveDrawingBuffer: true,
@@ -270,7 +285,7 @@ function meEl() {
   const d = document.createElement('div'); d.className = 'me-wrap';
   d.innerHTML = '<div class="me-halo"></div><div class="me-cone hidden"></div><div class="me"></div>'; return d;
 }
-let watchId = null, firstFix = true, lastFix = 0, lastAcc = 0;
+let watchId = null, firstFix = true, startFly = false, lastFix = 0, lastAcc = 0;
 function onHeading(ev) {
   let h = ev.webkitCompassHeading ?? (ev.absolute && ev.alpha != null ? 360 - ev.alpha : null);
   if (h == null) return;
@@ -291,10 +306,11 @@ setInterval(() => App.meMarker?.getElement().classList.toggle('stale', Date.now(
 function startHeading() {
   try { if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().then(s => { if (s === 'granted') addEventListener('deviceorientation', onHeading); }).catch(() => {}); else addEventListener('deviceorientationabsolute', onHeading); } catch {}
 }
-function locate(fly = true) {
-  if (!('geolocation' in navigator)) return toast(t('locErr'));
+function locate(fly = true, start = false) {
+  if (!('geolocation' in navigator)) return start ? undefined : toast(t('locErr'));
   startHeading();
   firstFix = fly;
+  startFly = start;
   if (fly) App.locMode = Math.max(1, App.locMode);
   renderLocBtn();
   if (App.me && fly) map.flyTo({ center: App.me, zoom: Math.max(map.getZoom(), 16), duration: 800, padding: undefined });
@@ -305,13 +321,16 @@ function locate(fly = true) {
     if (!App.meMarker) App.meMarker = new maplibregl.Marker({ element: meEl() }).setLngLat(App.me).addTo(map);
     else App.meMarker.setLngLat(App.me);
     App.meMarker.getElement().classList.remove('stale'); halo();
+    if (startFly) { startFly = false; // app start: centre on the real position unless the user already moved the map
+      if (!startUserMoved && !navActive() && haversine(center(), App.me) > 50) map.jumpTo({ center: App.me, zoom: Math.max(map.getZoom(), 15) });
+    }
     if (firstFix) { firstFix = false; map.flyTo({ center: App.me, zoom: Math.max(map.getZoom(), 15.5), duration: 900 }); track('locate', { lat: p.coords.latitude, lon: p.coords.longitude }); }
     else if (App.locMode > 0 && !navActive() && !map.isMoving()) map.easeTo({ center: App.me, duration: 600 });
     renderLocBtn();
-  }, err => { if (err.code === 1) { App.locDenied = true; App.locMode = 0; } toast(t('locErr')); watchId = null; renderLocBtn(); }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  }, err => { if (err.code === 1) { App.locDenied = true; App.locMode = 0; } startFly = false; if (!start) toast(t('locErr')); watchId = null; renderLocBtn(); }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
 }
 map.on('rotate', () => { if (App.heading != null) { const cone = App.meMarker?.getElement().querySelector('.me-cone'); if (cone) cone.style.transform = `rotate(${App.heading - map.getBearing()}deg)`; } });
-map.on('dragstart', () => { if (App.locMode) { App.locMode = 0; renderLocBtn(); } });
+map.on('dragstart', () => { startUserMoved = true; if (App.locMode) { App.locMode = 0; renderLocBtn(); } });
 
 // ---------- home peek: Saved row (mockup 01) ----------
 function showHome(keep) {
@@ -422,8 +441,9 @@ map.once('load', () => {
   updWx();
   if (sp.has('debug')) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;bottom:4px;left:50%;transform:translateX(-50%);font:11px monospace;background:#000a;color:#fff;padding:2px 6px;z-index:999;border-radius:4px'; document.body.appendChild(d); setInterval(() => d.textContent = `v${VERSION} z${map.getZoom().toFixed(1)} dpr${devicePixelRatio} ${navigator.onLine ? 'on' : 'off'}`, 1000); }
 });
-// remember geolocation permission: if granted, show position silently
-try { navigator.permissions?.query({ name: 'geolocation' }).then(s => { if (s.state === 'granted') locate(false); }); } catch {}
+// app start: granted → follow the real position (and centre on it); prompt / no Permissions API (iOS) → ask once;
+// denied / location off → keep the fallback view (saved view or the Syria default)
+startPerm.then(st => { if (st !== 'denied') locate(false, true); });
 
 // ---------- service worker ----------
 // Hand the worker the same-origin files this page loaded (fonts, sprites, POI data …): on the first visit they were

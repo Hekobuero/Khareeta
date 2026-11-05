@@ -156,3 +156,23 @@ export function gazetteerEntries(g) {
     w: ({ city: 25, town: 15, suburb: 10, quarter: 8, neighbourhood: 8, village: 0 }[types[ti]] || 0) + Math.min(5, Math.log10(pop || 1)),
   }));
 }
+
+// ---------- viewport gate (P1: "Café" in Berlin listed Syrian "Kafr…" villages 2600 km away and zoomed to z2.6) ----------
+export const GZ_NEAR_M = 50000;   // gazetteer hits within 50 km of the view centre count as nearby
+export const GZ_FAR_MIN = 100;    // farther hits only for a (near-)exact name match ("Homs", "Kafr Mize"), never fuzzy
+export const FIT_NEAR_M = 15000;  // text results only frame the map if they are this close to the view centre
+function distM(a, b) { const R = 6371008.8, r = Math.PI / 180, dl = (b[1] - a[1]) * r, dn = (b[0] - a[0]) * r; const x = Math.sin(dl / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(x))); }
+/** Gate gazetteer hits by the current view: name matches (score >= GZ_FAR_MIN) anywhere, nearest first, then fuzzy hits
+ *  only when they are near the view. Far fuzzy hits ("Café" ≈ "Kafr …" 2600 km away) are dropped. */
+export function gateByView(items, c, { nearM = GZ_NEAR_M, farMin = GZ_FAR_MIN, open = false } = {}) {
+  if (open) return items; // view in Syria or an Arabic query: the whole gazetteer is local (typos like «حمصه» must still find Homs)
+  const strong = [], weak = [];
+  for (const x of items) {
+    if (x.lon == null) continue;
+    const d = distM(c, [x.lon, x.lat]);
+    if ((x.score ?? 0) >= farMin) strong.push([d, x]); else if (d <= nearM) weak.push(x);
+  }
+  return [...strong.sort((a, b) => a[0] - b[0]).map(e => e[1]), ...weak];
+}
+/** Results that may drive the camera: only those close to the view centre (never a country/continent-wide box). */
+export function fitTargets(res, c, nearM = FIT_NEAR_M) { return res.filter(x => x.lon != null && distM(c, [x.lon, x.lat]) <= nearM); }
