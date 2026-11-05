@@ -33,6 +33,8 @@ const closed = s => s.found && s.hidden && s.display === 'none' && s.h === 0 && 
       const page = await ctx.newPage();
       await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 }); await page.waitForTimeout(800);
+      // Wait for map.load → showHome(), otherwise late startup can replace the what's-here sheet (#whRmBtn) under test.
+      await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 }).catch(() => {});
       const pts = [[36.2765, 33.5138], [36.2921, 33.5102], [36.3001, 33.5201]];
       for (let i = 0; i < pts.length; i++) {
         await page.evaluate(async p => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere(p); }, pts[i]);
@@ -41,9 +43,9 @@ const closed = s => s.found && s.hidden && s.display === 'none' && s.h === 0 && 
         await btn.waitFor({ state: 'attached', timeout: 10000 }); await page.waitForTimeout(500);
         await btn.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
         // "Report…" below the fold of the half sheet (it is no longer padded by the menu) → pull the sheet up like a user
-        if (await btn.evaluate(b => b.getBoundingClientRect().bottom > innerHeight)) {
+        if (await btn.evaluate(b => b.getBoundingClientRect().bottom > innerHeight, null, { timeout: 5000 }).catch(() => true)) {
           await page.evaluate(async () => (await import(new URL('js/core.js', location.href))).setSheet('full')); await page.waitForTimeout(500);
-          await btn.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+          await btn.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
         }
         await btn.waitFor({ state: 'visible', timeout: 10000 });
         const s0 = await state(page); ok(`${bn} ${lang} open #${i + 1}: choice closed before tap`, closed(s0), JSON.stringify(s0));
