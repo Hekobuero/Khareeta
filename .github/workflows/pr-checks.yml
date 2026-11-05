@@ -15,7 +15,8 @@ env:
 jobs:
   voice-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # voice.test.js runs ~7.5 min locally and up to ~2× on shared runners → generous budget so CI is not flaky (P3)
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: tests/voice
@@ -54,7 +55,10 @@ jobs:
         timeout-minutes: 10
         run: npx playwright install-deps chromium
       - run: npm test
-        timeout-minutes: 20
+        timeout-minutes: 35
+      - name: Report queue (delayed Supabase POST survives sheet close + reload; mocked, Chromium)
+        run: node report-queue.test.js
+        timeout-minutes: 5
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -158,6 +162,9 @@ jobs:
         timeout-minutes: 5
       - name: Saved places + offline search (WebKit iPhone 390, setOffline, DE/AR)
         run: node saved-offline.test.js
+        timeout-minutes: 5
+      - name: What's here – report choice closed until tapped, every reopen (WebKit + Chromium, DE/AR)
+        run: node wh-menu.test.js
         timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()

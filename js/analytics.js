@@ -302,7 +302,19 @@ function scheduleReports(now = Date.now()) {
 // Cross-tab exclusivity: the Web Locks API (navigator.locks, atomic across tabs of the origin) – a tab that does not get
 // the lock right away skips; the holder sends. Fallback without Web Locks: claim with a random token in localStorage,
 // wait a random 30–150 ms and only send the entries that still carry OUR token (last writer wins, the others back off).
-const LOCK = 'kh-report-send';
+// P3 dedupe: localStorage is only eventually consistent between tab processes, so the token check alone could let two
+// tabs send the same report. The fallback therefore also (a) takes a timestamped lock key (kh.rq.lock, stale after 30 s)
+// and skips while another tab's fresh lock is present, (b) announces its claim on a BroadcastChannel – on overlapping
+// claims the smaller token wins deterministically, the other backs off – and (c) waits 250–450 ms for both to settle.
+const LOCK = 'kh-report-send', LKEY = 'kh.rq.lock', LOCK_TTL = 30e3;
+let bc = null, bcClaims = new Map(); // tok -> { ids, t } claims announced by other tabs
+function chan() {
+  if (bc || typeof BroadcastChannel !== 'function') return bc;
+  try { bc = new BroadcastChannel('kh-report'); bc.unref?.(); // Node (tests): never keep the process alive
+  bc.onmessage = e => { const m = e.data || {}; if (m.tok && Array.isArray(m.ids)) bcClaims.set(m.tok, { ids: m.ids, t: Date.now() }); }; } catch { bc = null; }
+  return bc;
+}
+export function _resetReportLock() { bcClaims = new Map(); try { bc?.close(); } catch {} bc = null; }
 export async function sendDueReports(opts = {}) {
   if (rsending) return 0;
   const lk = globalThis.navigator?.locks;
@@ -322,14 +334,23 @@ async function sendDueLocked({ fetchImpl = globalThis.fetch } = {}, locked) {
   // just before (other tab / in flight): at most ~61 s, then the report goes first
   const lf = +lsGet(FKEY, 0) || 0;
   if (now - lf < QUIET_MS || sending) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), Math.max(1000, lf + QUIET_MS - now + 1000)); return 0; }
-  rsending = true;
   const ids = new Set(due.map(x => x.id)), tok = rid();
+  if (!locked) {
+    const lkv = lsGet(LKEY, null);
+    if (lkv && lkv.tok && lkv.t > now - LOCK_TTL) { clearTimeout(rtm); rtm = setTimeout(() => sendDueReports({ fetchImpl }), Math.max(1000, lkv.t + LOCK_TTL - now + 500)); return 0; }
+    lsSet(LKEY, { tok, t: now });
+  }
+  rsending = true;
   lsSet(RQKEY, l.map(x => ids.has(x.id) ? { ...x, claim: now, ct: tok } : x));
   let mine = due;
   if (!locked) {
-    await new Promise(r => setTimeout(r, 30 + Math.random() * 120));
-    const cur = new Map(lsGet(RQKEY, []).map(x => [x.id, x]));
-    mine = due.filter(x => cur.get(x.id)?.ct === tok);
+    const ch = chan(); try { ch?.postMessage({ tok, ids: [...ids] }); } catch {}
+    await new Promise(r => setTimeout(r, wait()));
+    const cur = new Map(lsGet(RQKEY, []).map(x => [x.id, x])), lk2 = lsGet(LKEY, null);
+    // another tab's overlapping claim with a smaller token wins (both tabs see both messages → exactly one sends)
+    const lost = new Set(); for (const [ot, c] of bcClaims) if (ot !== tok && ot < tok && Date.now() - c.t < 5e3) c.ids.forEach(i => lost.add(i));
+    mine = lk2?.tok && lk2.tok !== tok ? [] : due.filter(x => cur.get(x.id)?.ct === tok && !lost.has(x.id));
+    if (!mine.length) { rsending = false; if (lk2?.tok === tok) lsSet(LKEY, null); scheduleReports(); return 0; }
   }
   let sent = 0;
   for (const it of mine) {
@@ -341,8 +362,10 @@ async function sendDueLocked({ fetchImpl = globalThis.fetch } = {}, locked) {
     else if (retryable(r)) rest.push({ ...it, claim: 0, ct: null, tries: it.tries + 1, due: Date.now() + (r.why === 'offline' ? 0 : Math.min(36e5, 60e3 * 2 ** it.tries) * (1 + Math.random())) });
     lsSet(RQKEY, rest);
   }
+  if (!locked && lsGet(LKEY, null)?.tok === tok) lsSet(LKEY, null);
   rsending = false; scheduleReports(); reschedule(); return sent;
 }
+const wait = () => 120 + Math.random() * 70; // < 200 ms; BroadcastChannel claims arrive within a few ms
 let timer = null, sending = false, leaving = false;
 // The single place that sets the usage flush timer: always clears it and recomputes the next attempt from the current
 // state (quiet period end, pending report due dates). Called on every state change (quiet on/off, report sent,

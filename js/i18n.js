@@ -3,7 +3,7 @@ import { SHARE_I18N } from './share-core.js';
 const S = {
 en: {
 
-  trNoName: "Unnamed line", trLayer: "Lines (Servis & bus)", trLayerSub: "Damascus · Aleppo · from OpenStreetMap", trTitle: "Servis & bus lines", trSearch: "Search line, ref or stop", trNone: "No lines match.", trEmpty: "OpenStreetMap has no mapped lines here yet.", trCount: "{n} lines · {s} stops", trSrc: "From OpenStreetMap – may be incomplete or outdated.", trImprove: "How to add or fix lines on OSM", trStops: "Stops", trNoStops: "No stops mapped for this line.", trFrom: "From", trTo: "To", trRef: "Line", trOperator: "Operator", trServis: "Servis / microbus", trBus: "Bus", trStop: "Stop", trAtStop: "Lines at this stop", trOsmView: "View on OpenStreetMap", trLoadErr: "Line data could not be loaded.", trLowData: "Data saving is on – line data loads only when you open this list.", trCity: "City", trC_damascus: "Damascus", trC_aleppo: "Aleppo", trStopsN_one: "{n} stop", trStopsN_other: "{n} stops", trOpenList: "Show lines", trUnnamed: "Unnamed stop", cTransit: "Transit lines",
+  trNoName: "Unnamed line", trLayer: "Lines (Servis & bus)", trLayerSub: "Damascus · Aleppo · from OpenStreetMap", trTitle: "Servis & bus lines", trSearch: "Search line, ref or stop", trNone: "No lines match.", trEmpty: "OpenStreetMap has no mapped lines here yet.", trCount: "{n} lines · {s} stops", trSrc: "From OpenStreetMap – may be incomplete or outdated.", trImprove: "How to add or fix lines on OSM", trStops: "Stops", trNoStops: "No stops mapped for this line.", trFrom: "From", trTo: "To", trRef: "Line", trOperator: "Operator", trServis: "Servis / microbus", trBus: "Bus", trStop: "Stop", trAtStop: "Lines at this stop", trOsmView: "View on OpenStreetMap", trLoadErr: "Line data could not be loaded.", trLowData: "Data saving is on – line data loads only when you open this list.", trCity: "City", trC_damascus: "Damascus", trC_aleppo: "Aleppo", trLinesN_one: "{n} line", trLinesN_other: "{n} lines", trStopsN_one: "{n} stop", trStopsN_other: "{n} stops", trOpenList: "Show lines", trUnnamed: "Unnamed stop", cTransit: "Transit lines",
   ntOpen: 'Report map error',
   ntTitle: 'Report map error',
   ntType: 'Type of error',
@@ -184,7 +184,7 @@ en: {
 },
 ar: {
 
-  trNoName: "خط بلا اسم", trLayer: "الخطوط (سرفيس وباص)", trLayerSub: "دمشق · حلب · من OpenStreetMap", trTitle: "خطوط السرفيس والباص", trSearch: "ابحث عن خط أو رقم أو موقف", trNone: "لا توجد خطوط مطابقة.", trEmpty: "لا توجد خطوط مرسومة هنا في OpenStreetMap بعد.", trCount: "{n} خط · {s} موقف", trSrc: "من OpenStreetMap – قد تكون ناقصة أو قديمة.", trImprove: "كيف تضيف أو تصحح الخطوط في OSM", trStops: "المواقف", trNoStops: "لا توجد مواقف مرسومة لهذا الخط.", trFrom: "من", trTo: "إلى", trRef: "الخط", trOperator: "المشغّل", trServis: "سرفيس / ميكرو", trBus: "باص", trStop: "موقف", trAtStop: "الخطوط في هذا الموقف", trOsmView: "عرض على OpenStreetMap", trLoadErr: "تعذّر تحميل بيانات الخطوط.", trLowData: "توفير البيانات مفعّل – تُحمّل بيانات الخطوط فقط عند فتح هذه القائمة.", trCity: "المدينة", trC_damascus: "دمشق", trC_aleppo: "حلب", trStopsN_zero: "لا مواقف", trStopsN_one: "موقف واحد", trStopsN_two: "موقفان", trStopsN_few: "{n} مواقف", trStopsN_many: "{n} موقفًا", trStopsN_other: "{n} موقف", trOpenList: "عرض الخطوط", trUnnamed: "موقف بلا اسم", cTransit: "خطوط النقل",
+  trNoName: "خط بلا اسم", trLayer: "الخطوط (سرفيس وباص)", trLayerSub: "دمشق · حلب · من OpenStreetMap", trTitle: "خطوط السرفيس والباص", trSearch: "ابحث عن خط أو رقم أو موقف", trNone: "لا توجد خطوط مطابقة.", trEmpty: "لا توجد خطوط مرسومة هنا في OpenStreetMap بعد.", trCount: "{n} خط · {s} موقف", trSrc: "من OpenStreetMap – قد تكون ناقصة أو قديمة.", trImprove: "كيف تضيف أو تصحح الخطوط في OSM", trStops: "المواقف", trNoStops: "لا توجد مواقف مرسومة لهذا الخط.", trFrom: "من", trTo: "إلى", trRef: "الخط", trOperator: "المشغّل", trServis: "سرفيس / ميكرو", trBus: "باص", trStop: "موقف", trAtStop: "الخطوط في هذا الموقف", trOsmView: "عرض على OpenStreetMap", trLoadErr: "تعذّر تحميل بيانات الخطوط.", trLowData: "توفير البيانات مفعّل – تُحمّل بيانات الخطوط فقط عند فتح هذه القائمة.", trCity: "المدينة", trC_damascus: "دمشق", trC_aleppo: "حلب", trLinesN_zero: "لا خطوط", trLinesN_one: "خط واحد", trLinesN_two: "خطّان", trLinesN_few: "{n} خطوط", trLinesN_many: "{n} خطًا", trLinesN_other: "{n} خط", trStopsN_zero: "لا مواقف", trStopsN_one: "موقف واحد", trStopsN_two: "موقفان", trStopsN_few: "{n} مواقف", trStopsN_many: "{n} موقفًا", trStopsN_other: "{n} موقف", trOpenList: "عرض الخطوط", trUnnamed: "موقف بلا اسم", cTransit: "خطوط النقل",
   ntOpen: 'الإبلاغ عن خطأ في الخريطة',
   ntTitle: 'الإبلاغ عن خطأ في الخريطة',
   ntType: 'نوع الخطأ',
@@ -382,7 +382,7 @@ ar: {
 },
 de: {
 
-  trNoName: "Linie ohne Namen", trLayer: "Linien (Servis & Bus)", trLayerSub: "Damaskus · Aleppo · aus OpenStreetMap", trTitle: "Servis- & Buslinien", trSearch: "Linie, Nummer oder Haltestelle suchen", trNone: "Keine passenden Linien.", trEmpty: "In OpenStreetMap sind hier noch keine Linien erfasst.", trCount: "{n} Linien · {s} Haltestellen", trSrc: "Aus OpenStreetMap – evtl. unvollständig oder veraltet.", trImprove: "So ergänzt oder korrigierst du Linien in OSM", trStops: "Haltestellen", trNoStops: "Für diese Linie sind keine Haltestellen erfasst.", trFrom: "Von", trTo: "Nach", trRef: "Linie", trOperator: "Betreiber", trServis: "Servis / Kleinbus", trBus: "Bus", trStop: "Haltestelle", trAtStop: "Linien an dieser Haltestelle", trOsmView: "Auf OpenStreetMap ansehen", trLoadErr: "Liniendaten konnten nicht geladen werden.", trLowData: "Datensparen ist an – Liniendaten laden erst, wenn du diese Liste öffnest.", trCity: "Stadt", trC_damascus: "Damaskus", trC_aleppo: "Aleppo", trStopsN_one: "{n} Haltestelle", trStopsN_other: "{n} Haltestellen", trOpenList: "Linien zeigen", trUnnamed: "Haltestelle ohne Namen", cTransit: "ÖPNV-Linien",
+  trNoName: "Linie ohne Namen", trLayer: "Linien (Servis & Bus)", trLayerSub: "Damaskus · Aleppo · aus OpenStreetMap", trTitle: "Servis- & Buslinien", trSearch: "Linie, Nummer oder Haltestelle suchen", trNone: "Keine passenden Linien.", trEmpty: "In OpenStreetMap sind hier noch keine Linien erfasst.", trCount: "{n} Linien · {s} Haltestellen", trSrc: "Aus OpenStreetMap – evtl. unvollständig oder veraltet.", trImprove: "So ergänzt oder korrigierst du Linien in OSM", trStops: "Haltestellen", trNoStops: "Für diese Linie sind keine Haltestellen erfasst.", trFrom: "Von", trTo: "Nach", trRef: "Linie", trOperator: "Betreiber", trServis: "Servis / Kleinbus", trBus: "Bus", trStop: "Haltestelle", trAtStop: "Linien an dieser Haltestelle", trOsmView: "Auf OpenStreetMap ansehen", trLoadErr: "Liniendaten konnten nicht geladen werden.", trLowData: "Datensparen ist an – Liniendaten laden erst, wenn du diese Liste öffnest.", trCity: "Stadt", trC_damascus: "Damaskus", trC_aleppo: "Aleppo", trLinesN_one: "{n} Linie", trLinesN_other: "{n} Linien", trStopsN_one: "{n} Haltestelle", trStopsN_other: "{n} Haltestellen", trOpenList: "Linien zeigen", trUnnamed: "Haltestelle ohne Namen", cTransit: "ÖPNV-Linien",
   ntOpen: 'Kartenfehler melden',
   ntTitle: 'Kartenfehler melden',
   ntType: 'Art des Fehlers',
@@ -582,6 +582,15 @@ export function t(key, vars) {
   let s = S[lang][key] ?? S.en[key] ?? key;
   if (vars && typeof s === 'string') for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
   return s;
+}
+// Count with the real plural form of `lang` (Intl.PluralRules: AR zero/one/two/few/many/other, EN/DE one/other) and the
+// number formatted for that language (`num`, e.g. fmt.nf → Arabic-Indic digits when enabled). Keys: prefix + '_' + category,
+// falling back to prefix_other of the same language, then English. Strings are looked up in `lang`, not the current UI language.
+export function tN(prefix, n, { lang: l = lang, num } = {}) {
+  let cat = 'other'; try { cat = new Intl.PluralRules(l).select(n); } catch {}
+  const tab = S[l] || S.en, s = tab[prefix + '_' + cat] ?? tab[prefix + '_other'] ?? S.en[prefix + '_' + (n === 1 ? 'one' : 'other')] ?? prefix;
+  let v; try { v = num ? num(n) : new Intl.NumberFormat(l === 'ar' ? 'ar-SY-u-nu-latn' : l === 'de' ? 'de-DE' : 'en-GB').format(n); } catch { v = String(n); }
+  return s.split('{n}').join(v);
 }
 export function applyDir() {
   document.documentElement.lang = lang;
