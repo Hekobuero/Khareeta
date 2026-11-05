@@ -303,7 +303,7 @@ export async function searchCategoryLive(key) {
   const b = map.getBounds();
   const boxes = liveBoxes(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), c);
   // named POIs already in the loaded vector tiles (0 requests, offline) – merged with the live answer; same widest box
-  const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, refPoint(), tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
+  const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, chipRef(), tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
   openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
     let j;
