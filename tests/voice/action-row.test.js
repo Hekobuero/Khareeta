@@ -52,6 +52,8 @@ function check(name, m, routeId) {
       const page = await ctx.newPage();
       await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 }); await page.waitForTimeout(800);
+      // Wait for map.load → showHome(), otherwise late startup can replace the sheet under test.
+      await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 });
       const dir = await page.evaluate(() => document.documentElement.dir || getComputedStyle(document.body).direction);
       ok(`${bn} ${scheme} ${lang}: direction ${dir}`, lang === 'ar' ? dir === 'rtl' : dir !== 'rtl');
       const pre = `${bn} ${scheme} ${lang}`;

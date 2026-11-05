@@ -38,6 +38,8 @@ const visible = page => page.evaluate(() => {
     await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 });
     await page.waitForTimeout(800);
+    // Wait for map.load → showHome(), otherwise late startup can replace the sheet under test.
+    await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 });
     // 1) What's here? (half sheet)
     // Same WebKit pattern as wh-menu.test.js (#40): re-query locator, catch the first scrollIntoViewIfNeeded
     // (button often sits below the half-sheet fold / overflow:hidden → Playwright times out before the

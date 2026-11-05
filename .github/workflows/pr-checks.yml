@@ -124,7 +124,7 @@ jobs:
 
   ios-webkit:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: tests/voice
@@ -136,19 +136,42 @@ jobs:
           cache: npm
           cache-dependency-path: tests/voice/package-lock.json
       - run: npm ci
-      - name: Install WebKit + Chromium (+ system deps)
-        timeout-minutes: 20
-        # A stalled attempt killed by `timeout` can leave its apt-get child holding the dpkg lock, so every retry
-        # then failed with "Could not get lock". apt now waits for the lock, and leftovers are killed before a retry.
+      - name: Playwright version
+        id: pw
+        run: echo "v=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers (WebKit + Chromium)
+        id: pwcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webkit-chromium-${{ runner.os }}-${{ steps.pw.outputs.v }}
+      # System deps and browser download are split: each gets its own short per-attempt timeout + retry,
+      # so one stalled apt/CDN attempt cannot eat the whole job budget.
+      - name: Install system deps (WebKit + Chromium)
+        timeout-minutes: 12
+        # A stalled attempt killed by `timeout` can leave its apt-get child holding the dpkg lock →
+        # apt waits for the lock, and leftovers are killed before a retry.
         run: |
-          echo 'DPkg::Lock::Timeout "180";' | sudo tee /etc/apt/apt.conf.d/99kh-lock >/dev/null
+          echo 'DPkg::Lock::Timeout "120";' | sudo tee /etc/apt/apt.conf.d/99kh-lock >/dev/null
           for i in 1 2 3; do
-            timeout 420 npx playwright install --with-deps webkit chromium && exit 0
-            echo "::warning::playwright webkit install attempt $i failed/stalled, retrying"
+            timeout 200 npx playwright install-deps webkit chromium && exit 0
+            echo "::warning::playwright install-deps attempt $i failed/stalled, retrying"
             sudo pkill -f 'apt-get' 2>/dev/null || true; sleep 3; sudo dpkg --configure -a || true
+          done
+          exit 1
+      - name: Download WebKit + Chromium
+        if: steps.pwcache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            timeout 180 npx playwright install webkit chromium && exit 0
+            echo "::warning::playwright browser download attempt $i failed/stalled, retrying"
             rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
           done
           exit 1
+      - name: Health sheet Nearby actions reachable (390×844 + shorter viewport, EN/AR/DE, WebKit + Chromium, mocked)
+        run: node health-sheet.test.js
+        timeout-minutes: 5
       - run: node ios-webkit.test.js
         timeout-minutes: 5
       - name: iPhone zoom (pinch/double-tap/buttons, no page overflow)
@@ -183,7 +206,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-webkit-shots
-          path: tests/voice/out/ios/
+          path: |
+            tests/voice/out/ios/
+            tests/voice/out/health-sheet/
           if-no-files-found: ignore
           retention-days: 7
 

@@ -38,7 +38,8 @@ export function openHealthSheet() {
   <details class="em-src"><summary>${esc(t('emSources'))}</summary><ul>${srcLines}</ul></details>
   <div style="height:12px"></div>`;
 
-  const body = openSheet(html, 'half');
+  // Action-heavy sheet: use the full detent, where the shared sheet body scrolls.
+  const body = openSheet(html, 'full');
   App.sheetKind = 'health';
   // Capture map centre when the sheet opens – nearby search must not use a Syria default
   const viewAtOpen = (() => { try { const c = center(); return [c[0], c[1]]; } catch { return null; } })();

@@ -31,6 +31,8 @@ const POI = { id: 'n9001', osm_type: 'node', osm_id: 9001, name: 'مقهى ال�
     page.on('pageerror', e => { if (!/access control checks|Load failed|cancelled|NetworkError|Failed to fetch/i.test(e.message)) errs.push(e.message); });
     await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 }); await page.waitForTimeout(800);
+    // Wait for map.load → showHome(), otherwise late startup can replace the place sheet (and #pSave) under test.
+    await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 }).catch(() => {});
     // 1) save button in the place sheet
     // WebKit: place sheet can re-render (extras) and #pSave often sits below the half-sheet fold –
     // same class as report-menu #whRmBtn / wh-menu: re-query, catch scroll, pull sheet up, then tap.

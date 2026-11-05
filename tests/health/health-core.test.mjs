@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  EMERGENCY_NUMBERS, NEARBY_ACTIONS, telHref, findNumber, HEALTH_I18N,
+  EMERGENCY_NUMBERS, NEARBY_ACTIONS, telHref, findNumber,
 } from '../../js/health-core.js';
 
 const rd = p => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
@@ -48,19 +48,11 @@ test('nearby actions reuse existing chip categories (no second Overpass client)'
   assert.ok(!/nominatim|photon|supabase|mapbox|google|here\.com|bing/i.test(health));
 });
 
-test('HEALTH_I18N keys match across en/ar/de', () => {
-  const keys = Object.keys(HEALTH_I18N.en).sort();
-  for (const l of ['ar', 'de']) assert.deepEqual(Object.keys(HEALTH_I18N[l]).sort(), keys, l);
-  assert.ok(HEALTH_I18N.en.emSyriaLabel.toLowerCase().includes('syria'));
-  assert.ok(HEALTH_I18N.de.emSyriaLabel.toLowerCase().includes('syr'));
-  assert.ok(/سوريا/.test(HEALTH_I18N.ar.emSyriaLabel));
-});
-
-test('wiring: precache, i18n merge, chip + drawer entry, CNAME untouched', () => {
+test('wiring: precache, inline i18n, chip + drawer entry, CNAME untouched', () => {
   const sw = rd('sw.js');
   assert.ok(sw.includes("'js/health-core.js'"));
   assert.ok(sw.includes("'js/health.js'"));
-  assert.match(rd('js/i18n.js'), /HEALTH_I18N/);
+  assert.match(rd('js/i18n.js'), /emSyriaLabel:/);
   assert.match(rd('js/search.js'), /data-health/);
   assert.match(rd('js/app.js'), /openHealthSheet/);
   assert.match(rd('js/ui.js'), /data-a="health"/);
