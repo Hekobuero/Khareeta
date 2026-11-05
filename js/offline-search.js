@@ -16,7 +16,7 @@ export function loadGazetteer() {
 const TYPE = { city: 'gzCity', town: 'gzTown', suburb: 'gzDistrict', quarter: 'gzDistrict', neighbourhood: 'gzDistrict', village: 'gzVillage' };
 function gzItem(e) {
   const ar = getLang() === 'ar', name = ar ? e.ar : (e.en || e.ar), other = ar ? e.en : (e.en ? e.ar : '');
-  return { id: e.id, name, sub: [t(TYPE[e.place] || 'gzVillage'), other].filter(Boolean).join(' · '), lon: e.lon, lat: e.lat, full: true, gz: true,
+  return { id: e.id, name, sub: [t(TYPE[e.place] || 'gzVillage'), other].filter(Boolean).join(' · '), lon: e.lon, lat: e.lat, full: true, gz: true, score: e.score,
     tags: { place: e.place, name: e.ar, 'name:ar': e.ar, ...(e.en ? { 'name:en': e.en } : {}) }, icon: ['pin', '#8E8E93'] };
 }
 // → { mine: saved + recent hits, places: gazetteer hits } (both already in search-item shape)
