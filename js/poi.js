@@ -250,11 +250,11 @@ export function setFilter(map, cats, openNow = state.openNow) { state = { cats: 
 export function filterResults(ref, limit = 80) {
   const cats = [...state.cats].flatMap(k => CHIP_CATS[k] || []);
   let list = P.all.filter(r => cats.includes(r.c));
-  const withHours = list.filter(r => r.oh).length;
+  const withHours = list.filter(r => r.oh).length, noHours = list.length - withHours;
   if (state.openNow) list = list.filter(r => r.oh && ohStatus(r.oh)?.open);
   for (const r of list) r.d = haversine(ref, [r.lon, r.lat]);
   list.sort((a, b) => a.d - b.d);
-  return { total: list.length, near: list.filter(r => r.d < 10000).length, withHours, list: list.slice(0, limit) };
+  return { total: list.length, near: list.filter(r => r.d < 10000).length, withHours, hiddenNoHours: state.openNow ? noHours : 0, list: list.slice(0, limit) };
 }
 
 // ---------- local search ----------

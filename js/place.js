@@ -417,8 +417,11 @@ async function nearby(item) {
 }
 
 // "What's here" – long press / right click
+// generic coordinate sheet (weather chip)
+export function openCoordPlace(lnglat) {
+  openPlace({ id: 'pt' + lnglat[0].toFixed(5) + lnglat[1].toFixed(5), coord: true, name: t('whatsHere'), lon: lnglat[0], lat: lnglat[1], tags: {} }, { noFly: true });
+}
+// long-press / right-click → "What's here?" sheet
 export function openPoint(lnglat) {
-  const item = { id: 'pt' + lnglat[0].toFixed(5) + lnglat[1].toFixed(5), coord: true, name: t('whatsHere'), lon: lnglat[0], lat: lnglat[1], tags: {} };
-  track('whats_here', {});
-  openPlace(item, { noFly: true });
+  import('./whats-here.js').then(m => m.openWhatsHere(lnglat));
 }

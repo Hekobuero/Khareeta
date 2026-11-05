@@ -12,7 +12,8 @@ import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS,
 import { mapIsDark } from './mapstyle.js';
 import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
 import { OV_ATTR_URL, OV_LICENSE_URL } from './overture-data.js';
-import { openPlace, openPoint, weatherRaw, wmo, currentPlace } from './place.js';
+import { parseDeepLink } from './share-core.js';
+import { openPlace, openPoint, openCoordPlace, weatherRaw, wmo, currentPlace } from './place.js';
 import { showSaved } from './ui.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
@@ -250,7 +251,7 @@ for (const id of [...POI_LAYERS, ...WLAYERS, ...OV_LAYERS]) { map.on('mouseenter
   el.addEventListener('touchstart', e => {
     if (e.touches.length !== 1) { clearTimeout(tm); return; }
     sx = e.touches[0].clientX; sy = e.touches[0].clientY;
-    clearTimeout(tm); tm = setTimeout(() => { if (navActive() || measureActive()) return; const r = el.getBoundingClientRect(); const ll = map.unproject([sx - r.left, sy - r.top]); navigator.vibrate?.(20); openPoint([ll.lng, ll.lat]); }, 550);
+    clearTimeout(tm); tm = setTimeout(() => { if (navActive() || measureActive()) return; const r = el.getBoundingClientRect(); const ll = map.unproject([sx - r.left, sy - r.top]); navigator.vibrate?.(20); openPoint([ll.lng, ll.lat]); }, 500);
   }, { passive: true });
   el.addEventListener('touchmove', e => { if (Math.hypot(e.touches[0].clientX - sx, e.touches[0].clientY - sy) > 10) clearTimeout(tm); }, { passive: true });
   el.addEventListener('touchend', () => clearTimeout(tm));
@@ -345,6 +346,13 @@ $('#btnZin').onclick = () => map.zoomIn(); $('#btnZout').onclick = () => map.zoo
 for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, e => { if (!e.target?.closest?.('#map')) e.preventDefault(); }, { passive: false });
 $('#btnCompass').onclick = () => { if (App.locMode === 2) App.locMode = 1; renderLocBtn(); map.easeTo({ bearing: 0, pitch: 0, duration: 400 }); if (settings.b3dOn) { settings.b3dOn = false; saveSettings(); hooks.set3d(false); } };
 $('#btn3d').onclick = () => { settings.b3dOn = !(map.getPitch() > 10); saveSettings(); hooks.set3d(settings.b3dOn); };
+// long-press / right-click on the location button: "Share my location"
+{ const b = $('#btnLocate'); let lt = null, fired = false;
+  const go = () => { fired = true; import('./whats-here.js').then(m => m.shareMyLocation()); };
+  b.addEventListener('contextmenu', e => { e.preventDefault(); go(); });
+  b.addEventListener('touchstart', () => { fired = false; clearTimeout(lt); lt = setTimeout(go, 500); }, { passive: true });
+  for (const ev of ['touchend', 'touchmove', 'touchcancel']) b.addEventListener(ev, () => clearTimeout(lt), { passive: true });
+  b.addEventListener('click', e => { if (fired) { fired = false; e.stopImmediatePropagation(); } }, true); }
 $('#btnLocate').onclick = () => {
   if (App.locDenied) { openSheet(`<div class="phead"><div><h2 class="ptitle" style="font-size:20px">${t('locDeniedT')}</h2><p class="psub">${t('locDeniedB')}</p></div></div><div style="height:16px"></div>`, 'half'); return; }
   if (!App.me || App.locMode === 0) { locate(true); return; }
@@ -362,7 +370,7 @@ const updWx = debounce(async () => {
   try { const j = await weatherRaw(Math.round(c[1] * 10) / 10, Math.round(c[0] * 10) / 10); const [e] = wmo(j.current.weather_code, j.current.is_day); chip.innerHTML = `${e} ${nf(Math.round(j.current.temperature_2m))}°`; chip.classList.remove('hidden'); } catch { chip.classList.add('hidden'); }
 }, 1500);
 map.on('moveend', updWx);
-$('#weatherChip').onclick = () => openPoint(center());
+$('#weatherChip').onclick = () => openCoordPlace(center());
 
 // ---------- network state ----------
 function net() {
@@ -384,6 +392,10 @@ map.once('load', () => {
   if (sp.get('r')) {
     const stops = sp.get('r').split(';').map(s => s.split(',').map(Number)).filter(a => a.length === 2 && !a.some(isNaN)).map(([la, lo], i) => ({ name: `${la.toFixed(4)}, ${lo.toFixed(4)}`, lat: la, lon: lo }));
     if (stops.length >= 2) routeFromUrl(stops, sp.get('m') || 'car');
+  } else if (parseDeepLink(location.search)) {
+    const d = parseDeepLink(location.search);
+    map.jumpTo({ center: [d.lon, d.lat], zoom: d.z });
+    import('./whats-here.js').then(m => m.openWhatsHere([d.lon, d.lat], { name: d.name, route: d.route }));
   } else if (sp.get('ll')) {
     const [la, lo] = sp.get('ll').split(',').map(Number);
     const p = sp.get('p'); const types = { n: 'node', w: 'way', r: 'relation' };
