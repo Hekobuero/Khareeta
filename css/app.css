@@ -189,9 +189,10 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
 .stop input.me{color:var(--k-accent)}
 .stop input:focus{box-shadow:0 0 0 2px var(--k-accent)}
 /* iOS Safari zooms into any focused field below 16px. html is 15px (callout), so 1rem = 15px in EN/DE:
-   on touch devices every text field/select gets at least 16px (AR stays at its 17px). No viewport zoom lock (a11y). */
+   every text field/select is at least 16px (AR stays at its 17px). Combined with maximum-scale=1 /
+   user-scalable=no on the viewport, the PAGE/UI never zooms; MapLibre map pinch still works. */
+input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:max(16px,var(--k-text-body))!important}
 @media (hover:none),(pointer:coarse){
-  input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:max(16px,var(--k-text-body))!important}
   .vsel-row .vsel{padding-block:10px;line-height:22px} /* fixed line box: AR (17px, taller glyph metrics) no longer +3px in WebKit */ /* keeps the voice row height at 16px text */
 }
 .stop .ib{width:34px;height:34px}
@@ -355,9 +356,9 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
 #chips{transition:opacity .16s}
 .maplibregl-ctrl-scale{opacity:0;transition:opacity .3s}body.show-scale .maplibregl-ctrl-scale{opacity:1}
 /* Zoom: the map (MapLibre, touch-action:none on its canvas container) owns pinch/double-tap. The page itself must never
-   pinch-zoom or shift sideways (iOS Safari ignores maximum-scale/user-scalable, so the viewport meta cannot do it):
-   UI overlays allow panning/scrolling only (no pinch-zoom, no double-tap zoom); gesture events outside #map are
-   cancelled in js/app.js. +/- buttons are always visible in the right control column (Apple Maps style). */
+   pinch-zoom or shift sideways: viewport maximum-scale=1 / user-scalable=no (index.html) + inputs ≥16px (no iOS focus
+   zoom) + UI overlays allow panning/scrolling only; gesture events outside #map are cancelled in js/app.js.
+   +/- buttons are always visible in the right control column (Apple Maps style). */
 html,body{width:100%;max-width:100%;overscroll-behavior:none}
 /* .sheet is NOT listed: it keeps touch-action:none (own pointer drag in core.js; none also blocks page pinch),
    .sheet-body keeps pan-y. */

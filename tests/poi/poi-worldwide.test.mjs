@@ -90,12 +90,22 @@ test('app: tile POIs open the sheet, the automatic Overpass layer is off, nav hi
   const app = read('js/app.js'), poi = read('js/poi.js'), sw = read('sw.js'), core = read('js/core.js');
   assert.match(app, /tileTags\(p\)/); assert.match(app, /tileOsm\(f\.id\)/);
   assert.doesNotMatch(app, /initWorldPois\(|addWorldLayers\(/);
+  // permanently hiding tile POIs at add-time is wrong; category filter hides them only while a chip is on
   assert.doesNotMatch(poi, /for \(const id of \['poi', 'poi-dot'\]\) if \(map\.getLayer\(id\)\) map\.setLayoutProperty\(id, 'visibility', 'none'\)/);
   assert.match(poi, /\.\.\.TILE_POI_LAYERS/);
+  assert.match(poi, /for \(const id of TILE_POI_LAYERS\)/);
+  assert.match(poi, /active \? 'none' : 'visible'/);
   assert.match(core, /'poi', 'poi-z15', 'poi-dot'/);
   assert.match(sw, /'js\/tile-poi\.js'/);
   assert.match(sw, /'js\/syria-poly\.js'/);
   assert.match(app, /e\.point\.x - 12/); assert.match(app, /TILE_POI_LAYERS/);
+});
+
+test('index: viewport locks page scale; search input CSS forces ≥16px (no iOS focus zoom)', () => {
+  const html = read('index.html'), css = read('css/app.css');
+  assert.match(html, /name="viewport"[^>]*maximum-scale=1/);
+  assert.match(html, /name="viewport"[^>]*user-scalable=no/);
+  assert.match(css, /input:not\(\[type=checkbox\]\):not\(\[type=radio\]\):not\(\[type=range\]\),select,textarea\{font-size:max\(16px,var\(--k-text-body\)\)!important\}/);
 });
 
 test('tileTags: OpenMapTiles class/subclass → OSM tags', () => {
