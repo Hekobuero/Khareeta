@@ -8,6 +8,7 @@ import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
+import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { norm, loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
@@ -299,6 +300,8 @@ export async function searchCategoryLive(key) {
   track('category', { cat: key, live: 1 });
   const ref = chipRef(); // same point for sorting and km display (and the search radii): GPS if inside the view, else the view centre
   const boxes = liveBoxes(ref);
+  // named POIs already in the loaded vector tiles (0 requests, offline) – merged with the live answer; same widest radius
+  const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(App.map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, ref, tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
   openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
     let j;
@@ -323,11 +326,12 @@ export async function searchCategoryLive(key) {
       return { id: el.type[0].toUpperCase() + el.id, osm_type: el.type, osm_id: el.id, name: nm, sub: [catLabel(tags), addr].filter(Boolean).join(' · '), lon, lat, tags, full: true, status: ohStatus(tags.opening_hours), d: haversine(ref, [lon, lat]) };
     }).filter(r => r.lon != null);
     res.sort((a, b) => (b.tags.name || b.tags.brand ? 1 : 0) - (a.tags.name || a.tags.brand ? 1 : 0) || a.d - b.d);
-    res = sortByRef(res.slice(0, 100));
+    res = sortByRef(mergeTileItems(res.slice(0, 100), tileRes()).slice(0, 100));
     if (!res.length) { openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('noResults')}</p></div>`, 'peek'); return; }
     showResultList(res, t(key) + ' · OSM live', false);
   } catch (err) {
     if (mySeq !== catSeq) return;
+    const tr = tileRes(); if (tr.length) { showResultList(tr, t(key), false); return; } // live down: map data still answers
     openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('serviceDown')}</p><div class="actions"><button class="act" id="retryCat">${t('tryAgain')}</button></div></div>`, 'peek');
     $('#retryCat').onclick = () => searchCategoryLive(key);
   }

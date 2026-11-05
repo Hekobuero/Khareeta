@@ -84,6 +84,7 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/world/*.test.mjs'
+      - run: node --test 'tests/poi/*.test.mjs'
 
   route-tests:
     # Route stop/waypoint search uses the main search pipeline (Arabic normalisation, local POI index).

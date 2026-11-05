@@ -217,7 +217,7 @@ const poiFilters = {};
 export function applySelFilter(name) {
   const map = App.map;
   // hide the matching map icon while the DOM pin is shown (§3.5)
-  for (const id of ['poi', 'poi-dot']) {
+  for (const id of ['poi', 'poi-z15', 'poi-dot']) {
     if (!map.getLayer(id)) continue;
     if (!(id in poiFilters)) poiFilters[id] = map.getFilter(id) || null;
     const base = poiFilters[id];

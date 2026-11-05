@@ -5,6 +5,7 @@
 import { haversine } from './util.js';
 import { ohStatus } from './hours.js';
 import { labelExpression } from './names.js';
+import { TILE_POI_LAYERS } from './tile-poi.js';
 
 // data/poi-syria.json split by tools/poi/split.py into ~50 KB parts (data/poi/index.json + pN.json), so no single
 // JSON.parse blocks the main thread for long.
@@ -209,12 +210,12 @@ export function addPoiLayers(map, dark) {
   map.addLayer(lay('kh-poi-0', 16.5, ['==', ['get', 'imp'], 0], 0.85, 22), before);
   map.addLayer(lay('kh-poi-f', 8, ['==', ['get', 'c'], '__none__'], 0.8, 13), before);
   map.setLayoutProperty('kh-poi-f', 'icon-allow-overlap', ['step', ['zoom'], false, 15, true]);
-  // our layer supersedes the sparse OpenMapTiles POIs (transit/airport stay)
-  for (const id of ['poi', 'poi-dot']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+  // tile POIs (poi-dot / poi-z15 / poi) stay visible worldwide; the style filters them out inside SY_BBOX,
+  // where this layer is authoritative (no double labels) – see tools/poi/style-poi.mjs
   applyFilterToMap(map);
 }
 export function setPoiVisible(map, on) {
-  for (const id of [...LAYERS, 'kh-wpoi-1', 'kh-wpoi-2', 'kh-wpoi-3']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+  for (const id of [...LAYERS, ...TILE_POI_LAYERS, 'kh-wpoi-1', 'kh-wpoi-2', 'kh-wpoi-3']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
   if (on) applyFilterToMap(map);
 }
 let selIdx = null;
