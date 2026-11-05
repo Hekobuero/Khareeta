@@ -8,6 +8,7 @@ import { openOfflinePanel } from './offline.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
+import { openHealthSheet } from './health.js';
 import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
 export const hooks = { overture: null, restyle: null, transit: null, relabel: null, rerenderUI: null, set3d: null };
@@ -40,6 +41,7 @@ export function openDrawer() {
     </div>
     <div class="dlabel">${t('more').toUpperCase()}</div>
     <div class="dgroup">
+      <button class="ditem" data-a="health">${ic('hospital')}${t('emDrawer')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="saved">${ic('bookmark')}${t('savedPlaces')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="offline">${ic('download')}${t('offlineMaps')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="report">${ic('plus')}${t('rpMissingMenu')}</button>
@@ -80,6 +82,7 @@ export function initDrawer() {
       openDrawer(); return;
     }
     closeDrawer();
+    if (a === 'health') openHealthSheet();
     if (a === 'saved') showSaved();
     if (a === 'offline') openOfflinePanel();
     if (a === 'measure') startMeasure();

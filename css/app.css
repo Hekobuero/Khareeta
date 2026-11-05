@@ -588,3 +588,30 @@ button.irow{width:100%;text-align:start;font:inherit;color:inherit;background:no
 .srow .sstar.on{color:#E8710A}
 .soff{display:flex;align-items:center;gap:8px;margin:2px 12px 6px;padding:8px 12px;border-radius:var(--k-radius-sm);background:var(--k-surface-2);color:var(--k-text-2);font-size:var(--k-text-sub);line-height:var(--k-lh-tight)}
 .soff .ic{width:16px;height:16px;flex:none}
+
+/* ---- Health / Emergency sheet ---- */
+.chip-em{font-weight:600}
+.chip-em .ic{color:var(--k-poi-health)!important}
+.em-syria{font-weight:600;color:var(--k-danger)!important}
+.em-hint{padding:0 var(--k-gutter) 8px;margin:0;font-size:var(--k-text-sub);color:var(--k-text-2);line-height:1.4}
+.em-calls{display:flex;flex-direction:column;gap:8px;padding:4px var(--k-gutter) 8px}
+.em-call{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 12px;border-radius:var(--k-radius-md);background:var(--k-surface-2);color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
+.em-call:active{filter:brightness(.96)}
+.em-ic{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--k-danger-tint);color:var(--em-c,var(--k-poi-health));flex:none}
+.em-ic .ic{width:22px;height:22px}
+.em-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.em-lab{font-size:var(--k-text-callout);font-weight:600}
+.em-num{font-size:var(--k-text-title2);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.em-btn{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 14px;border-radius:var(--k-radius-pill);background:var(--k-accent);color:var(--k-text-on-accent);font-size:var(--k-text-sub);font-weight:600;flex:none}
+.em-btn .ic{width:18px;height:18px;fill:currentColor}
+.em-near-g{padding-inline:0}
+.em-near{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:10px 16px;text-align:start;font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.em-near+.em-near{border-top:.5px solid var(--k-separator)}
+.em-near .ic{width:20px;height:20px;color:var(--k-poi-health);flex:none}
+.em-near span{flex:1;font-size:var(--k-text-callout);font-weight:500}
+.em-near .ic.sm{color:var(--k-text-3);width:16px;height:16px}
+.em-src{margin:12px var(--k-gutter) 0;font-size:var(--k-text-sub);color:var(--k-text-2)}
+.em-src summary{cursor:pointer;font-weight:600;padding:8px 0;min-height:44px;display:flex;align-items:center}
+.em-src ul{margin:0;padding:0 0 8px 1.2em;line-height:1.45}
+.em-src li{margin:6px 0}
+.em-src small{display:block;color:var(--k-text-3)}

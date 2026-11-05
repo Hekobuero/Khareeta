@@ -37,7 +37,8 @@ export const CATS = [
 ];
 
 export function renderChips() {
-  $('#chips').innerHTML = CATS.map(([k, icn, col]) => `<button class="chip" data-cat="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('');
+  const em = `<button class="chip chip-em" data-health="1" style="--chip-ic:${POI.health}">${ic('hospital')}<span>${esc(t('emChip'))}</span></button>`;
+  $('#chips').innerHTML = em + CATS.map(([k, icn, col]) => `<button class="chip" data-cat="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('');
 }
 function viewBox() { const b = App.map.getBounds(); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
 // ---------- normalisation ----------
