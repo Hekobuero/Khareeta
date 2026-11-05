@@ -77,6 +77,18 @@ const POI = { id: 'n9001', osm_type: 'node', osm_id: 9001, name: 'مقهى ال�
     const star = await page.$('.sheet [data-star], [data-star]');
     if (star) { await star.tap(); await page.waitForTimeout(200); ok(`${tag}: star in result list saves`, (await imp(page, 'saved.js', `m => m.savedList().length`)) === 3); }
     else ok(`${tag}: star in result list present`, false);
+    // 5) the same offline fuzzy search in the intermediate stop (via) field of the directions panel
+    await imp(page, 'core.js', `m => m.closeSheet()`); await page.waitForTimeout(300);
+    await imp(page, 'route.js', `m => m.openDirections({ from: { name: 'Damascus', lon: 36.2913, lat: 33.5138 }, to: { name: 'Aleppo', lon: 37.1612, lat: 36.2021 } })`);
+    await page.waitForSelector('#addStop'); await page.tap('#addStop'); await page.waitForSelector('#dirStops input[data-i="1"]');
+    const vq = lang === 'ar' ? 'لاذقيه' : 'Lattakia';
+    await page.fill('#dirStops input[data-i="1"]', vq);
+    await page.waitForSelector('#dirSuggest #offNotice', { timeout: 10000 }); await page.waitForTimeout(300);
+    const vt = await page.$$eval('#dirSuggest .srow[data-i] .t1', a => a.map(x => x.textContent).filter(x => !/Standort|موقعك|location/i.test(x)).slice(0, 3).join(' | '));
+    ok(`${tag}: via field offline "${vq}" → Latakia first`, /^(اللاذقية|Latakia|Lattakia|Latakia.*)$/.test(vt.split(' | ')[0]), vt);
+    await page.evaluate(() => document.activeElement && document.activeElement.blur()).catch(() => {});
+    await page.waitForTimeout(3200); // let the (pre-existing) offline routing toast fade
+    await shot(page, `${tag}-6-via-offline.png`);
     ok(`${tag}: no page errors`, !errs.length, errs.join(' / '));
     console.log(`  (${ext.length} external requests aborted)`);
     await ctx.close();

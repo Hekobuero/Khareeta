@@ -22,7 +22,7 @@ test('photonLang: Arabic UI → native names (default), same for every field', (
 
 test('route stops use placeSuggest (the main search pipeline), not their own Photon call', () => {
   const r = read('js/route.js'), s = read('js/search.js');
-  assert.match(r, /import \{ placeSuggest \} from '\.\/search\.js'/);
+  assert.match(r, /import \{ placeSuggest(, offlineNotice)? \} from '\.\/search\.js'/);
   assert.match(r, /await placeSuggest\(q, \{ signal: ctl\.signal \}\)/);
   assert.doesNotMatch(r, /photonSearch\(/);
   assert.match(s, /export async function placeSuggest/);
