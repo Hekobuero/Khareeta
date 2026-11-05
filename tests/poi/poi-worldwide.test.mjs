@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { patch, BANDS, SY_POLY } from '../../tools/poi/style-poi.mjs';
 import { SY_BBOX } from '../../js/world-core.js';
+import { inSyria, SY_RING, SY_POLY as SY_POLY_JS } from '../../js/syria-poly.js';
 import { labelExpression } from '../../js/names.js';
 import { tileTags, tileOsm, tileMatchesChip, tileCategoryItems, mergeTileItems, TILE_POI_LAYERS } from '../../js/tile-poi.js';
 
@@ -45,12 +46,13 @@ for (const [theme, s] of Object.entries(styles)) {
     // AR chain: Arabic first, then the original name
     assert.deepEqual(labelExpression('ar').slice(1, 3), [['get', 'name:ar'], ['get', 'name']]);
   });
-  test(`${theme}: tile POIs are hidden inside SY_BBOX (own GeoJSON there)`, () => {
+  test(`${theme}: tile POIs are hidden inside the Syria border polygon (own GeoJSON there)`, () => {
     for (const l of TILE_POI_LAYERS.map(id => get(s, id))) {
       const w = l.filter.find(x => Array.isArray(x) && x[0] === '!' && x[1][0] === 'within');
       assert.ok(w, l.id);
-      const ring = w[1][1].coordinates[0];
-      assert.deepEqual(ring[0], [SY_BBOX[0], SY_BBOX[1]]); assert.deepEqual(ring[2], [SY_BBOX[2], SY_BBOX[3]]);
+      assert.deepEqual(w[1][1], SY_POLY); // same polygon the generator embeds
+      assert.deepEqual(w[1][1], SY_POLY_JS); // same as JS helper
+      assert.ok(w[1][1].coordinates[0].length > 20, 'not the old 5-point bbox rectangle');
       assert.ok(JSON.stringify(l.filter).includes('"has","name"'));
     }
   });
@@ -92,6 +94,8 @@ test('app: tile POIs open the sheet, the automatic Overpass layer is off, nav hi
   assert.match(poi, /\.\.\.TILE_POI_LAYERS/);
   assert.match(core, /'poi', 'poi-z15', 'poi-dot'/);
   assert.match(sw, /'js\/tile-poi\.js'/);
+  assert.match(sw, /'js\/syria-poly\.js'/);
+  assert.match(app, /e\.point\.x - 12/); assert.match(app, /TILE_POI_LAYERS/);
 });
 
 test('tileTags: OpenMapTiles class/subclass → OSM tags', () => {
@@ -116,6 +120,8 @@ test('tileOsm: OpenFreeMap feature ids', () => {
 });
 test('tileMatchesChip', () => {
   assert.ok(tileMatchesChip('pharmacy', { class: 'pharmacy', subclass: 'pharmacy', name: 'A' }));
+  assert.ok(!tileMatchesChip('pharmacy', { class: 'pharmacy', subclass: 'chemist', name: 'A' }), 'shop=chemist is a drugstore, not a pharmacy');
+  assert.ok(!tileMatchesChip('pharmacy', { class: 'shop', subclass: 'chemist', name: 'A' }));
   assert.ok(tileMatchesChip('mosque', { class: 'place_of_worship', subclass: 'muslim', name: 'A' }));
   assert.ok(!tileMatchesChip('mosque', { class: 'place_of_worship', subclass: 'christian', name: 'A' }));
   assert.ok(tileMatchesChip('church', { class: 'place_of_worship', subclass: 'christian', name: 'A' }));
@@ -150,8 +156,28 @@ test('mergeTileItems: live wins, tile adds the rest, sorted', () => {
   assert.deepEqual(mergeTileItems(live, tile).map(x => x.id), ['N2', 'N7', 'W9']);
   assert.deepEqual(mergeTileItems([], tile).map(x => x.id), ['N2', 'N7', 'N5']);
 });
+
+test('Syria polygon: neighbouring towns outside, Syrian cities inside; style+JS share the same ring', () => {
+  assert.equal(SY_RING.length - 1, SY_POLY.coordinates[0].length - 1);
+  assert.ok(SY_RING.length - 1 >= 20 && SY_RING.length - 1 <= 80, 'a few dozen points');
+  assert.deepEqual(SY_POLY, SY_POLY_JS);
+  // SY_BBOX (rectangle) is unchanged for non-POI uses and still covers the country
+  assert.deepEqual(SY_BBOX, [35.6, 32.3, 42.4, 37.4]);
+  const out = [['Tripoli', 35.846, 34.436], ['Baalbek', 36.211, 34.005], ['Irbid', 35.85, 32.555], ['Gaziantep', 37.383, 37.066], ['Antakya', 36.16, 36.202], ['Al-Qaim', 41.093, 34.389]];
+  const inn = [['Damascus', 36.307, 33.513], ['Aleppo', 37.161, 36.202], ['Daraa', 36.102, 32.626], ['Qamishli', 41.228, 37.052], ['Latakia', 35.783, 35.531], ['Abu Kamal', 40.919, 34.452]];
+  for (const [n, lo, la] of out) assert.equal(inSyria(lo, la), false, n + ' must get tile POIs');
+  for (const [n, lo, la] of inn) assert.equal(inSyria(lo, la), true, n + ' stays on own GeoJSON');
+  // former bbox wrongly hid these neighbours – polygon must not
+  for (const [n, lo, la] of out) assert.ok(lo >= SY_BBOX[0] && lo <= SY_BBOX[2] && la >= SY_BBOX[1] && la <= SY_BBOX[3], n);
+});
+test('tileCategoryItems skips Syrian cities via inSyria, not the bbox; neighbours are kept', () => {
+  const F = (id, lon, lat) => ({ id, geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { name: 'P' + id, class: 'pharmacy', subclass: 'pharmacy' } });
+  const fs_ = [F(1, 35.846, 34.436), F(2, 36.307, 33.513), F(3, 37.383, 37.066), F(4, 35.85, 32.555)];
+  const r = tileCategoryItems(fs_, 'pharmacy', [36, 34], t => t.name);
+  assert.deepEqual(r.map(x => x.name).sort(), ['P1', 'P3', 'P4']); // Tripoli, Gaziantep, Irbid – not Damascus
+});
 test('BANDS / SY_POLY exports', () => {
-  assert.equal(BANDS.length, 3); assert.equal(SY_POLY.coordinates[0].length, 5);
+  assert.equal(BANDS.length, 3); assert.equal(SY_POLY.coordinates[0].length, SY_RING.length);
 });
 // style-spec validation when the design tool deps are available locally (not needed in CI)
 test('style validates against the MapLibre style spec (if installed)', async t => {

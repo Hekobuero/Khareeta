@@ -7,7 +7,7 @@ import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyl
 import { initRTL } from './map-i18n.js';
 import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
 import { WLAYERS } from './world-poi.js';
-import { tileTags, tileOsm } from './tile-poi.js';
+import { tileTags, tileOsm, TILE_POI_LAYERS } from './tile-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
 import { mapIsDark } from './mapstyle.js';
 import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
@@ -217,7 +217,9 @@ map.on('click', async e => {
   }
   const ko = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: OV_LAYERS.filter(id => map.getLayer(id)) });
   if (ko.length) { const it = ovItemAt(ko[0].properties.i); if (it) { openPlace(it, { noFly: true }); return; } }
-  const feats = map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
+  // tile POIs (esp. poi-dot badges at z14) need a ±12 px hit area; other symbol layers keep ±8
+  const tileHit = map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: TILE_POI_LAYERS.filter(id => map.getLayer(id)) }).filter(f => f.properties.name);
+  const feats = tileHit.length ? tileHit : map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
   if (feats.length) {
     const f = feats[0], p = f.properties, ll = f.geometry.type === 'Point' ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
     const tags = f.sourceLayer === 'poi' ? tileTags(p) : { name: p.name, 'name:ar': p['name:ar'], 'name:en': p['name:en'] || p.name_en, 'name:de': p['name:de'] || p.name_de };

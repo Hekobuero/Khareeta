@@ -1,7 +1,8 @@
 // Worldwide POIs straight from the OpenMapTiles vector tiles (layer "poi", already cached with the base map →
 // no extra requests). Pure helpers (no DOM) → unit-tested in tests/poi. Syria keeps its own GeoJSON (js/poi.js);
-// the style filters tile POIs inside SY_BBOX out (tools/poi/style-poi.mjs), and these helpers skip them as well.
+// the style filters tile POIs inside the Syria border polygon out (js/syria-poly.js + tools/poi/style-poi.mjs); these helpers skip them as well. SY_BBOX stays for non-POI uses.
 import { inBox } from './world-core.js';
+import { inSyria } from './syria-poly.js';
 
 /** style layers that draw tile POIs (z14 badges, z15 labelled, z16+ all) */
 export const TILE_POI_LAYERS = ['poi-dot', 'poi-z15', 'poi'];
@@ -39,7 +40,7 @@ const CHIP = {
   restaurants: p => ['restaurant', 'fast_food'].includes(p.class) || p.subclass === 'food_court',
   cafes: p => ['cafe', 'ice_cream'].includes(p.class),
   fuel: p => p.class === 'fuel' && p.subclass !== 'charging_station',
-  pharmacy: p => p.class === 'pharmacy' || p.subclass === 'chemist',
+  pharmacy: p => p.class === 'pharmacy' && p.subclass !== 'chemist', // shop=chemist = drugstore, not a pharmacy
   mosque: p => p.class === 'place_of_worship' && p.subclass === 'muslim',
   church: p => p.class === 'place_of_worship' && p.subclass === 'christian',
   hotel: p => p.class === 'lodging' && ['hotel', 'hostel', 'guest_house', 'motel'].includes(p.subclass),
@@ -64,7 +65,7 @@ export function tileCategoryItems(features, key, ref, nameOf = t => t.name, max 
   const out = [], seen = new Set();
   for (const f of features || []) {
     const p = f.properties || {}, c = f.geometry?.type === 'Point' ? f.geometry.coordinates : null;
-    if (!c || !tileMatchesChip(key, p) || inBox(c[0], c[1]) || (box && !inBox(c[0], c[1], box))) continue;
+    if (!c || !tileMatchesChip(key, p) || inSyria(c[0], c[1]) || (box && !inBox(c[0], c[1], box))) continue;
     const osm = tileOsm(f.id), k = osm ? osm.osm_type[0] + osm.osm_id : '';
     if (k && seen.has(k)) continue;
     if (out.some(o => o.tags.name === p.name && dist([o.lon, o.lat], c) < 30)) continue;

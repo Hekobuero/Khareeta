@@ -4,15 +4,14 @@
 //   poi-z15  z15–16  rank ≤ 25, labels
 //   poi      z16+    all named POIs, labels
 // OpenMapTiles has all named POIs in z14 (overzoomed above), so this adds no tile requests.
-// Inside SY_BBOX our own GeoJSON (data/poi, js/poi.js) is authoritative → tile POIs are filtered out there (no double labels).
+// Inside the Syria border polygon our own GeoJSON (data/poi, js/poi.js) is authoritative → tile POIs are filtered out there (no double labels). Polygon: js/syria-poly.js (Natural Earth, inward-buffered).
 import fs from 'node:fs';
 import path from 'node:path';
-import { SY_BBOX } from '../../js/world-core.js';
+import { SY_POLY } from '../../js/syria-poly.js';
 import { labelExpression } from '../../js/names.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
-const [W, S, E, N] = SY_BBOX;
-export const SY_POLY = { type: 'Polygon', coordinates: [[[W, S], [E, S], [E, N], [W, N], [W, S]]] };
+export { SY_POLY };
 const TRANSIT = ['bus', 'railway', 'airport', 'aerialway', 'ferry_terminal'];
 // street furniture / clutter that sometimes carries a name in OSM
 export const JUNK = ['bicycle_parking', 'bollard', 'waste_basket', 'gate', 'lift_gate', 'entrance', 'recycling', 'shelter', 'bench', 'vending_machine', 'cycle_barrier', 'bicycle_rental', 'parcel_locker', 'post_box', 'brownfield', 'construction'];
