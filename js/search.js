@@ -231,13 +231,12 @@ export function showResultList(res, title, fit = true) {
 // ---------- categories: bundled POIs (multi-select + open now), live Overpass as supplement ----------
 let catSeq = 0;
 export const CHIP_MIN_Z = 12; // chip fit never zooms out below z12
-// live search area: the view (half-size capped at ~6 km), widened 2x and 4x when empty, max ~10 km
-export const LIVE_MAXD = 0.06, LIVE_CAPD = 0.09;
-export function liveBoxes(s, w, n, e, c) {
-  if (n - s > LIVE_MAXD * 2 || e - w > LIVE_MAXD * 2) { s = c[1] - LIVE_MAXD; n = c[1] + LIVE_MAXD; w = c[0] - LIVE_MAXD; e = c[0] + LIVE_MAXD; }
-  const hy = (n - s) / 2, hx = (e - w) / 2, my = (n + s) / 2, mx = (e + w) / 2, out = [[s, w, n, e]];
-  for (const f of [2, 4]) { const y = Math.min(hy * f, LIVE_CAPD), x = Math.min(hx * f, LIVE_CAPD); const bx = [my - y, mx - x, my + y, mx + x]; if (y > out[out.length - 1][2] - my + 1e-9 || x > out[out.length - 1][3] - mx + 1e-9) out.push(bx); }
-  return out;
+// live search area: fixed radii around the chip reference point (GPS if inside the view, else map centre),
+// tried 2.5 km, then 5 km, then 10 km until something is found
+export const LIVE_RADII_KM = [2.5, 5, 10];
+export function liveBoxes(ref) {
+  const [lon, lat] = ref, ky = 1 / 111.195, kx = 1 / (111.195 * Math.max(0.01, Math.cos(lat * Math.PI / 180)));
+  return LIVE_RADII_KM.map(r => [lat - r * ky, lon - r * kx, lat + r * ky, lon + r * kx]);
 }
 export function sortByRef(res) { return res.sort((a, b) => a.d - b.d); }
 export const CAT_FIT_M = 15000; // fit the map only to category results within 15 km of the view centre
@@ -299,15 +298,14 @@ export async function searchCategoryLive(key) {
   const mySeq = ++catSeq;
   const cat = CATS.find(c => c[0] === key); if (!cat) return;
   track('category', { cat: key, live: 1 });
-  const map = App.map, c = center();
-  const b = map.getBounds();
-  const boxes = liveBoxes(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), c);
-  // named POIs already in the loaded vector tiles (0 requests, offline) – merged with the live answer; same widest box
-  const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, chipRef(), tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
+  const ref = chipRef(); // same point for sorting and km display (and the search radii): GPS if inside the view, else the view centre
+  const boxes = liveBoxes(ref);
+  // named POIs already in the loaded vector tiles (0 requests, offline) – merged with the live answer; same widest radius
+  const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(App.map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, ref, tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
   openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
     let j;
-    for (const [s, w, n, e] of boxes) { // nothing found: widen the area automatically (2x, 4x, max ~10 km)
+    for (const [s, w, n, e] of boxes) { // nothing found: widen the radius automatically (2.5 km, 5 km, 10 km)
       const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
       const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
       const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
@@ -320,7 +318,6 @@ export async function searchCategoryLive(key) {
       if (mySeq !== catSeq) return;
       if (j.elements?.length) break;
     }
-    const ref = chipRef(); // same point for sorting and km display
     let res = j.elements.map(el => {
       const lon = el.lon ?? el.center?.lon, lat = el.lat ?? el.center?.lat;
       const tags = el.tags || {};

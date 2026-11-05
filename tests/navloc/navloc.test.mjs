@@ -39,12 +39,21 @@ test('live + Damascus lists sort and show km from the same chipRef point', () =>
   for (let i = 1; i < res.length; i++) assert.ok(res[i].d >= res[i - 1].d, 'monotonic');
   for (const r of res) assert.equal(r.d, hav(ref, [r.lon, r.lat])); // km shown = sort key
 });
-test('live search widens when empty (2x, 4x, max ~10 km); chip zoom >= z12', () => {
-  const src = S.match(/export const LIVE_MAXD[^\n]*\n/)[0].replace('export ', '') + S.match(/export function liveBoxes[\s\S]*?\n}\n/)[0].replace('export ', '');
+test('live search widens when empty: fixed radii 2.5/5/10 km around chip ref; chip zoom >= z12', () => {
+  const src = S.match(/export const LIVE_RADII_KM[^\n]*\n/)[0].replace('export ', '') + S.match(/export function liveBoxes[\s\S]*?\n}\n/)[0].replace('export ', '');
   const lb = new Function(src + '; return liveBoxes;')();
-  const z15 = lb(33.505, 36.295, 33.515, 36.305, [36.3, 33.51]);
-  assert.equal(z15.length, 3); assert.ok(Math.abs((z15[1][2] - z15[1][0]) - 0.02) < 1e-9); assert.ok(Math.abs((z15[2][2] - z15[2][0]) - 0.04) < 1e-9);
-  for (const b of lb(33, 36, 34, 37, [36.5, 33.5])) assert.ok(b[2] - b[0] <= 0.18 + 1e-9);
+  const alex = [13.4132, 52.5219], charite = [13.3777, 52.5257];
+  const hav = (a, b) => { const R = 6371, r = Math.PI / 180, dLa = (b[1] - a[1]) * r, dLo = (b[0] - a[0]) * r; const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+  const bx = lb(alex); assert.equal(bx.length, 3);
+  const inBox = (p, b) => p[1] >= b[0] && p[1] <= b[2] && p[0] >= b[1] && p[0] <= b[3];
+  [2.5, 5, 10].forEach((km, i) => {
+    const b = bx[i];
+    assert.ok(Math.abs(hav(alex, [alex[0], b[2]]) - km) < 0.05, 'N ' + km); assert.ok(Math.abs(hav(alex, [b[3], alex[1]]) - km) < 0.05, 'E ' + km);
+    assert.ok(inBox(alex, b));
+  });
+  assert.ok(inBox(charite, bx[0]), 'Charité (~2.4 km) inside the first 2.5 km box');
+  assert.doesNotMatch(S, /for \(const f of \[2, 4\]\)/); // no view-relative 2x/4x
+  assert.match(S, /const ref = chipRef\(\);[^\n]*\n\s*const boxes = liveBoxes\(ref\)/);
   assert.match(S, /CHIP_MIN_Z = 12/); assert.match(S, /minZoom: CHIP_MIN_Z/);
   assert.match(S, /if \(j\.elements\?\.length\) break;/);
 });
