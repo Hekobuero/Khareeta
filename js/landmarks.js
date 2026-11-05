@@ -245,13 +245,24 @@ export function approachBearingFor(step, prev) {
  * Attach `.landmark` onto each maneuver step (mutates). Uses the in-memory index only.
  * Depart/arrive keep no landmark. Max 1 per maneuver.
  */
+/** Maneuver types where a landmark cue replaces the street-name instruction. */
+const LM_TYPES = new Set([
+  'turn', 'end of road', 'fork', 'continue', 'new name',
+  'merge', 'on ramp', 'off ramp', 'notification',
+]);
+
+function landmarkEligible(s) {
+  return !!(s && s.loc && LM_TYPES.has(s.type));
+}
+
 export function enrichStepsWithLandmarks(steps, lang = 'en', features = null) {
   const src = features || index;
   if (!steps?.length) return steps;
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     delete s.landmark;
-    if (!s?.loc || s.type === 'depart' || s.type === 'arrive') continue;
+    // Skip depart/arrive/roundabout/rotary/ferry — landmark phrasing does not fit those cues
+    if (!landmarkEligible(s)) continue;
     const prev = steps[i - 1];
     const lm = pickLandmark(s.loc, src, {
       lang,
@@ -265,5 +276,5 @@ export function enrichStepsWithLandmarks(steps, lang = 'en', features = null) {
 
 /** True when a step should prefer the landmark cue over the street-name instruction. */
 export function stepUsesLandmark(s) {
-  return !!(s && s.landmark && s.landmark.name && s.type !== 'depart' && s.type !== 'arrive');
+  return !!(s && s.landmark && s.landmark.name && landmarkEligible(s));
 }

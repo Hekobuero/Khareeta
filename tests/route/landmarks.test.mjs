@@ -255,6 +255,28 @@ test('relation after vs at matches maneuver approach', () => {
   assert.equal(turn.landmark.relation, 'after');
 });
 
+test('roundabout / arrive / depart never get landmark cues', () => {
+  clearLandmarkIndex();
+  const features = [item(36.3, 33.5, { name: 'Near Mosque', amenity: 'place_of_worship' })];
+  const steps = [
+    { type: 'depart', loc: [36.3, 33.5], name: 'A' },
+    { type: 'roundabout', modifier: 'right', exit: 2, loc: [36.3, 33.5], name: 'B' },
+    { type: 'rotary', loc: [36.3, 33.5], name: 'C' },
+    { type: 'ferry', loc: [36.3, 33.5], name: 'D' },
+    { type: 'arrive', loc: [36.3, 33.5], name: 'E' },
+    { type: 'turn', modifier: 'left', loc: [36.3, 33.5], name: 'F' },
+  ];
+  enrichStepsWithLandmarks(steps, 'en', features);
+  assert.equal(steps[0].landmark, undefined);
+  assert.equal(steps[1].landmark, undefined);
+  assert.equal(steps[2].landmark, undefined);
+  assert.equal(steps[3].landmark, undefined);
+  assert.equal(steps[4].landmark, undefined);
+  assert.ok(steps[5].landmark);
+  assert.equal(stepUsesLandmark(steps[1]), false);
+  assert.equal(stepUsesLandmark(steps[5]), true);
+});
+
 test('CNAME still present', () => {
   assert.equal(read('CNAME').trim(), 'khareeta.app');
 });
