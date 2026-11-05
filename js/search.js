@@ -8,6 +8,7 @@ import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
+import { inSyria as inSyriaPoly } from './syria-poly.js';
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
 import { localSearch, loadGazetteer } from './offline-search.js';
@@ -265,7 +266,8 @@ export async function applyChips(cats, openNow, fit = true) {
   if (!cats.length) { clearMarkers(); closeSheet(); return; }
   // Outside Syria the bundled POIs are all far away – never jump there (P1: a chip in Berlin flew to Syria);
   // search live OSM (Overpass) in the current view instead, worldwide, without moving the map.
-  if (!inSyria(...center())) { searchCategoryLive(cats[cats.length - 1]); return; }
+  // P0: gate on the Syria border polygon (not the old rectangle) and on the reference point the user looks at
+  if (!inSyriaPoly(...chipRef())) { searchCategoryLive(cats[cats.length - 1]); return; }
   track('category', { cat: cats.join(',') });
   showFilterSheet(fit);
 }
@@ -278,7 +280,7 @@ export function showFilterSheet(fit = false) {
   const title = cats.map(k => t(k)).join(' · ');
   const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
     [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
-  const countTxt = `${t('nearbyN', { n: nf(r.near), r: nf(10) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  const countTxt = `${t('nearbyN', { n: nf(r.near), r: nf(10) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyriaPoly(...ref) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
   // hidden-without-hours hint: no big numbers (≤ 99 exact, else 99+), locale digits (ar-SY for AR), tappable "Show anyway"
   const hintHtml = r.hiddenNoHours ? `<p class="psub ohhint" id="ohHint"><span>${esc(t('ohHidden', { n: hintCount(r.hiddenNoHours, locale()) }))}</span> <button type="button" class="linkbtn" id="ohShow">${esc(t('ohShowAnyway'))}</button></p>` : '';
   const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`
@@ -296,7 +298,8 @@ export function showFilterSheet(fit = false) {
   $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
   $('#fLive').onclick = () => searchCategoryLive(cats[0]);
   const show = body.querySelector('#ohShow'); if (show) show.onclick = () => { setFilter(App.map, cats, true, true); showFilterSheet(false); };
-  const nearView = res.filter(x => x.d < CAT_FIT_M);
+  // never leave the user's area: only results that are close to the reference point AND whose box stays near it
+  const nearView = res.filter(x => x.d < CAT_FIT_M && haversine(center(), [x.lon, x.lat]) < 2 * CAT_FIT_M);
   if (fit && nearView.length) { // only fit to results near the current view – never to POIs in another city / country
     const near = nearView.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
     if (App.me && haversine(App.me, [near[0].lon, near[0].lat]) < 20000) b.extend(App.me);
