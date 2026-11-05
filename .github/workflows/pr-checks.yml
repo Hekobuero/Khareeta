@@ -1,4 +1,4 @@
-# PR checks: voice tests, report tests, notes tests, place-info + photos unit tests, lang tests, world (names/worldwide) tests, iOS voice, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
+# PR checks: voice tests, report tests, notes tests, health/emergency, place-info + photos unit tests, lang tests, world (names/worldwide) tests, iOS voice, VERSION, CNAME. Does not build or deploy anything (Pages deploy is unchanged).
 name: pr-checks
 on:
   pull_request:
@@ -308,6 +308,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/admin/*.test.mjs'
+
+  health-tests:
+    # Pure Node unit tests for Gesundheit/Notfall (js/health-core.js + wiring): Syrian numbers+sources,
+    # tel: hrefs, i18n EN/AR/DE, nearby chip reuse, no Syria map jump, no third-party APIs. No network.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/health/*.test.mjs'
 
   version:
     runs-on: ubuntu-latest

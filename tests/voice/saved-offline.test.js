@@ -32,14 +32,31 @@ const POI = { id: 'n9001', osm_type: 'node', osm_id: 9001, name: 'مقهى ال�
     await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 }); await page.waitForTimeout(800);
     // 1) save button in the place sheet
+    // WebKit: place sheet can re-render (extras) and #pSave often sits below the half-sheet fold –
+    // same class as report-menu #whRmBtn / wh-menu: re-query, catch scroll, pull sheet up, then tap.
     await imp(page, 'place.js', `m => m.openPlace(${JSON.stringify(POI)}, { noFly: true })`);
-    await page.waitForSelector('#pSave'); await page.waitForTimeout(400);
-    await page.tap('#pSave'); await page.waitForTimeout(400);
+    const pSave = page.locator('#pSave');
+    await pSave.waitFor({ state: 'attached', timeout: 15000 }); await page.waitForTimeout(400);
+    await pSave.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
+    if (await pSave.evaluate(b => { const r = b.getBoundingClientRect(); return r.bottom > innerHeight || r.top < 0; }).catch(() => true)) {
+      await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(500);
+      await pSave.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
+    }
+    await pSave.waitFor({ state: 'visible', timeout: 10000 });
+    await pSave.tap(); await page.waitForTimeout(400);
     ok(`${tag}: place saved`, await imp(page, 'saved.js', `m => m.isSaved('n9001')`));
     await shot(page, `${tag}-1-save-button.png`);
     // What's here? save (coordinate place)
     await imp(page, 'whats-here.js', `m => m.openWhatsHere([36.2765, 33.5138])`);
-    await page.waitForSelector('#whSave'); await page.tap('#whSave'); await page.waitForTimeout(300);
+    const whSave = page.locator('#whSave');
+    await whSave.waitFor({ state: 'attached', timeout: 15000 }); await page.waitForTimeout(300);
+    await whSave.scrollIntoViewIfNeeded().catch(() => {});
+    if (await whSave.evaluate(b => b.getBoundingClientRect().bottom > innerHeight).catch(() => true)) {
+      await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(400);
+      await whSave.scrollIntoViewIfNeeded().catch(() => {});
+    }
+    await whSave.waitFor({ state: 'visible', timeout: 10000 });
+    await whSave.tap(); await page.waitForTimeout(300);
     ok(`${tag}: what's-here point saved`, (await page.getAttribute('#whSave', 'aria-pressed')) === 'true');
     // 2) persistence after reload
     await page.reload({ waitUntil: 'domcontentloaded' });

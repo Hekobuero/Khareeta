@@ -6,6 +6,7 @@ import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center,
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
 import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
+import { openHealthSheet } from './health.js';
 import { WLAYERS } from './world-poi.js';
 import { tileTags, tileOsm, TILE_POI_LAYERS } from './tile-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
@@ -386,7 +387,7 @@ $('#btnLocate').onclick = () => {
   else { App.locMode = 1; map.easeTo({ bearing: 0, duration: 400 }); }
   renderLocBtn();
 };
-$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; toggleChip(c.dataset.cat); };
+$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; if (c.dataset.health) { openHealthSheet(); return; } toggleChip(c.dataset.cat); };
 
 // weather chip (map centre)
 const updWx = debounce(async () => {

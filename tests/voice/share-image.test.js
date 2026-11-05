@@ -49,7 +49,14 @@ async function composePlace(page, meta, lang) {
       const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, serviceWorkers: 'block', colorScheme: scheme });
       await ctx.addInitScript(`try { if (!sessionStorage.__i) { sessionStorage.__i = 1; localStorage.setItem('kh.lang', ${JSON.stringify(lang)}); localStorage.setItem('kh.onboarded', '1'); } } catch {}`);
       const outbound = [];
-      await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => { outbound.push(r.request().url()); return r.abort(); });
+      // Abort every non-local host. Open-Meteo (map weather chip, ~1.5 s after moveend) is aborted too but
+      // omitted from `outbound` – it is product noise unrelated to composeSharePng, and on Chromium AR it
+      // sometimes lands during compose after the settle window (178/180 flake). Other hosts stay counted.
+      await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => {
+        const u = r.request().url();
+        if (!/api\.open-meteo\.com/i.test(u)) outbound.push(u);
+        return r.abort();
+      });
       const page = await ctx.newPage();
       await boot(page, lang);
       const pre = `${bn} ${scheme} ${lang}`;
@@ -144,9 +151,8 @@ async function composePlace(page, meta, lang) {
       }
       await page.evaluate(async () => (await import(new URL('js/core.js', location.href))).closeSheet());
 
-      // Compose PNG (no map tiles – outbound already aborted)
-      // settle: requests started by earlier steps (place sheet extras; the map weather chip fires 1.5 s after the sheet-close moveend) must land before the
-      // baseline, so the check measures only what compose itself would fetch
+      // Compose PNG (no map tiles – outbound already aborted; Open-Meteo ignored above)
+      // settle: other place-sheet extras must land before the baseline so the check measures only what compose itself would fetch
       for (let n = outbound.length, i = 0; i < 6; i++) { await page.waitForTimeout(2200); if (outbound.length === n) break; n = outbound.length; }
       const beforeOut = outbound.length;
       const placeMeta = {
