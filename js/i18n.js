@@ -1,9 +1,24 @@
 // UI strings – English is the default on first load (always), Arabic (RTL) and German selectable.
 import { SHARE_I18N } from './share-core.js';
 import { SHARE_IMAGE_I18N } from './share-image-core.js';
-import { HEALTH_I18N } from './health-core.js';
 const S = {
 en: {
+  // Health / emergency — inline so the shipped language table contains every UI key.
+  emChip: 'Emergency',
+  emTitle: 'Health & emergency',
+  emSyriaLabel: 'Syrian emergency numbers',
+  emSyriaHint: 'These short codes are for Syria. They only work on Syrian phone networks — not local numbers where you are now.',
+  emAmbulance: 'Ambulance / medical',
+  emPolice: 'Police',
+  emFire: 'Fire brigade',
+  emCall: 'Call {n}',
+  emNearbyTitle: 'Nearby (this map view)',
+  emNearbyHospital: 'Hospitals',
+  emNearbyClinic: 'Clinics & doctors',
+  emNearbyPharmacy: 'Pharmacies',
+  emNearbyHint: 'Searches the area you are looking at — does not jump the map to Syria.',
+  emSources: 'Sources',
+  emDrawer: 'Health & emergency',
 
   trNoName: "Unnamed line", trLayer: "Lines (Servis & bus)", trLayerSub: "Damascus · Aleppo · from OpenStreetMap", trTitle: "Servis & bus lines", trSearch: "Search line, ref or stop", trNone: "No lines match.", trEmpty: "OpenStreetMap has no mapped lines here yet.", trCount: "{n} lines · {s} stops", trSrc: "From OpenStreetMap – may be incomplete or outdated.", trImprove: "How to add or fix lines on OSM", trStops: "Stops", trNoStops: "No stops mapped for this line.", trFrom: "From", trTo: "To", trRef: "Line", trOperator: "Operator", trServis: "Servis / microbus", trBus: "Bus", trStop: "Stop", trAtStop: "Lines at this stop", trOsmView: "View on OpenStreetMap", trLoadErr: "Line data could not be loaded.", trLowData: "Data saving is on – line data loads only when you open this list.", trCity: "City", trC_damascus: "Damascus", trC_aleppo: "Aleppo", trLinesN_one: "{n} line", trLinesN_other: "{n} lines", trStopsN_one: "{n} stop", trStopsN_other: "{n} stops", trOpenList: "Show lines", trUnnamed: "Unnamed stop", cTransit: "Transit lines",
   ntOpen: 'Report map error',
@@ -186,6 +201,22 @@ en: {
     ord: ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'], m: '{n} meters', km1: 'one kilometer', km15: 'one and a half kilometers', km: '{n} kilometers' },
 },
 ar: {
+  // Health / emergency — inline so the shipped language table contains every UI key.
+  emChip: 'طوارئ',
+  emTitle: 'الصحة والطوارئ',
+  emSyriaLabel: 'أرقام الطوارئ في سوريا',
+  emSyriaHint: 'هذه الأرقام القصيرة لسوريا فقط. تعمل على شبكات الهاتف السورية — وليست أرقامًا محلية حيث أنت الآن.',
+  emAmbulance: 'إسعاف / طبي',
+  emPolice: 'الشرطة',
+  emFire: 'الإطفاء',
+  emCall: 'اتصال {n}',
+  emNearbyTitle: 'بالقرب (منظور الخريطة)',
+  emNearbyHospital: 'مستشفيات',
+  emNearbyClinic: 'عيادات وأطباء',
+  emNearbyPharmacy: 'صيدليات',
+  emNearbyHint: 'يبحث في المنطقة التي تنظر إليها — دون نقل الخريطة إلى سوريا.',
+  emSources: 'المصادر',
+  emDrawer: 'الصحة والطوارئ',
 
   trNoName: "خط بلا اسم", trLayer: "الخطوط (سرفيس وباص)", trLayerSub: "دمشق · حلب · من OpenStreetMap", trTitle: "خطوط السرفيس والباص", trSearch: "ابحث عن خط أو رقم أو موقف", trNone: "لا توجد خطوط مطابقة.", trEmpty: "لا توجد خطوط مرسومة هنا في OpenStreetMap بعد.", trCount: "{n} خط · {s} موقف", trSrc: "من OpenStreetMap – قد تكون ناقصة أو قديمة.", trImprove: "كيف تضيف أو تصحح الخطوط في OSM", trStops: "المواقف", trNoStops: "لا توجد مواقف مرسومة لهذا الخط.", trFrom: "من", trTo: "إلى", trRef: "الخط", trOperator: "المشغّل", trServis: "سرفيس / ميكرو", trBus: "باص", trStop: "موقف", trAtStop: "الخطوط في هذا الموقف", trOsmView: "عرض على OpenStreetMap", trLoadErr: "تعذّر تحميل بيانات الخطوط.", trLowData: "توفير البيانات مفعّل – تُحمّل بيانات الخطوط فقط عند فتح هذه القائمة.", trCity: "المدينة", trC_damascus: "دمشق", trC_aleppo: "حلب", trLinesN_zero: "لا خطوط", trLinesN_one: "خط واحد", trLinesN_two: "خطّان", trLinesN_few: "{n} خطوط", trLinesN_many: "{n} خطًا", trLinesN_other: "{n} خط", trStopsN_zero: "لا مواقف", trStopsN_one: "موقف واحد", trStopsN_two: "موقفان", trStopsN_few: "{n} مواقف", trStopsN_many: "{n} موقفًا", trStopsN_other: "{n} موقف", trOpenList: "عرض الخطوط", trUnnamed: "موقف بلا اسم", cTransit: "خطوط النقل",
   ntOpen: 'الإبلاغ عن خطأ في الخريطة',
@@ -385,6 +416,22 @@ ar: {
     kms: ['', 'كيلومتر واحد', 'كيلومترين', 'ثلاثة كيلومترات', 'أربعة كيلومترات', 'خمسة كيلومترات', 'ستة كيلومترات', 'سبعة كيلومترات', 'ثمانية كيلومترات', 'تسعة كيلومترات', 'عشرة كيلومترات'], km15: 'كيلومتر ونصف', half: ' ونصف', km: '{n} كيلومتر', kmT: '{n} كيلومترًا', kmP: '{n} كيلومترات' },
 },
 de: {
+  // Health / emergency — inline so the shipped language table contains every UI key.
+  emChip: 'Notfall',
+  emTitle: 'Gesundheit & Notfall',
+  emSyriaLabel: 'Syrische Notrufnummern',
+  emSyriaHint: 'Diese Kurzwahlen gelten für Syrien. Sie funktionieren nur in syrischen Telefonnetzen — nicht als Ortsnummern dort, wo du gerade bist.',
+  emAmbulance: 'Rettung / Medizin',
+  emPolice: 'Polizei',
+  emFire: 'Feuerwehr',
+  emCall: '{n} anrufen',
+  emNearbyTitle: 'In der Nähe (dieser Kartenausschnitt)',
+  emNearbyHospital: 'Krankenhäuser',
+  emNearbyClinic: 'Kliniken & Ärzte',
+  emNearbyPharmacy: 'Apotheken',
+  emNearbyHint: 'Sucht im aktuellen Ausschnitt — die Karte springt nicht nach Syrien.',
+  emSources: 'Quellen',
+  emDrawer: 'Gesundheit & Notfall',
 
   trNoName: "Linie ohne Namen", trLayer: "Linien (Servis & Bus)", trLayerSub: "Damaskus · Aleppo · aus OpenStreetMap", trTitle: "Servis- & Buslinien", trSearch: "Linie, Nummer oder Haltestelle suchen", trNone: "Keine passenden Linien.", trEmpty: "In OpenStreetMap sind hier noch keine Linien erfasst.", trCount: "{n} Linien · {s} Haltestellen", trSrc: "Aus OpenStreetMap – evtl. unvollständig oder veraltet.", trImprove: "So ergänzt oder korrigierst du Linien in OSM", trStops: "Haltestellen", trNoStops: "Für diese Linie sind keine Haltestellen erfasst.", trFrom: "Von", trTo: "Nach", trRef: "Linie", trOperator: "Betreiber", trServis: "Servis / Kleinbus", trBus: "Bus", trStop: "Haltestelle", trAtStop: "Linien an dieser Haltestelle", trOsmView: "Auf OpenStreetMap ansehen", trLoadErr: "Liniendaten konnten nicht geladen werden.", trLowData: "Datensparen ist an – Liniendaten laden erst, wenn du diese Liste öffnest.", trCity: "Stadt", trC_damascus: "Damaskus", trC_aleppo: "Aleppo", trLinesN_one: "{n} Linie", trLinesN_other: "{n} Linien", trStopsN_one: "{n} Haltestelle", trStopsN_other: "{n} Haltestellen", trOpenList: "Linien zeigen", trUnnamed: "Haltestelle ohne Namen", cTransit: "ÖPNV-Linien",
   ntOpen: 'Kartenfehler melden',
@@ -568,7 +615,6 @@ de: {
 }};
 for (const l in SHARE_I18N) if (S[l]) for (const k in SHARE_I18N[l]) S[l][k] ??= SHARE_I18N[l][k];
 for (const l in SHARE_IMAGE_I18N) if (S[l]) for (const k in SHARE_IMAGE_I18N[l]) S[l][k] ??= SHARE_IMAGE_I18N[l][k];
-for (const l in HEALTH_I18N) if (S[l]) for (const k in HEALTH_I18N[l]) S[l][k] ??= HEALTH_I18N[l][k];
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];
 // Start language: a manual choice (localStorage kh.lang) always wins; otherwise the first entry of navigator.languages
