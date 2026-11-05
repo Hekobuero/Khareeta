@@ -71,8 +71,25 @@ const settle = page => page.waitForFunction(async () => { const m = await import
         ok(`${tag}: Cafés (${kind}) keeps the camera in Germany`, inGermany(after.c) && km(after.c, before.c) < 20, JSON.stringify(after));
         ok(`${tag}: Cafés (${kind}) not at the Damascus/Syria default`, km(after.c, DAMASCUS) > 1000 && after.c[0] < 25);
         ok(`${tag}: Cafés (${kind}) never below z12`, after.z >= 12 - 1e-6, after.z.toFixed(2));
-        if (kind === 'results') ok(`${tag}: mocked Berlin cafés listed`, (await page.$$eval('#sheet .srow', a => a.length)) >= 3);
-        else {
+        if (kind === 'results') {
+          ok(`${tag}: mocked Berlin cafés listed`, (await page.$$eval('#sheet .srow', a => a.length)) >= 3);
+          // P0 2026-11-05: category hits must be marked on the map; other businesses must not stay as if unfiltered
+          const mark = await page.evaluate(() => {
+            const n = (window.KH?.App?.markers || []).length;
+            const els = document.querySelectorAll('.maplibregl-marker').length;
+            const map = KH.App.map;
+            const tile = {};
+            for (const id of ['poi', 'poi-z15', 'poi-dot']) {
+              if (!map.getLayer(id)) { tile[id] = 'missing'; continue; }
+              tile[id] = map.getLayoutProperty(id, 'visibility');
+            }
+            return { n, els, tile, title: document.querySelector('#sheet .ptitle')?.textContent || '' };
+          });
+          ok(`${tag}: Cafés marks hits on the map (HTML markers)`, mark.n >= 3 && mark.els >= 3, JSON.stringify(mark));
+          ok(`${tag}: Cafés live sheet (not Syria filter list)`, /OSM live/i.test(mark.title), mark.title);
+          const tileHidden = Object.entries(mark.tile).every(([id, v]) => v === 'missing' || v === 'none');
+          ok(`${tag}: tile POI layers hidden while chip filter active`, tileHidden, JSON.stringify(mark.tile));
+        } else {
           ok(`${tag}: empty → radii 2.5/5/10 km tried (3 Overpass calls)`, calls.overpass === 3, String(calls.overpass));
           ok(`${tag}: empty-state message shown`, await page.evaluate(() => !document.querySelector('#sheet .srow') && /\S/.test(document.querySelector('#sheet .psub')?.textContent || '')));
         }

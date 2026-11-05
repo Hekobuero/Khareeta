@@ -1,6 +1,6 @@
 // Khareeta – iPhone (WebKit, touch) zoom checks: pinch + double-tap zoom the MapLibre map, the page itself never
-// zooms/shifts (no horizontal overflow), Apple-Maps style +/- buttons (44 px, right column under layers/3D, RTL,
-// aria-label EN/AR/DE), with the world-names and Overture layers/attribution active.
+// zooms/shifts (viewport maximum-scale=1 / user-scalable=no + inputs ≥16px; no horizontal overflow), Apple-Maps
+// style +/- buttons (44 px, right column under layers/3D, RTL, aria-label EN/AR/DE), world-names + Overture attribution.
 // Run: node ios-zoom.test.js   (SHOTS=/path to also write screenshots elsewhere)
 const { webkit, devices } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
@@ -52,10 +52,17 @@ const noOverflow = p => p.evaluate(() => ({ sw: document.documentElement.scrollW
     await page.waitForFunction(() => window.KH?.App?.map && document.querySelector('#btnZin svg'), null, { timeout: 30000 });
     await page.waitForFunction(() => KH.App.map.isStyleLoaded() || KH.App.map.loaded(), null, { timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    // viewport meta: no zoom lock (a11y), inputs ≥16px so iOS does not auto-zoom on focus
+    // viewport meta locks page scale (Hidro P0 2026-11-05); inputs ≥16px so iOS does not auto-zoom on focus either
     const meta = await page.evaluate(() => document.querySelector('meta[name=viewport]').content);
-    ok(`${tag}: viewport meta without maximum-scale/user-scalable`, !/maximum-scale|user-scalable/.test(meta), meta);
+    ok(`${tag}: viewport meta locks scale (maximum-scale=1 / user-scalable=no)`, /maximum-scale\s*=\s*1/.test(meta) && /user-scalable\s*=\s*no/.test(meta), meta);
     ok(`${tag}: search input font-size ≥16px`, await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#q')).fontSize) >= 16));
+    // focus search: visual viewport must stay 1:1 (no page zoom)
+    await page.tap('#q');
+    await page.waitForTimeout(400);
+    const focusVV = await page.evaluate(() => ({ scale: visualViewport ? visualViewport.scale : 1, sw: document.documentElement.scrollWidth, iw: innerWidth, sx: scrollX }));
+    ok(`${tag}: search focus does not page-zoom`, focusVV.scale === 1 && focusVV.sw <= focusVV.iw && focusVV.sx === 0, JSON.stringify(focusVV));
+    await page.tap('#btnClear').catch(() => {});
+    await page.evaluate(() => { try { document.querySelector('#q')?.blur(); } catch {} });
     // world + Overture: layers/attribution state when present (offline CI may not have tiles, layers are still registered)
     const lay = await page.evaluate(() => { const st = KH.App.map.getStyle?.() || { layers: [] }; const ids = st.layers.map(l => l.id);
       const a = document.querySelector('.kattr-osm'), r = a?.getBoundingClientRect();

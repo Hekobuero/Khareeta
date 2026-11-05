@@ -222,8 +222,14 @@ let selIdx = null;
 export function setPoiSelected(map, idx) { selIdx = idx; applyFilterToMap(map); }
 function withSel(f) { return selIdx == null ? f : ['all', f, ['!=', ['get', 'i'], selIdx]]; }
 function applyFilterToMap(map) {
-  if (!map.getLayer('kh-poi-f')) return;
   const active = state.cats.size > 0;
+  // Worldwide tile POIs stay on after a chip tap unless we hide them here – otherwise outside Syria the
+  // mixed business landscape is unchanged while only (sometimes) HTML markers appear (P0 2026-11-05).
+  // In Syria the style already strips tile POIs inside the border; hiding them is still correct.
+  for (const id of TILE_POI_LAYERS) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', active ? 'none' : 'visible');
+  }
+  if (!map.getLayer('kh-poi-f')) return;
   for (const [id, imp] of [['kh-poi-1', 3], ['kh-poi-2', 2], ['kh-poi-3', 1], ['kh-poi-0', 0]]) {
     map.setLayoutProperty(id, 'visibility', active ? 'none' : 'visible');
     map.setFilter(id, withSel(['==', ['get', 'imp'], imp]));

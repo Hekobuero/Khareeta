@@ -4,7 +4,6 @@ import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, center } from './core.js';
 import { EMERGENCY_NUMBERS, NEARBY_ACTIONS, telHref } from './health-core.js';
-import { applyChips, cancelCategory } from './search.js';
 import { track } from './analytics.js';
 
 /** Open the health/emergency sheet. Does not move the map (no Syria jump). */
@@ -55,8 +54,8 @@ export function openHealthSheet() {
     const cat = b.dataset.cat;
     track('health', { nearby: b.dataset.near, cat });
     // Reuse the existing category path (chip-view rules from #43): current view, no Syria jump.
-    cancelCategory();
-    applyChips([cat], false, true);
+    // Dynamic import avoids a static health↔search cycle at boot (report-menu / what's-here sheets).
+    import('./search.js').then(({ applyChips, cancelCategory }) => { cancelCategory(); applyChips([cat], false, true); });
   });
 }
 

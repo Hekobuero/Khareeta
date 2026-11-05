@@ -276,7 +276,7 @@ export function toggleChip(key) {
 }
 export async function applyChips(cats, openNow, fit = true) {
   catSeq++;
-  try { await loadPois(); } catch { return searchCategoryLive(cats[0]); }
+  try { await loadPois(); } catch { /* bundled Syria POIs optional outside Syria – still mark live hits */ }
   setFilter(App.map, cats, openNow);
   document.querySelectorAll('.chip[data-cat]').forEach(c => c.classList.toggle('on', cats.includes(c.dataset.cat)));
   if (!cats.length) { clearMarkers(); closeSheet(); return; }

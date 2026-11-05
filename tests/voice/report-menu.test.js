@@ -39,16 +39,21 @@ const visible = page => page.evaluate(() => {
     await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 });
     await page.waitForTimeout(800);
     // 1) What's here? (half sheet)
+    // Same WebKit pattern as wh-menu.test.js (#40): re-query locator, catch the first scrollIntoViewIfNeeded
+    // (button often sits below the half-sheet fold / overflow:hidden → Playwright times out before the
+    // expand-to-full guard), then pull the sheet up like a user and wait until visible.
     await page.evaluate(async () => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere([36.2765, 33.5138]); });
-    await page.waitForSelector('#whRmBtn'); await page.waitForTimeout(500);
-    await page.locator('#whRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    const whBtn = page.locator('#whRmBtn');
+    await whBtn.waitFor({ state: 'attached', timeout: 15000 }); await page.waitForTimeout(500);
+    await whBtn.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
     // Share-as-image adds a 5th action-row button → wrap at 390 px, report entry can sit below the half-sheet fold
-    if (await page.evaluate(() => { const r = document.querySelector('#whRmBtn').getBoundingClientRect(); return r.bottom > innerHeight || r.top < 0; })) {
+    if (await whBtn.evaluate(b => { const r = b.getBoundingClientRect(); return r.bottom > innerHeight || r.top < 0; })) {
       await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(500);
-      await page.locator('#whRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+      await whBtn.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
     }
+    await whBtn.waitFor({ state: 'visible', timeout: 10000 });
     await shot(page, `${lang}-wh-1-before.png`);
-    await page.tap('#whRmBtn'); await page.waitForTimeout(900);
+    await whBtn.tap(); await page.waitForTimeout(900);
     let v = await visible(page); ok(`${lang}: What's here – menu fully visible after tap`, v.open && v.ok, JSON.stringify(v));
     await shot(page, `${lang}-wh-2-menu.png`);
     const icon = await page.$eval('#whRmBtn svg path', p => p.getAttribute('d')); ok(`${lang}: report icon = solid flag`, icon.startsWith('M5,2H7V3.5'), icon);
@@ -65,14 +70,16 @@ const visible = page => page.evaluate(() => {
     await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).closeSheet(); });
     await page.waitForTimeout(400);
     await page.evaluate(async () => { const m = await import(new URL('js/place.js', location.href)); m.openPlace({ id: 'n1', osm_type: 'node', osm_id: 1, name: 'Café Test', lat: 33.5138, lon: 36.2765, cat: 'cafe', tags: { amenity: 'cafe', name: 'Café Test' } }); });
-    await page.waitForSelector('#pRmBtn'); await page.waitForTimeout(700);
+    const pBtn = page.locator('#pRmBtn');
+    await pBtn.waitFor({ state: 'attached', timeout: 15000 }); await page.waitForTimeout(700);
     await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('half'); }); await page.waitForTimeout(500);
-    await page.locator('#pRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    await pBtn.scrollIntoViewIfNeeded().catch(() => {}); await page.waitForTimeout(200);
     // since P2 (#37) the closed menu no longer pads the half sheet, so "Report…" can sit below the fold → pull the sheet up like a user
-    if (await page.evaluate(() => { const r = document.querySelector('#pRmBtn').getBoundingClientRect(); return r.bottom > innerHeight; })) {
+    if (await pBtn.evaluate(b => b.getBoundingClientRect().bottom > innerHeight)) {
       await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(500);
-      await page.locator('#pRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+      await pBtn.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
     }
+    await pBtn.waitFor({ state: 'visible', timeout: 10000 });
     ok(`${lang}: POI – choice closed before tap`, await page.$eval('#pRmMenu', m => m.hidden && getComputedStyle(m).display === 'none'));
     await shot(page, `${lang}-poi-1-before.png`);
     const edits = await page.$$eval('.sheet a[href*="openstreetmap.org/edit"], #sheet a[href*="openstreetmap.org/edit"]', a => a.length);
