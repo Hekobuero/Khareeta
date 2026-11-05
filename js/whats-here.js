@@ -4,6 +4,7 @@ import { $, esc, toast, fetchJSON, digits } from './util.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker } from './core.js';
 import { track } from './analytics.js';
+import { reportEntryHtml, wireReportEntry } from './report-entry.js';
 import { buildShareUrl, shareText, geoUri, fmt5, RevCache, Throttle, makeReverse, EventGate, pointKey } from './share-core.js';
 
 const cache = new RevCache((() => { try { return localStorage; } catch { return null; } })());
@@ -34,14 +35,17 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
     <button class="irow" id="whCoord" type="button"><div class="iv"><label>${esc(t('whCoords'))}</label><div class="val"><bdi dir="ltr">${esc(digits(coords))}</bdi></div></div>${ic('copy', 'sm')}</button>
     <a class="irow" id="whGeo" href="${esc(geoUri(lat, lon))}"><div class="iv"><label>${esc(t('whGeo'))}</label><div class="val"><bdi dir="ltr">${esc(geoUri(lat, lon))}</bdi></div></div></a>
   </div>
-  <div class="rp-open"><button class="abtn" id="whNote">${ic('flag')}<span>${esc(t('ntOpen'))}</span></button></div><div style="height:16px"></div>`, 'half', () => { if (cur === my) { setSelMarker(null); cur = null; } });
+  ${reportEntryHtml('whRm', `https://www.openstreetmap.org/edit#map=19/${fmt5(lat)}/${fmt5(lon)}`)}<div style="height:16px"></div>`, 'half', () => { if (cur === my) { setSelMarker(null); cur = null; } });
   App.sheetKind = 'whats-here';
   const copyCoords = async () => { try { await navigator.clipboard.writeText(coords); toast(t('whCoordsCopied')); } catch { prompt(t('whCoords'), coords); } };
   body.querySelector('#whClose').onclick = () => closeSheet();
   body.querySelector('#whCopy').onclick = copyCoords;
   body.querySelector('#whCoord').onclick = copyCoords;
   body.querySelector('#whRoute').onclick = () => routeTo(my);
-  body.querySelector('#whNote').onclick = () => import('./notes.js').then(m => m.openMapNote({ lat, lon, name }));
+  wireReportEntry(body, 'whRm', {
+    onKh: () => import('./report.js').then(m => m.openReport({ coord: true, lat, lon, name: name || '' }, 'missing')),
+    onOsm: () => import('./notes.js').then(m => m.openMapNote({ lat, lon, name })),
+  });
   body.querySelector('#whShare').onclick = () => sharePoint(my);
   reverseLatest(lat, lon, getLang()).then(a => { my.addr = a; if (cur !== my) return; const el = $('#whAddr'); if (el) el.textContent = a || t('whNoAddr'); })
     .catch(e => { if (e?.name !== 'AbortError' && cur === my) { const el = $('#whAddr'); if (el) el.textContent = t('whNoAddr'); } });

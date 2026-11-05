@@ -1,7 +1,7 @@
 // In-app report sheet: (a) missing place, (b) wrong data on an OSM/Overture place, (c) suggest a social link.
 // Everything is moderated – nothing a user sends is shown in the app. Sent via analytics.submitReport() → sendNow() (publishable,
 // insert-only Supabase key); the "thank you" toast appears only after the server accepted the row.
-import { $, esc, toast, fmtCoord } from './util.js';
+import { $, esc, toast, hideToast, fmtCoord } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
@@ -14,6 +14,7 @@ const placeOf = item => item && !item.coord && item.id ? { id: String(item.ovId 
 
 /** item: a place (OSM/Overture) or a dropped pin (item.coord); without item the map centre is used for "missing place". */
 export function openReport(item, type) {
+  hideToast(); // old success/error toasts must not linger over the form
   const place = placeOf(item);
   const types = place ? ['wrong', 'link', 'missing'] : ['missing'];
   let cur = types.includes(type) ? type : types[0];

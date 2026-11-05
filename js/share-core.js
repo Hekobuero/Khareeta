@@ -62,10 +62,24 @@ export function shareText({ lang = 'en', name, address, url, lat, lon, geo = fal
 export class Throttle {
   constructor(gap = NOM_GAP_MS, { now = () => Date.now(), sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) { this.gap = gap; this.now = now; this.sleep = sleep; this.next = 0; }
   /** skip(): checked after the wait – when true the request is dropped (no fetch) and an AbortError is thrown. */
+  //  The slot is taken only at the real send: requests take turns (FIFO), and a request that is dropped (skip()) when its
+  //  turn comes – before or after its wait – reserves nothing. So after a burst of superseded clicks the latest one goes
+  //  out as soon as the gap after the last REAL request has passed (10 fast clicks → last address after ≤ 1 s).
   async run(fn, skip = null) {
-    const t = this.now(), at = Math.max(t, this.next); this.next = at + this.gap;
-    if (at > t) await this.sleep(at - t);
-    if (skip && skip()) { const e = new Error('superseded'); e.name = 'AbortError'; throw e; }
+    const t0 = this.now();
+    if (!this.waiting && t0 >= this.next) { this.next = t0 + this.gap; return fn(); } // free slot, nobody queued → send now
+    this.waiting = (this.waiting || 0) + 1;
+    const prev = this.q || Promise.resolve(); let release;
+    this.q = new Promise(r => { release = r; });
+    const drop = () => { const e = new Error('superseded'); e.name = 'AbortError'; return e; };
+    try {
+      await prev;
+      if (skip && skip()) throw drop();
+      const t = this.now(), at = Math.max(t, this.next);
+      if (at > t) await this.sleep(at - t);
+      if (skip && skip()) throw drop();
+      this.next = at + this.gap;
+    } finally { this.waiting--; release(); }
     return fn();
   }
 }

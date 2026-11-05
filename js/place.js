@@ -12,6 +12,7 @@ import { phones as phoneList, website as websiteOf, socials as socialList } from
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { openReport } from './report.js';
+import { reportEntryHtml, wireReportEntry, REPORT_ICON } from './report-entry.js';
 import { openClosureReport, snapToRoad } from './closures.js';
 import { photoSources, loadPhotos, photoTags, geoEligible, photoEmptyKey } from './photos.js';
 const hasPhotoSrc = (item, tg) => photoSources(tg).any || (navigator.onLine !== false && item.lat != null && geoEligible(tg));
@@ -253,10 +254,9 @@ function render(item, tg, loading) {
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
-  ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic('flag')}<span>${esc(t('ovReport'))}</span></button>
+  ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic(REPORT_ICON)}<span>${esc(t('ovReport'))}</span></button>
     <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
-  <div class="rp-open"><button class="abtn" id="pReport">${ic(item.coord ? 'plus' : 'flag')}<span>${esc(t(item.coord ? 'rpAddHere' : 'rpOpen'))}</span></button>
-    <button class="abtn" id="pNote">${ic('warning')}<span>${esc(t('ntOpen'))}</span></button></div>
+  ${reportEntryHtml('pRm', '', 'rmKhSubPoi')}
   <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
   <div id="pPano"></div>
   <div id="pNearby"></div>
@@ -269,9 +269,11 @@ function render(item, tg, loading) {
   const keep = sheetState();
   const body = openSheet(html, keep === 'full' || keep === 'half' ? keep : 'half', onPlaceClose);
   const it = { ...item, name: title };
-  body.querySelector('#pNote').onclick = () => import('./notes.js').then(m => m.openMapNote({ lat: item.lat, lon: item.lon, name: item.coord ? '' : title, osm_type: item.ov ? null : item.osm_type, osm_id: item.ov ? null : item.osm_id }));
+  wireReportEntry(body, 'pRm', {
+    onKh: () => openReport(item.coord ? item : { ...item, name: title }, item.coord ? 'missing' : 'wrong'),
+    onOsm: () => import('./notes.js').then(m => m.openMapNote({ lat: item.lat, lon: item.lon, name: item.coord ? '' : title, osm_type: item.ov ? null : item.osm_type, osm_id: item.ov ? null : item.osm_id })),
+  });
   body.querySelector('#pClose').onclick = () => closeSheet();
-  body.querySelector('#pReport').onclick = () => openReport(item.coord ? item : { ...item, name: title }, item.coord ? 'missing' : 'wrong');
   body.querySelector('#pRoad')?.addEventListener('click', () => openClosureReport(App.map ? snapToRoad(App.map, item.lon, item.lat) : { ...item, snapped: false }));
   body.querySelector('#pDir').onclick = () => openDirections({ to: it });
   body.querySelector('#pStart')?.addEventListener('click', () => openDirections({ to: it, autostart: true }));

@@ -27,7 +27,7 @@ create table if not exists public.kh_events (
   utm_source  text,
   props       jsonb not null default '{}'::jsonb,
   constraint kh_type_ok check (type in ('visit','search','category','place_view','route','directions_open','nav_start','nav_arrive','reroute',
-                                         'offline_download','lang_change','share','locate','whats_here','measure','layer','install')),
+                                         'offline_download','lang_change','share','locate','whats_here','measure','layer','install','osm_note_sent')),
   constraint kh_len_ok  check (length(install_id) <= 64 and coalesce(length(session_id),0) <= 64 and coalesce(length(lang),0) <= 8
                                and coalesce(length(device),0) <= 16 and coalesce(length(os),0) <= 16 and coalesce(length(app_version),0) <= 32
                                and coalesce(length(country),0) <= 2 and coalesce(length(city),0) <= 80 and coalesce(length(geo_src),0) <= 8

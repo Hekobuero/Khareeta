@@ -72,7 +72,7 @@ test('errors: 4xx/5xx clear, retry allowed; network/429 keep throttle (no duplic
   assert.equal(C.waitMs(store), 0);
   assert.equal((await C.makeSender({ store, fetchFn: st(503) })({ lat: 1, lon: 1, type: 'road' })).err, 'server');
   assert.equal(C.waitMs(store), 0);
-  assert.equal((await C.makeSender({ store, fetchFn: st(429) })({ lat: 1, lon: 1, type: 'road' })).err, 'client');
+  assert.equal((await C.makeSender({ store, fetchFn: st(429) })({ lat: 1, lon: 1, type: 'road' })).err, 'ratelimit');
   assert.ok(C.waitMs(store) > 0);
   const s2 = mem();
   assert.equal((await C.makeSender({ store: s2, fetchFn: async () => { throw new TypeError('Failed to fetch'); } })({ lat: 1, lon: 1, type: 'road' })).err, 'network');

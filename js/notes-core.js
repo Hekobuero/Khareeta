@@ -42,7 +42,7 @@ export const noteUrl = id => 'https://www.openstreetmap.org/note/' + encodeURICo
 
 /**
  * Sender with single-flight: while a request is in flight further calls get {ok:false, err:'busy'} – nothing is sent twice.
- * Returns {ok:true,id,url} | {ok:false, err:'invalid'|'throttle'|'offline'|'network'|'client'|'server'|'busy', wait?, status?}.
+ * Returns {ok:true,id,url} | {ok:false, err:'invalid'|'throttle'|'ratelimit'|'offline'|'network'|'client'|'server'|'busy', wait?, status?}.
  * The throttle mark is set BEFORE the request, so a retry after a timeout/unknown outcome cannot create a duplicate within 60 s.
  */
 export function makeSender({ fetchFn, store, online = () => true, now = () => Date.now(), timeout = 15000 }) {
@@ -63,7 +63,7 @@ export function makeSender({ fetchFn, store, online = () => true, now = () => Da
       if (!r.ok) {
         // a definite rejection (4xx/5xx) created nothing → allow an immediate retry, except 429 (rate limited)
         if (r.status !== 429) { try { store?.removeItem(TKEY); } catch {} }
-        return { ok: false, err: r.status >= 500 ? 'server' : 'client', status: r.status };
+        return { ok: false, err: r.status === 429 ? 'ratelimit' : r.status >= 500 ? 'server' : 'client', status: r.status };
       }
       const j = await r.json().catch(() => null);
       const id = j?.properties?.id ?? j?.id;
