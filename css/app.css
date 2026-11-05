@@ -541,3 +541,16 @@ button.irow{width:100%;text-align:start;font:inherit;color:inherit;background:no
 /* "X without opening hours hidden" hint + "Show anyway" (P3) */
 .ohhint{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .linkbtn{background:none;border:0;padding:6px 2px;min-height:32px;font:inherit;font-weight:600;color:var(--accent,#0A84FF);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+/* ---- OSM note ("Report map error") ---- */
+.nt-form{display:flex;flex-direction:column;gap:14px;padding:4px var(--k-gutter,16px) 0}
+.nt-chips{display:flex;flex-wrap:wrap;gap:8px}
+.nt-chips .chip{box-shadow:none;background:var(--k-surface-2);height:34px;padding-inline:12px}
+.nt-chips .chip.on{background:var(--k-accent-tint);color:var(--k-accent-tint-text)}
+.nt-notice{display:flex;gap:8px;align-items:flex-start;margin:0;font-size:var(--k-text-caption);color:var(--k-text-2)}
+.nt-notice .ic{width:16px;height:16px;flex:none;fill:currentColor}
+.nt-err{margin:0;padding:10px 12px;border-radius:12px;background:rgba(229,72,77,.12);color:#C2262C;font-size:var(--k-text-sub)}
+.nt-send{flex-direction:row;justify-content:center;min-height:48px;font-size:var(--k-text-body);font-weight:600}
+.nt-send:disabled{opacity:.45}
+.nt-wh{display:flex;padding:8px var(--k-gutter,16px) 0}
+.toast .nt-link{color:var(--k-accent);font-weight:600;margin-inline-start:6px;text-decoration:none}
+.rp-open{display:grid;gap:8px}
