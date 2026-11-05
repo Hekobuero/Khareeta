@@ -255,7 +255,8 @@ function render(item, tg, loading) {
   <div class="igroup">${rows.join('')}</div>
   ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic('flag')}<span>${esc(t('ovReport'))}</span></button>
     <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
-  <div class="rp-open"><button class="abtn" id="pReport">${ic(item.coord ? 'plus' : 'flag')}<span>${esc(t(item.coord ? 'rpAddHere' : 'rpOpen'))}</span></button></div>
+  <div class="rp-open"><button class="abtn" id="pReport">${ic(item.coord ? 'plus' : 'flag')}<span>${esc(t(item.coord ? 'rpAddHere' : 'rpOpen'))}</span></button>
+    <button class="abtn" id="pNote">${ic('warning')}<span>${esc(t('ntOpen'))}</span></button></div>
   <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
   <div id="pPano"></div>
   <div id="pNearby"></div>
@@ -268,6 +269,7 @@ function render(item, tg, loading) {
   const keep = sheetState();
   const body = openSheet(html, keep === 'full' || keep === 'half' ? keep : 'half', onPlaceClose);
   const it = { ...item, name: title };
+  body.querySelector('#pNote').onclick = () => import('./notes.js').then(m => m.openMapNote({ lat: item.lat, lon: item.lon, name: item.coord ? '' : title, osm_type: item.ov ? null : item.osm_type, osm_id: item.ov ? null : item.osm_id }));
   body.querySelector('#pClose').onclick = () => closeSheet();
   body.querySelector('#pReport').onclick = () => openReport(item.coord ? item : { ...item, name: title }, item.coord ? 'missing' : 'wrong');
   body.querySelector('#pRoad')?.addEventListener('click', () => openClosureReport(App.map ? snapToRoad(App.map, item.lon, item.lat) : { ...item, snapped: false }));
