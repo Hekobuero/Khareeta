@@ -61,7 +61,7 @@ async function shot(page, name) { const p = path.join(OUT, name); await page.scr
     const tag = `${lang}-${dark ? 'dark' : 'light'}`;
     const ctx = await browser.newContext({ ...dev, colorScheme: dark ? 'dark' : 'light', serviceWorkers: 'block' });
     await ctx.addInitScript(MOCK);
-    await ctx.addInitScript(`try { if (!sessionStorage.__i) { sessionStorage.__i = 1; localStorage.setItem('kh.lang', ${JSON.stringify(lang)}); localStorage.setItem('kh.onboarded', '1'); } } catch {}`);
+    await ctx.addInitScript(`try { if (!sessionStorage.__i) { sessionStorage.__i = 1; localStorage.setItem('kh.lang', ${JSON.stringify(lang)}); localStorage.setItem('kh.onboarded', '1'); } localStorage.setItem('kh.dev', '1'); } catch {}`);
     // keep the map offline: no tile/route requests to OSM servers from CI
     await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());
     const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => { if (!/access control checks|Load failed|cancelled/i.test(e.message)) errs.push(e.message); }); // fetches aborted by reload are not app errors
