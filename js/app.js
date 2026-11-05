@@ -15,6 +15,7 @@ import { OV_ATTR_URL, OV_LICENSE_URL } from './overture-data.js';
 import { parseDeepLink } from './share-core.js';
 import { openPlace, openPoint, openCoordPlace, weatherRaw, wmo, currentPlace } from './place.js';
 import { showSaved } from './ui.js';
+import { addSavedLayer } from './saved.js';
 import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
 import { initAnalytics, track } from './analytics.js';
@@ -155,13 +156,15 @@ map.once('idle', trLayers);
 $('#trPill').onclick = () => openLines(map);
 map.on('moveend', ovSync);
 map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
+map.once('idle', () => addSavedLayer(map));
+addEventListener('kh-saved', () => { if (App.sheetKind === 'home') showHome(true); });
 map.once('idle', startPois); setTimeout(startPois, 5000);
 // outside Syria the POIs come from the vector tiles (style layers poi-dot / poi-z15 / poi, all named OSM POIs, 0 extra
 // requests). The former automatic Overpass layer (world-poi.js) is no longer started: it would double every label.
 addEventListener('online', () => { if (!POIS.geo) startPois(); });
 map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
-  ovLayers(); trLayers();
+  ovLayers(); trLayers(); addSavedLayer(map);
   if (navActive()) setPoiVisible(map, false);
   relabel(map); ensureRouteLayers(); resetPoiFilters();
   if (App.selName) applySelFilter(App.selName);
@@ -318,7 +321,7 @@ function showHome(keep) {
   <div class="favs">
     ${fav('home', 'home', 'var(--k-accent)', t('home'), home)}
     ${fav('work', 'work', '#6E7781', t('work'), work)}
-    ${favs.map((s, i) => { const [icn, col] = catIcon(s.tags || {}); return fav('f' + i, icn, col, s.name, s); }).join('')}
+    ${favs.map((s, i) => { const [icn, col] = catIcon(s.tags || {}); return fav('f' + i, icn, col, s.label || s.name, s); }).join('')}
     <button class="fav" data-k="add"><span class="b add">${ic('plus')}</span><span>${t('add')}</span><small>&nbsp;</small></button>
   </div>`;
   const body = openSheet(html, keep && sheetState() !== 'hidden' ? sheetState() : 'peek', null, 196);

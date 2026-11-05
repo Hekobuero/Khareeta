@@ -10,6 +10,8 @@ import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
+import { localSearch, loadGazetteer } from './offline-search.js';
+import { isSaved, toggleSaved } from './saved.js';
 import { norm, loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
 
 // Design order (§4.3) first, then extras; colours = --k-poi-* (§3.5)
@@ -74,7 +76,7 @@ export function initSearch() {
   q.placeholder = navigator.onLine ? t('search') : t('searchOffline');
   const show = () => { box.classList.toggle('hidden', !box.innerHTML); document.body.classList.toggle('sugg-open', !!box.innerHTML); cb.refresh(); };
   const renderIdle = () => {
-    const saved = lsGet('kh.saved', []), recent = lsGet('kh.recent', []);
+    const saved = lsGet('kh.saved', []).map(s => ({ ...s, name: s.label || s.name })), recent = lsGet('kh.recent', []);
     items = [...saved.map(s => ({ ...s, icon: s.kind === 'home' ? ['home', '#1A73E8'] : s.kind === 'work' ? ['work', '#6E7781'] : ['bookmark', '#E8710A'] })), ...recent.map(r => ({ ...r, icon: ['history', '#8E8E93'] }))];
     let h = '';
     if (saved.length) h += `<div class="shead">${t('saved')}</div>` + saved.map((s, i) => row(items[i], i)).join('');
@@ -92,7 +94,7 @@ export function initSearch() {
     items = dedupe([...(r.chip ? [chipItem(r.chip)] : []), ...r.items]).slice(0, 14);
     const coord = parseCoords(text) || plusDecode(text);
     if (coord) items.unshift({ id: 'c', name: text, sub: t('coords'), lon: coord[0], lat: coord[1], icon: ['pin', '#E5484D'], coord: true });
-    box.innerHTML = items.length ? items.map((it, i) => row(it, i)).join('') : `<div class="srow muted">${t('noResults')}</div>`;
+    box.innerHTML = (r.offline ? offlineNotice() : '') + (items.length ? items.map((it, i) => row(it, i)).join('') : `<div class="srow muted">${t('noResults')}</div>`);
     sel = -1; show();
   };
   const runPhoton = debounce(doPhoton, 250);
@@ -114,7 +116,9 @@ export function initSearch() {
   q.addEventListener('keydown', e => cb.keydown(e));
   box.addEventListener('pointerdown', e => e.preventDefault());
   box.addEventListener('click', e => { const r = e.target.closest('.srow[data-i]'); if (r) choose(items[+r.dataset.i]); });
-  q.addEventListener('focus', () => { loadPois().catch(() => {}); }); // warm the local index as soon as search is used
+  q.addEventListener('focus', () => { loadPois().catch(() => {}); loadGazetteer().catch(() => {}); });
+  const syncPh = () => { q.placeholder = navigator.onLine ? t('search') : t('searchOffline'); };
+  addEventListener('online', syncPh); addEventListener('offline', syncPh); // warm the local index as soon as search is used
   q.addEventListener('blur', () => setTimeout(() => { box.innerHTML = ''; show(); }, 150));
   $('#btnClear').addEventListener('click', () => { q.value = ''; $('#btnClear').classList.add('hidden'); clearMarkers(); closeSheet(); q.focus(); renderIdle(); });
 }
@@ -128,25 +132,24 @@ export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
   if (!text) return { items: [], chip: null };
   const c = center(), z = App.map.getZoom(), view = viewBox(), bbox = biasBox(c, view);
   if (!P.all.length) { try { await loadPois(); } catch {} }
-  const local = localMatches(text);
+  // local first (saved, recent, offline gazetteer – fuzzy, Arabic/Latin variants), then Photon when online
+  const { mine: local, places: gzHits } = await localSearch(text);
+  if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
   const lp = poiLocal(text);
+  const offline = !navigator.onLine;
   let res = [];
-  try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: z, view, limit, signal })).map(fromPhoton); }
-  catch (e) { if (e.name === 'AbortError' || signal?.aborted) throw e; } // offline / Photon down: local hits still count
+  if (!offline) try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: z, view, limit, signal })).map(fromPhoton); }
+  catch (e) { if (e.name === 'AbortError' || signal?.aborted) throw e; } // Photon down: local hits still count
   // Matching cities/towns/villages first (near the view first; QA: "Homs" → Homs city), then saved places and
   // POIs, then the rest – nearby before the rest of the world
   let { settlements, rest } = rank(res, text, bbox);
   if (lp.chip) rest = rest.filter(r => haversine(refPoint(), [r.lon, r.lat]) < 100000);
-  const top = [...settlements, ...local, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
+  const top = [...local, ...settlements, ...gzHits, ...lp.items.filter(x => !local.some(l => l.id === x.id))];
   const seen = new Set();
-  return { chip: lp.chip, items: dedupe([...top, ...rest].filter(x => !x.id || (!seen.has(x.id) && seen.add(x.id)))) };
+  return { chip: lp.chip, offline, items: dedupe([...top, ...rest].filter(x => !x.id || (!seen.has(x.id) && seen.add(x.id)))) };
 }
 
-function localMatches(text) {
-  const s = norm(text);
-  return [...lsGet('kh.saved', []).map(x => ({ ...x, icon: ['star', '#f9ab00'] })), ...lsGet('kh.recent', []).map(x => ({ ...x, icon: ['history', '#8E8E93'] }))]
-    .filter(x => s && norm(x.name).includes(s)).slice(0, 3);
-}
+export function offlineNotice() { return `<div class="soff" role="status" id="offNotice">${ic('offline')}<span>${esc(t('offLocalOnly'))}</span></div>`; }
 
 function poiLocal(text) {
   if (!P.all.length) return { chip: null, items: [] };
@@ -191,8 +194,10 @@ export async function fullSearch(text) {
   const b = App.map.getBounds(), c = center(), view = viewBox(), bbox = biasBox(c, view);
   // bias (never bound: no bounded/countrycodes) to the current map view, worldwide
   const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => (+v).toFixed(4)).join(',');
+  const loc0 = await localSearch(text, { limit: 12 }); // local first – answers without network
+  const offline = !navigator.onLine;
   let res = [];
-  if (navigator.onLine) try {
+  if (!offline) try {
     const j = await nominatim(`search?q=${encodeURIComponent(text)}&format=jsonv2&limit=12&addressdetails=1&extratags=1&namedetails=1&accept-language=${getLang()},ar,en&viewbox=${vb}`);
     res = j.map(fromNominatim);
     // Nominatim's viewbox is only a bias: if it found (almost) nothing near the view, add Photon's nearby hits
@@ -206,14 +211,16 @@ export async function fullSearch(text) {
   if (lr.chip && !lr.items.length) { box.innerHTML = ''; box.classList.add('hidden'); track('search', { kind: 'cat', cat: lr.chip }); applyChips([lr.chip], false); return; }
   const loc = lr.items.map(poiRow);
   const rk = rank(res, text, bbox);
-  res = dedupe([...rk.settlements, ...loc, ...rk.rest.filter(r => !loc.some(l => l.id === r.id))]);
+  res = dedupe([...loc0.mine, ...rk.settlements, ...loc0.places, ...loc, ...rk.rest.filter(r => !loc.some(l => l.id === r.id))]);
   track('search', { kind: 'full', n: res.length });
-  if (!res.length) { toast(t('noResults')); return; }
-  if (res.length === 1) return choose(res[0]);
-  showResultList(res, t('results') + ': ' + text);
+  if (!res.length) { toast(offline ? t('offLocalOnly') : t('noResults'), offline ? 4000 : 2600); return; }
+  if (res.length === 1 && !offline) return choose(res[0]);
+  showResultList(res, t('results') + ': ' + text, true, offline);
 }
 
-export function showResultList(res, title, fit = true) {
+const starBtn = (r, i) => r.lon == null || r.chip ? '' : `<button class="ib sstar${isSaved(r.id) ? ' on' : ''}" data-star="${i}" aria-pressed="${isSaved(r.id)}" aria-label="${esc(t(isSaved(r.id) ? 'svUnsaveAria' : 'svSaveAria'))}">${ic(isSaved(r.id) ? 'star' : 'starOutline', 'sm')}</button>`;
+const withStar = (html, r, i) => html.replace(/<\/div>$/, starBtn(r, i) + '</div>');
+export function showResultList(res, title, fit = true, offline = false) {
   clearMarkers();
   res.forEach((r, i) => {
     const [icn, col] = catIcon(r.tags || {});
@@ -221,8 +228,11 @@ export function showResultList(res, title, fit = true) {
     m.getElement().addEventListener('click', e => { e.stopPropagation(); addRecent(r); openPlace(r); });
     App.markers.push(m);
   });
-  const body = openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub">${res.length} · OpenStreetMap</p></div><div class="list">${res.map((r, i) => row(r, i, r.status ? ` · <span class="${r.status.cls}">${esc(r.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`, 'half', () => clearMarkers());
-  body.querySelector('.list').addEventListener('click', e => { const el = e.target.closest('.srow'); if (el) { const r = res[+el.dataset.i]; addRecent(r); openPlace(r); } });
+  const body = openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub">${res.length} · OpenStreetMap</p></div>${offline ? offlineNotice() : ''}<div class="list">${res.map((r, i) => withStar(row(r, i, r.status ? ` · <span class="${r.status.cls}">${esc(r.status.text.split(' · ')[0])}</span>` : ''), r, i)).join('')}</div>`, 'half', () => clearMarkers());
+  body.querySelector('.list').addEventListener('click', e => {
+    const st = e.target.closest('[data-star]');
+    if (st) { e.stopPropagation(); const r = res[+st.dataset.star]; const on = toggleSaved(r); st.outerHTML = starBtn(r, +st.dataset.star); toast(t(on ? 'savedOk' : 'svRemoved')); return; }
+    const el = e.target.closest('.srow'); if (el) { const r = res[+el.dataset.i]; addRecent(r); openPlace(r); } });
   if (fit && res.length > 1) {
     const b = new maplibregl.LngLatBounds(); res.forEach(r => b.extend([r.lon, r.lat]));
     { const mp = mapPadding(); fitTo(b, { top: mp.top + 20, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 20, left: mp.left + 30, right: mp.right + 30 }, { maxZoom: 16, duration: 600 }); }

@@ -8,7 +8,8 @@ import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, 
 import { track } from './analytics.js';
 import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking, unlockSpeech, sampleText, isIOS } from './voice.js';
 import { dedupe, combobox, cleanQuery } from './suggest.js';
-import { placeSuggest } from './search.js';
+import { placeSuggest, offlineNotice } from './search.js';
+import { loadGazetteer } from './offline-search.js';
 import { activeList } from './closures.js';
 import { closuresNearRoute, plural } from './closures-core.js';
 
@@ -251,7 +252,7 @@ function renderPanel() {
   // No transit tab: there is no GTFS data for Syria (DESIGN §4.5)
   const modes = [['car', 'car'], ['foot', 'walk'], ['bike', 'bike']];
   $('#dirModes').innerHTML = modes.map(([m, icn]) => `<button class="mode ${R.mode === m ? 'on' : ''}" data-m="${m}" aria-label="${t(m)}" aria-pressed="${R.mode === m}">${ic(icn, 'sm')}<span>${R.routes.length && R.mode === m ? fmtDur(R.routes[R.sel]?.duration) : t(m)}</span></button>`).join('');
-  st.querySelectorAll('input[data-i]').forEach(inp => { stopCb?.attach(inp); inp.setAttribute('aria-label', inp.placeholder); });
+  st.querySelectorAll('input[data-i]').forEach(inp => { stopCb?.attach(inp); inp.addEventListener('focus', () => loadGazetteer().catch(() => {}), { once: true }); inp.setAttribute('aria-label', inp.placeholder); });
   if (fi != null) { const inp = st.querySelector(`input[data-i="${fi}"]`); if (inp) { restoring = true; inp.focus({ preventScroll: true }); restoring = false; try { inp.setSelectionRange(...caret); } catch {} } }
   document.documentElement.style.setProperty('--dirh', $('#dirPanel').offsetHeight + 'px');
 }
@@ -270,23 +271,23 @@ function initPanel() {
   const setOpen = on => { box.classList.toggle('hidden', !on); document.body.classList.toggle('sugg-open', on); };
   const doSearch = async (inp) => {
     const q = inp.value.trim(), c = center(), my = ++sseq;
-    let res = [];
+    let res = [], offline = false;
     if (App.me) res.push({ name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true, sub: '' });
     // empty field: saved places as quick picks; typing: the SAME pipeline as the main search (QA P2: Arabic stops)
-    if (!q) lsGet('kh.saved', []).slice(0, 4).forEach(s => res.push({ ...s, saved: true }));
+    if (!q) lsGet('kh.saved', []).slice(0, 4).forEach(s => res.push({ ...s, name: s.label || s.name, saved: true }));
     if (cleanQuery(q).length >= 2) {
       ctl?.abort(); ctl = new AbortController();
       try {
-        const r = await placeSuggest(q, { signal: ctl.signal });
-        const hits = r.items.filter(x => x.lon != null && x.lat != null && !x.chip).map(x => ({ ...x, name: x.name || x.sub, saved: x.icon?.[0] === 'star' }));
+        const r = await placeSuggest(q, { signal: ctl.signal }); offline = !!r.offline;
+        const hits = r.items.filter(x => x.lon != null && x.lat != null && !x.chip).map(x => ({ ...x, name: x.name || x.sub, saved: x.saved || ['star', 'home', 'work'].includes(x.icon?.[0]) }));
         res = dedupe([...res, ...hits]).slice(0, 10);
       } catch (e) { if (e.name === 'AbortError' && my !== sseq) return; }
     }
     // the panel may have been rebuilt meanwhile (route finished): compare the stop index, not the element
     if (!activeInput || activeInput.dataset.i !== inp.dataset.i || my !== sseq) return;
     sugg = res; shownFor = activeInput.value.trim();
-    box.innerHTML = res.map((r, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic(r.isMe ? 'locate' : r.saved ? 'bookmark' : 'pinOutline')}</div><div class="st"><div class="t1" dir="auto">${esc(r.name)}</div><div class="t2" dir="auto">${esc(r.sub || '')}</div></div></div>`).join('');
-    setOpen(res.length > 0); stopCb.refresh();
+    box.innerHTML = (offline ? offlineNotice() : '') + res.map((r, i) => `<div class="srow" data-i="${i}"><div class="sic">${ic(r.isMe ? 'locate' : r.saved ? 'bookmark' : 'pinOutline')}</div><div class="st"><div class="t1" dir="auto">${esc(r.name)}</div><div class="t2" dir="auto">${esc(r.sub || '')}</div></div></div>`).join('');
+    setOpen(res.length > 0 || offline); stopCb.refresh();
   };
   let stm = 0;
   const search = inp => { clearTimeout(stm); stm = setTimeout(() => doSearch(inp), 300); };
