@@ -240,7 +240,7 @@ function applyFilterToMap(map) {
 let openCache = { k: '', t: 0, v: [] };
 function openIdx(cats) {
   const k = cats.join(); if (openCache.k === k && Date.now() - openCache.t < 60000) return openCache.v;
-  const v = P.all.filter(r => cats.includes(r.c) && r.oh && ohStatus(r.oh)?.open).map(r => r.i);
+  const v = P.all.filter(r => cats.includes(r.c) && r.oh && ohStatus(r.oh, new Date(), [r.lon, r.lat])?.open).map(r => r.i);
   openCache = { k, t: Date.now(), v }; return v;
 }
 export function getFilter() { return state; }
@@ -250,8 +250,11 @@ export function setFilter(map, cats, openNow = state.openNow) { state = { cats: 
 export function filterResults(ref, limit = 80) {
   const cats = [...state.cats].flatMap(k => CHIP_CATS[k] || []);
   let list = P.all.filter(r => cats.includes(r.c));
-  const withHours = list.filter(r => r.oh).length, noHours = list.length - withHours;
-  if (state.openNow) list = list.filter(r => r.oh && ohStatus(r.oh)?.open);
+  const now = new Date();
+  // unparsable opening_hours count as "no opening hours" (included in the hidden hint)
+  const st = r => r.oh ? ohStatus(r.oh, now, [r.lon, r.lat]) : null;
+  const known = list.filter(r => st(r)), withHours = known.length, noHours = list.length - withHours;
+  if (state.openNow) list = known.filter(r => st(r).open);
   for (const r of list) r.d = haversine(ref, [r.lon, r.lat]);
   list.sort((a, b) => a.d - b.d);
   return { total: list.length, near: list.filter(r => r.d < 10000).length, withHours, hiddenNoHours: state.openNow ? noHours : 0, list: list.slice(0, limit) };
@@ -314,4 +317,4 @@ export function poiIndexFor(item) {
   if (!item.osm_type || item.osm_id == null) return null;
   const v = P.byOsm.get(item.osm_type[0] + item.osm_id); return v == null ? null : v;
 }
-export function poiStatus(rec) { return rec.oh ? ohStatus(rec.oh) : null; }
+export function poiStatus(rec) { return rec.oh ? ohStatus(rec.oh, new Date(), [rec.lon, rec.lat]) : null; }

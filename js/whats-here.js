@@ -24,7 +24,7 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
   <div class="arow actions">
     <button class="abtn primary" id="whRoute">${ic('directions')}<span>${esc(t('whRouteHere'))}</span></button>
     <button class="abtn" id="whShare">${ic('share')}<span>${esc(t('whShare'))}</span></button>
-    <button class="abtn" id="whCopy">${ic('copy')}<span>${esc(t('whCopyCoords'))}</span></button>
+    <button class="abtn" id="whCopy" aria-label="${esc(t('whCopyCoords'))}" title="${esc(t('whCopyCoords'))}">${ic('copy')}<span>${esc(t('whCopyShort'))}</span></button>
   </div>
   <div class="igroup">
     <button class="irow" id="whCoord" type="button"><div class="iv"><label>${esc(t('whCoords'))}</label><div class="val"><bdi dir="ltr">${esc(digits(coords))}</bdi></div></div>${ic('copy', 'sm')}</button>

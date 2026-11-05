@@ -1,7 +1,6 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
 import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
-import { loadOHLib, ohLibReady } from './oh-lib.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
@@ -176,8 +175,7 @@ function render(item, tg, loading) {
   const title = nm.primary || item.name || t('whatsHere');
   const second = nm.secondary && nm.secondary !== title ? nm.secondary : '';
   const cat = item.coord ? t('droppedPin') : item.ov ? ovCatLabel(item.ovCat, getLang()) : catLabel(tg);
-  const st = ohStatus(tg.opening_hours);
-  if (!st && tg.opening_hours && !ohLibReady()) loadOHLib().then(() => { if (document.querySelector('.ptitle')?.textContent === title) { const s2 = ohStatus(tg.opening_hours); const h = document.querySelector('.phead .psub'); if (s2 && h && !document.querySelector('.pstatus')) h.insertAdjacentHTML('afterend', `<p class="pstatus"><span class="${s2.cls}">${esc(s2.text)}</span></p>`); } }).catch(() => {});
+  const st = ohStatus(tg.opening_hours, new Date(), [item.lon, item.lat]);
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
   const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
   const saved = isSaved(item.id);
@@ -187,7 +185,7 @@ function render(item, tg, loading) {
   rows.push(irow(t('address'), `<span id="pAddr">${addr ? `<bdi>${esc(addr)}</bdi>` : `<span class="muted">${t('loading')}</span>`}</span>`));
   if (tg.opening_hours) {
     // Parsed → today's line + expandable week (today highlighted). Not parseable → raw OSM text, no status line.
-    const tbl = ohTable(tg.opening_hours);
+    const tbl = ohTable(tg.opening_hours, new Date(), [item.lon, item.lat]);
     const td = tbl && (tbl.find(r => r.today) || tbl[0]);
     rows.push(tbl
       ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi> <small class="hours-tz-short">(${t('tzShort')})</small><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`

@@ -395,7 +395,14 @@ map.once('load', () => {
   } else if (parseDeepLink(location.search)) {
     const d = parseDeepLink(location.search);
     map.jumpTo({ center: [d.lon, d.lat], zoom: d.z });
-    import('./whats-here.js').then(m => m.openWhatsHere([d.lon, d.lat], { name: d.name, route: d.route }));
+    import('./whats-here.js').then(m => {
+      m.openWhatsHere([d.lon, d.lat], { name: d.name, route: d.route });
+      // phone: the bottom sheet covers the lower half – move the point into the free map area above it (like fitArea)
+      setTimeout(() => {
+        const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || 0;
+        if (v > 0) { const top = App.topPad ?? 120, H = map.getContainer().clientHeight, p = map.getPadding(); map.easeTo({ center: [d.lon, d.lat], zoom: d.z, offset: [0, (top + H - v) / 2 - (p.top + H - p.bottom) / 2], duration: 0 }); }
+      }, 400);
+    });
   } else if (sp.get('ll')) {
     const [la, lo] = sp.get('ll').split(',').map(Number);
     const p = sp.get('p'); const types = { n: 'node', w: 'way', r: 'relation' };

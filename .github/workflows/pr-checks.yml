@@ -220,7 +220,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node --test 'tests/share/*.test.mjs'
+      - run: |
+          for tz in UTC Europe/Berlin Asia/Damascus America/Los_Angeles Asia/Tokyo; do
+            echo "TZ=$tz"; TZ=$tz node --test 'tests/share/*.test.mjs' || exit 1
+          done
 
   report-tests:
     # Pure Node unit tests for in-app reports (js/report-core.js + analytics.sendNow): link allowlist, lookalike/Cyrillic

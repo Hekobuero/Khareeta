@@ -11,7 +11,7 @@ test('hint strings EN/AR/DE', () => {
 });
 test('filter hides places without hours and reports the count', () => {
   const poi = read('js/poi.js');
-  assert.match(poi, /state\.openNow\) list = list\.filter\(r => r\.oh && ohStatus/);
+  assert.match(poi, /state\.openNow\) list = known\.filter/);
   assert.match(poi, /hiddenNoHours: state\.openNow \? noHours : 0/);
   assert.match(read('js/search.js'), /t\('ohHidden'/);
 });

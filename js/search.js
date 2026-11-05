@@ -1,7 +1,6 @@
 // Search: Photon autocomplete (komoot, key-free) + Nominatim full search (1 req/s) + coordinates / plus codes,
 // recent searches & saved places, category search via Overpass.
 import { nf, $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
-import { loadOHLib } from './oh-lib.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, center, refPoint, chipRef, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
@@ -248,7 +247,6 @@ export function toggleChip(key) {
   applyChips([...cats], getFilter().openNow);
 }
 export async function applyChips(cats, openNow, fit = true) {
-  if (openNow) await loadOHLib().catch(() => {}); // lazy: only when the filter is on
   catSeq++;
   try { await loadPois(); } catch { return searchCategoryLive(cats[0]); }
   setFilter(App.map, cats, openNow);
