@@ -149,6 +149,9 @@ jobs:
             rm -rf ~/.cache/ms-playwright/__dirlock 2>/dev/null || true
           done
           exit 1
+      - name: Health sheet Nearby actions reachable (390×844 + shorter viewport, EN/AR/DE, WebKit + Chromium, mocked)
+        run: node health-sheet.test.js
+        timeout-minutes: 5
       - run: node ios-webkit.test.js
         timeout-minutes: 5
       - name: iPhone zoom (pinch/double-tap/buttons, no page overflow)
@@ -172,9 +175,6 @@ jobs:
       - name: Share as image (buttons + PNG card, iPhone 390, DE/EN/AR, light/dark, WebKit + Chromium, mocked)
         run: node share-image.test.js
         timeout-minutes: 10
-      - name: Health sheet Nearby actions reachable (390×844 + shorter viewport, EN/AR/DE, WebKit + Chromium, mocked)
-        run: node health-sheet.test.js
-        timeout-minutes: 5
       - name: Category chip never jumps to Syria + GPS start (Germany view, mocked Overpass, DE/AR, WebKit + Chromium)
         run: node chip-view.test.js
         timeout-minutes: 8

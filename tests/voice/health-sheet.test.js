@@ -41,6 +41,8 @@ const assert = require('node:assert/strict');
           const page = await ctx.newPage();
           await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
           await page.waitForSelector('.chip[data-health]');
+          // Wait for map.load → showHome(), otherwise late startup can replace the sheet under test.
+          await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 });
           // Begin in the half detent, then use the health entry point for EACH action.
           // No test-side setSheet('full') guard: that would hide the original regression.
           for (const action of ['hospital', 'clinic', 'pharmacy']) {
