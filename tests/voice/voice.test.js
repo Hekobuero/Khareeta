@@ -75,7 +75,7 @@ const ok = (name, cond, info = '') => { results.push({ name, pass: !!cond, info 
 async function ctxFor(browser, prof, { vp = { width: 390, height: 844 }, lang = 'en', dark = false, settings = null, tag = '' } = {}) {
   const ctx = await browser.newContext({ viewport: vp, userAgent: P[prof].ua, colorScheme: dark ? 'dark' : 'light', locale: 'en-US', serviceWorkers: 'allow' });
   await ctx.addInitScript(mock(P[prof]));
-  await ctx.addInitScript(`try { if (!sessionStorage.__init) { sessionStorage.__init = 1; localStorage.setItem('kh.lang', ${JSON.stringify(lang)}); localStorage.setItem('kh.onboarded','1'); ${settings ? `localStorage.setItem('kh.settings', ${JSON.stringify(JSON.stringify(settings))});` : ''} } } catch {}`);
+  await ctx.addInitScript(`try { if (!sessionStorage.__init) { sessionStorage.__init = 1; localStorage.setItem('kh.lang', ${JSON.stringify(lang)}); localStorage.setItem('kh.onboarded','1'); ${settings ? `localStorage.setItem('kh.settings', ${JSON.stringify(JSON.stringify(settings))});` : ''} } localStorage.setItem('kh.dev','1'); } catch {}`);
   return ctx;
 }
 function watch(page, tag) {

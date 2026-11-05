@@ -3,7 +3,7 @@
 import { nf, $, esc, fetchJSON, nominatim, overpass, debounce, parseCoords, plusDecode, haversine, fmtDist, lsGet, lsSet, toast } from './util.js';
 import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
-import { App, center, refPoint, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
+import { App, center, refPoint, chipRef, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
 import { ohStatus } from './hours.js';
 import { openPlace } from './place.js';
 import { track } from './analytics.js';
@@ -60,7 +60,7 @@ export function addRecent(item) {
 
 function row(item, i, extra = '') {
   const [icn, col] = item.icon || catIcon(item.tags || {});
-  const d = item.lon != null ? fmtDist(haversine(refPoint(), [item.lon, item.lat])) : '';
+  const d = item.d != null ? fmtDist(item.d) : item.lon != null ? fmtDist(haversine(refPoint(), [item.lon, item.lat])) : ''; // item.d: same reference point as the sort
   return `<div class="srow" data-i="${i}"><div class="sic badge" style="background:${col}">${ic(icn)}</div><div class="st"><div class="t1" dir="auto">${esc(item.name)}</div><div class="t2" dir="auto">${esc(item.sub || catLabel(item.tags || {}))}${extra}</div></div><div class="dist">${d}</div></div>`;
 }
 
@@ -229,6 +229,17 @@ export function showResultList(res, title, fit = true) {
 
 // ---------- categories: bundled POIs (multi-select + open now), live Overpass as supplement ----------
 let catSeq = 0;
+export const CHIP_MIN_Z = 12; // chip fit never zooms out below z12
+// live search area: the view (half-size capped at ~6 km), widened 2x and 4x when empty, max ~10 km
+export const LIVE_MAXD = 0.06, LIVE_CAPD = 0.09;
+export function liveBoxes(s, w, n, e, c) {
+  if (n - s > LIVE_MAXD * 2 || e - w > LIVE_MAXD * 2) { s = c[1] - LIVE_MAXD; n = c[1] + LIVE_MAXD; w = c[0] - LIVE_MAXD; e = c[0] + LIVE_MAXD; }
+  const hy = (n - s) / 2, hx = (e - w) / 2, my = (n + s) / 2, mx = (e + w) / 2, out = [[s, w, n, e]];
+  for (const f of [2, 4]) { const y = Math.min(hy * f, LIVE_CAPD), x = Math.min(hx * f, LIVE_CAPD); const bx = [my - y, mx - x, my + y, mx + x]; if (y > out[out.length - 1][2] - my + 1e-9 || x > out[out.length - 1][3] - mx + 1e-9) out.push(bx); }
+  return out;
+}
+export function sortByRef(res) { return res.sort((a, b) => a.d - b.d); }
+export const CAT_FIT_M = 15000; // fit the map only to category results within 15 km of the view centre
 export function cancelCategory() { catSeq++; if (getFilter().cats.size) { setFilter(App.map, []); } document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); }
 export function toggleChip(key) {
   const cats = new Set(getFilter().cats);
@@ -241,13 +252,16 @@ export async function applyChips(cats, openNow, fit = true) {
   setFilter(App.map, cats, openNow);
   document.querySelectorAll('.chip[data-cat]').forEach(c => c.classList.toggle('on', cats.includes(c.dataset.cat)));
   if (!cats.length) { clearMarkers(); closeSheet(); return; }
+  // Outside Syria the bundled POIs are all far away – never jump there (P1: a chip in Berlin flew to Syria);
+  // search live OSM (Overpass) in the current view instead, worldwide, without moving the map.
+  if (!inSyria(...center())) { searchCategoryLive(cats[cats.length - 1]); return; }
   track('category', { cat: cats.join(',') });
   showFilterSheet(fit);
 }
 export function filterActive() { return getFilter().cats.size > 0; }
 export function showFilterSheet(fit = false) {
   const f = getFilter(), cats = [...f.cats];
-  const ref = refPoint(), r = filterResults(ref, 80);
+  const ref = chipRef(), r = filterResults(ref, 80); // GPS if inside the view, else the view centre – never Syria
   clearMarkers();
   const res = r.list.map(rec => Object.assign(poiRow(rec), { d: rec.d }));
   const title = cats.map(k => t(k)).join(' · ');
@@ -268,11 +282,12 @@ export function showFilterSheet(fit = false) {
   });
   $('#fClear').onclick = () => { applyChips([], false); const q = $('#q'); if (CATS.some(c => t(c[0]) === q.value)) { q.value = ''; $('#btnClear').classList.add('hidden'); } };
   $('#fLive').onclick = () => searchCategoryLive(cats[0]);
-  if (fit && res.length) {
-    const near = res.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
+  const nearView = res.filter(x => x.d < CAT_FIT_M);
+  if (fit && nearView.length) { // only fit to results near the current view – never to POIs in another city / country
+    const near = nearView.slice(0, 12), b = new maplibregl.LngLatBounds(); near.forEach(x => b.extend([x.lon, x.lat]));
     if (App.me && haversine(App.me, [near[0].lon, near[0].lat]) < 20000) b.extend(App.me);
     const mp = mapPadding();
-    fitTo(b, { top: mp.top + 30, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 30, left: mp.left + 40, right: mp.right + 40 }, { maxZoom: 15.5, duration: 600 });
+    fitTo(b, { top: mp.top + 30, bottom: Math.max(mp.bottom, innerWidth < 900 ? innerHeight * 0.5 : 0) + 30, left: mp.left + 40, right: mp.right + 40 }, { maxZoom: 15.5, minZoom: CHIP_MIN_Z, duration: 600 });
   }
 }
 function sheetStateSafe() { return document.getElementById('sheet')?.dataset.state; }
@@ -284,24 +299,25 @@ export async function searchCategoryLive(key) {
   const cat = CATS.find(c => c[0] === key); if (!cat) return;
   track('category', { cat: key, live: 1 });
   const map = App.map, c = center();
-  let b = map.getBounds();
-  let s = b.getSouth(), w = b.getWest(), n = b.getNorth(), e = b.getEast();
-  const maxd = 0.06; // ~6 km
-  if (n - s > maxd * 2 || e - w > maxd * 2) { s = c[1] - maxd; n = c[1] + maxd; w = c[0] - maxd; e = c[0] + maxd; }
-  const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
-  const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
-  const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
+  const b = map.getBounds();
+  const boxes = liveBoxes(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), c);
   openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
   try {
     let j;
-    try { j = await overpass(q, 9000, 2500); }
-    catch (opErr) { // fallback: Nominatim special phrase search in the view box
-      const word = { restaurants: 'restaurant', cafes: 'cafe', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', atm: 'atm', mosque: 'mosque', church: 'church', hotel: 'hotel', supermarket: 'supermarket', bakery: 'bakery', tourism: 'attraction', parking: 'parking', police: 'police', toilets: 'toilets' }[key];
-      const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
-      j = { elements: r.map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
+    for (const [s, w, n, e] of boxes) { // nothing found: widen the area automatically (2x, 4x, max ~10 km)
+      const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
+      const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
+      const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
+      try { j = await overpass(q, 9000, 2500); }
+      catch (opErr) { // fallback: Nominatim special phrase search in the box
+        const word = { restaurants: 'restaurant', cafes: 'cafe', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', atm: 'atm', mosque: 'mosque', church: 'church', hotel: 'hotel', supermarket: 'supermarket', bakery: 'bakery', tourism: 'attraction', parking: 'parking', police: 'police', toilets: 'toilets' }[key];
+        const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
+        j = { elements: r.map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
+      }
+      if (mySeq !== catSeq) return;
+      if (j.elements?.length) break;
     }
-    if (mySeq !== catSeq) return;
-    const ref = refPoint();
+    const ref = chipRef(); // same point for sorting and km display
     let res = j.elements.map(el => {
       const lon = el.lon ?? el.center?.lon, lat = el.lat ?? el.center?.lat;
       const tags = el.tags || {};
@@ -310,7 +326,7 @@ export async function searchCategoryLive(key) {
       return { id: el.type[0].toUpperCase() + el.id, osm_type: el.type, osm_id: el.id, name: nm, sub: [catLabel(tags), addr].filter(Boolean).join(' · '), lon, lat, tags, full: true, status: ohStatus(tags.opening_hours), d: haversine(ref, [lon, lat]) };
     }).filter(r => r.lon != null);
     res.sort((a, b) => (b.tags.name || b.tags.brand ? 1 : 0) - (a.tags.name || a.tags.brand ? 1 : 0) || a.d - b.d);
-    res = res.slice(0, 100).sort((a, b) => a.d - b.d);
+    res = sortByRef(res.slice(0, 100));
     if (!res.length) { openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('noResults')}</p></div>`, 'peek'); return; }
     showResultList(res, t(key) + ' · OSM live', false);
   } catch (err) {

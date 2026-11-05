@@ -236,3 +236,6 @@ export function setSelMarker(lnglat, color, icon, name) {
 export function resetPoiFilters() { for (const k in poiFilters) delete poiFilters[k]; }
 export function center() { const c = App.map.getCenter(); return [c.lng, c.lat]; }
 export function refPoint() { return App.me || center(); }
+// chips (in and outside Syria): GPS if it lies inside the current map view, else the map centre – sorting AND km use it
+export function pickChipRef(me, b, c) { return me && me[0] >= b[0] && me[0] <= b[2] && me[1] >= b[1] && me[1] <= b[3] ? me : c; }
+export function chipRef() { const b = App.map.getBounds(); return pickChipRef(App.me, [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], center()); }
