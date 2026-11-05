@@ -37,6 +37,7 @@ const closed = s => s.found && s.hidden && s.display === 'none' && s.h === 0 && 
       for (let i = 0; i < pts.length; i++) {
         await page.evaluate(async p => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere(p); }, pts[i]);
         await page.waitForSelector('#whRmBtn'); await page.waitForTimeout(500);
+        console.log('DBG', JSON.stringify(await page.evaluate(async () => ({ kind: (await import(new URL('js/core.js', location.href))).App?.sheetKind, st: document.querySelector('#sheet')?.dataset.state, has: !!document.querySelector('#whRmBtn'), body: (document.querySelector('#sheetBody')?.innerText || '').slice(0, 300) }))));
         await page.evaluate(() => document.querySelector('#whRmBtn').scrollIntoView({ block: 'nearest' })); await page.waitForTimeout(200);
         // "Report…" below the fold of the half sheet (it is no longer padded by the menu) → pull the sheet up like a user
         if (await page.evaluate(() => document.querySelector('#whRmBtn').getBoundingClientRect().bottom > innerHeight)) {
