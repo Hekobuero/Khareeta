@@ -43,6 +43,7 @@ export function openDrawer() {
       <button class="ditem" data-a="saved">${ic('bookmark')}${t('savedPlaces')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="offline">${ic('download')}${t('offlineMaps')}<span class="dv">${ic('chevron', 'sm flip-rtl')}</span></button>
       <button class="ditem" data-a="report">${ic('plus')}${t('rpMissingMenu')}</button>
+      <button class="ditem" data-a="shareLoc">${ic('share')}${t('shareMyLoc')}</button>
       <button class="ditem" data-a="measure">${ic('ruler')}${t('measure')}</button>
       <button class="ditem" data-a="install" id="dInstall">${ic('download')}${t('install')}</button>
       <button class="ditem" data-a="lowData">${ic('data')}${t('lowData')}${sw(settings.lowData)}</button>
@@ -82,6 +83,7 @@ export function initDrawer() {
     if (a === 'saved') showSaved();
     if (a === 'offline') openOfflinePanel();
     if (a === 'measure') startMeasure();
+    if (a === 'shareLoc') import('./whats-here.js').then(m => m.shareMyLocation());
     if (a === 'report') { closeDrawer(); openReport(null, 'missing'); return; }
     if (a === 'about') showAbout();
     if (a === 'install') install();

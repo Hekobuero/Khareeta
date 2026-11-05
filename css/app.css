@@ -535,3 +535,6 @@ button,a,[role=button],summary{touch-action:pan-x pan-y} /* no double-tap zoom /
 .tr-line-open #trPill{display:none}
 .recenter{min-height:44px;min-width:44px;font-size:16px;box-shadow:0 2px 12px rgba(0,0,0,.22)}
 .tr-ref{max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;line-height:26px;text-align:center}
+
+/* What is here? sheet: copyable coordinate row is a <button> */
+button.irow{width:100%;text-align:start;font:inherit;color:inherit;background:none;border:0;cursor:pointer}

@@ -175,7 +175,7 @@ function render(item, tg, loading) {
   const title = nm.primary || item.name || t('whatsHere');
   const second = nm.secondary && nm.secondary !== title ? nm.secondary : '';
   const cat = item.coord ? t('droppedPin') : item.ov ? ovCatLabel(item.ovCat, getLang()) : catLabel(tg);
-  const st = ohStatus(tg.opening_hours);
+  const st = ohStatus(tg.opening_hours, new Date(), [item.lon, item.lat]);
   const d = App.me ? fmtDist(haversine(App.me, [item.lon, item.lat])) : '';
   const phones = phoneList(tg), web = websiteOf(tg), soc = socialList(tg);
   const saved = isSaved(item.id);
@@ -185,7 +185,7 @@ function render(item, tg, loading) {
   rows.push(irow(t('address'), `<span id="pAddr">${addr ? `<bdi>${esc(addr)}</bdi>` : `<span class="muted">${t('loading')}</span>`}</span>`));
   if (tg.opening_hours) {
     // Parsed → today's line + expandable week (today highlighted). Not parseable → raw OSM text, no status line.
-    const tbl = ohTable(tg.opening_hours);
+    const tbl = ohTable(tg.opening_hours, new Date(), [item.lon, item.lat]);
     const td = tbl && (tbl.find(r => r.today) || tbl[0]);
     rows.push(tbl
       ? `<div class="irow click" id="pHours" role="button" tabindex="0" aria-expanded="false" aria-controls="pHoursTbl"><div class="iv"><span class="sr-only">${esc(t('showWeek'))}: </span><label>${t('hours')}</label><div class="val">${st ? `<span class="sr-only">${esc(st.text)}. </span>` : ''}<bdi>${esc(td.day)}</bdi> <bdi dir="ltr">${esc(td.txt)}</bdi> <small class="hours-tz-short">(${t('tzShort')})</small><table class="hours hidden" id="pHoursTbl">${tbl.map(r => `<tr class="${r.today ? 'today' : ''}"><td>${esc(r.day)}</td><td><bdi dir="ltr">${esc(r.txt)}</bdi></td></tr>`).join('')}</table><small class="hours-tz hidden">${t('localTime')}</small></div></div><span class="chev">${ic('chevronDown', 'sm')}</span></div>`
@@ -417,8 +417,11 @@ async function nearby(item) {
 }
 
 // "What's here" – long press / right click
+// generic coordinate sheet (weather chip)
+export function openCoordPlace(lnglat) {
+  openPlace({ id: 'pt' + lnglat[0].toFixed(5) + lnglat[1].toFixed(5), coord: true, name: t('whatsHere'), lon: lnglat[0], lat: lnglat[1], tags: {} }, { noFly: true });
+}
+// long-press / right-click → "What's here?" sheet
 export function openPoint(lnglat) {
-  const item = { id: 'pt' + lnglat[0].toFixed(5) + lnglat[1].toFixed(5), coord: true, name: t('whatsHere'), lon: lnglat[0], lat: lnglat[1], tags: {} };
-  track('whats_here', {});
-  openPlace(item, { noFly: true });
+  import('./whats-here.js').then(m => m.openWhatsHere(lnglat));
 }

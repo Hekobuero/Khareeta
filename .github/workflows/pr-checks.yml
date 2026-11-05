@@ -210,6 +210,21 @@ jobs:
           node-version: 24
       - run: node --test 'tests/transit/*.test.mjs'
 
+  share-tests:
+    # Pure Node unit tests for "What's here?" + share links (js/share-core.js): deep-link parsing incl. invalid values,
+    # Nominatim throttle + reverse cache, share text EN/AR/DE, open-now hidden hint, SW/i18n wiring. No network, no Supabase.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: |
+          for tz in UTC Europe/Berlin Asia/Damascus America/Los_Angeles Asia/Tokyo; do
+            echo "TZ=$tz"; TZ=$tz node --test 'tests/share/*.test.mjs' || exit 1
+          done
+
   report-tests:
     # Pure Node unit tests for in-app reports (js/report-core.js + analytics.sendNow): link allowlist, lookalike/Cyrillic
     # blocking, local rate limit, payload size, i18n EN/AR/DE. fetch is mocked – nothing is sent to Supabase.

@@ -94,8 +94,8 @@ function dayList(s) {
 }
 
 // Local Syrian wall-clock time for an absolute instant: { dow 0=Su…6=Sa, min 0…1439 }
-export function damascusNow(date = new Date()) {
-  const d = new Date(date.getTime() + TZ_OFFSET_MIN * 60000);
+export function damascusNow(date = new Date(), off = TZ_OFFSET_MIN) { // off: minutes east of UTC (default Damascus)
+  const d = new Date(date.getTime() + off * 60000);
   return { dow: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
 
@@ -105,12 +105,12 @@ const asOH = input => typeof input === 'string' ? parseOH(input)
 // Status at `date`: { open, always, soon, openEnd, closes: {min, inDays}, opens: {min, inDays, dow}, note }
 // (times local Syrian). openEnd: the current range has no known end ("09:00+") → closes is null, never "soon".
 // note: a quoted OSM comment ("summer only") – the state is then uncertain and the UI must not claim it for sure.
-export function ohState(input, date = new Date()) {
+export function ohState(input, date = new Date(), off = TZ_OFFSET_MIN) {
   const oh = asOH(input);
   if (!oh) return null;
   const note = oh.note || null;
   if (oh.always) return { open: true, always: true, soon: false, openEnd: false, closes: null, opens: null, note };
-  const { dow, min } = damascusNow(date);
+  const { dow, min } = damascusNow(date, off);
   const iv = [];
   for (let k = -1; k <= 7; k++) {
     const d = ((dow + k) % 7 + 7) % 7;
@@ -137,10 +137,10 @@ export function weekOrder(lang) { return lang === 'ar' ? [6, 0, 1, 2, 3, 4, 5] :
 export function hhmm(m) { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); }
 
 // Rows for the week view: [{ dow, ranges: [[a,b,oe?]…] (b may be >1440 = past midnight, oe = open end), closed, allDay, today }]
-export function ohWeek(input, lang, date = new Date()) {
+export function ohWeek(input, lang, date = new Date(), off = TZ_OFFSET_MIN) {
   const oh = asOH(input);
   if (!oh) return null;
-  const today = damascusNow(date).dow;
+  const today = damascusNow(date, off).dow;
   return weekOrder(lang).map(d => {
     const r = oh.week[d];
     return { dow: d, ranges: r, closed: !r.length, allDay: r.length === 1 && r[0][0] === 0 && r[0][1] >= 1440 && !r[0][2], today: d === today };
