@@ -42,6 +42,11 @@ const visible = page => page.evaluate(() => {
     await page.evaluate(async () => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere([36.2765, 33.5138]); });
     await page.waitForSelector('#whRmBtn'); await page.waitForTimeout(500);
     await page.locator('#whRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    // Share-as-image adds a 5th action-row button → wrap at 390 px, report entry can sit below the half-sheet fold
+    if (await page.evaluate(() => { const r = document.querySelector('#whRmBtn').getBoundingClientRect(); return r.bottom > innerHeight || r.top < 0; })) {
+      await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); }); await page.waitForTimeout(500);
+      await page.locator('#whRmBtn').scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    }
     await shot(page, `${lang}-wh-1-before.png`);
     await page.tap('#whRmBtn'); await page.waitForTimeout(900);
     let v = await visible(page); ok(`${lang}: What's here – menu fully visible after tap`, v.open && v.ok, JSON.stringify(v));

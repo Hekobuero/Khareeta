@@ -12,6 +12,7 @@ import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
+import { shareAsImage, placeMetaFrom } from './share-image.js';
 import { openReport } from './report.js';
 import { reportEntryHtml, wireReportEntry, REPORT_ICON } from './report-entry.js';
 import { openClosureReport, snapToRoad } from './closures.js';
@@ -238,6 +239,7 @@ function render(item, tg, loading) {
     <button class="abtn primary" id="pDir">${ic(App.mode === 'foot' ? 'walk' : App.mode === 'bike' ? 'bike' : 'car')}<span id="pEta">${eta ? fmtDur(eta) : t('directionsBtn')}</span></button>
     <button class="abtn" id="pSave">${ic(saved ? 'bookmark' : 'bookmarkOutline')}<span>${saved ? t('savedOk') : t('save')}</span></button>
     <button class="abtn" id="pShare">${ic('share')}<span>${t('share')}</span></button>
+    <button class="abtn" id="pShareImg" aria-label="${esc(t('shareAsImage'))}" title="${esc(t('shareAsImage'))}">${ic('image')}<span>${t('shareImageShort')}</span></button>
     ${item.coord ? `<button class="abtn" id="pRoad">${ic('warning')}<span>${esc(t('clOpen'))}</span></button>` : ''}
     ${fourth}
   </div>
@@ -271,6 +273,10 @@ function render(item, tg, loading) {
   body.querySelector('#pStart')?.addEventListener('click', () => openDirections({ to: it, autostart: true }));
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };
   body.querySelector('#pShare').onclick = () => share(title, shareUrl(it));
+  body.querySelector('#pShareImg').onclick = () => shareAsImage({
+    map: App.map,
+    meta: placeMetaFrom({ name: title, address: addr || item.sub || '', lat: item.lat, lon: item.lon, ohStatus: st }),
+  });
   body.querySelector('#pMore')?.addEventListener('click', () => { const g = body.querySelector('.igroup'); setSheet('full'); g?.scrollIntoView({ behavior: 'smooth' }); });
   const hr = body.querySelector('#pHours');
   if (hr) {
