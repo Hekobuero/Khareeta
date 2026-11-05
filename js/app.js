@@ -20,6 +20,7 @@ import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDir
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
 import { initAnalytics, track } from './analytics.js';
 import { initClosures, closureClick } from './closures.js';
+import { installLabelGuard } from './label-guard.js';
 import { addTransitLayers, syncTransit, transitClick, openLines } from './transit.js';
 
 applyDir();
@@ -172,6 +173,7 @@ map.on('style.load', () => {
   if (App.selName) applySelFilter(App.selName);
   if (navActive()) for (const id of ['label-housenumber']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
 });
+installLabelGuard(map);
 map.on('styleimagemissing', e => { if (!map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) }); });
 map.on('moveend', debounce(() => { const c = map.getCenter(); lsSet('kh.view', { c: [c.lng, c.lat], z: map.getZoom() }); }, 500));
 function syncCompass() {

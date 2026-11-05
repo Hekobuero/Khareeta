@@ -5,7 +5,7 @@ import { fetchJSON } from './util.js';
 // Query clean-up shared by every search field (main search AND route stops): iOS/Arabic keyboards insert tashkeel,
 // tatweel, bidi and zero-width marks that Photon does not match ("قَصْر العَظْم" → "قصر العظم").
 export function cleanQuery(q) {
-  return String(q || '').normalize('NFC')
+  return String(q || '').normalize('NFKC')
     .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
     .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\u061C\uFEFF]/g, '')
     .replace(/\s+/g, ' ').trim();
@@ -97,10 +97,44 @@ export function dedupe(list) {
 // Photon: one worldwide query biased to the map view + two queries in the region around the view (settlements,
 // any hit), in parallel. The region queries make sure nearby hits are fetched even if a same-named place elsewhere
 // ranks higher worldwide (QA: "دمشق" from Damascus → Iran/Tunisia before Syrian streets); far hits stay in the list.
-export async function photonSearch(q, { lang = 'default', center, zoom, view, limit = 8, signal } = {}) {
+// Typing (opts.single): exactly ONE Photon request per query – the view-biased query with a stronger location bias
+// and a larger limit – and identical in-flight queries (debounce flush on Enter, route stop fields) share it (P3).
+const inflight = new Map(); // url → { p: Promise, n: waiters, ctl }
+export function photonInflightCount() { return inflight.size; }
+function sharedFetch(url, signal) {
+  let e = inflight.get(url);
+  if (!e) {
+    const ctl = new AbortController();
+    e = { n: 0, ctl, p: null };
+    e.p = fetchJSON(url, { signal: ctl.signal }, 8000).finally(() => { if (inflight.get(url) === e) inflight.delete(url); });
+    inflight.set(url, e);
+  }
+  e.n++;
+  if (!signal) return e.p;
+  return new Promise((res, rej) => {
+    const onAbort = () => { if (--e.n <= 0) { e.ctl.abort(); if (inflight.get(url) === e) inflight.delete(url); } rej(Object.assign(new Error('abort'), { name: 'AbortError' })); };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    e.p.then(v => { signal.removeEventListener('abort', onAbort); res(v); }, x => { signal.removeEventListener('abort', onAbort); rej(x); });
+  });
+}
+export async function photonSearch(q, { lang = 'default', center, zoom, view, limit = 8, signal, single = false } = {}) {
   const b = biasPoint(center, zoom), box = biasBox(center, view);
   const base = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=${lang}`;
-  const general = fetchJSON(`${base}&limit=${limit}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}&zoom=${b.zoom}&location_bias_scale=0.4`, { signal }, 8000);
+  const bias = `&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}&zoom=${b.zoom}`;
+  if (single) {
+    const one = await sharedFetch(`${base}&limit=${Math.max(limit, 12)}${bias}&location_bias_scale=0.2`, signal);
+    if (signal?.aborted) throw Object.assign(new Error('abort'), { name: 'AbortError' });
+    const fs = one?.features || [];
+    for (const f of fs) {
+      const pp = f.properties; if (pp.osm_key === 'boundary' && SETTLE.includes(pp.type)) { pp.osm_key = 'place'; pp.osm_value = pp.type; }
+      // settlements inside the view region count as the old region place-query hits (cross-script ranking)
+      const c = f.geometry?.coordinates;
+      if (pp.osm_key === 'place' && SETTLE.includes(pp.osm_value) && c && inBox(c[0], c[1], box)) pp.placeHit = true;
+    }
+    return fs;
+  }
+  const general = fetchJSON(`${base}&limit=${limit}${bias}&location_bias_scale=0.4`, { signal }, 8000);
   const places = fetchJSON(`${base}&limit=4&bbox=${box.join(',')}&osm_tag=place:city&osm_tag=place:town&osm_tag=place:village`, { signal }, 8000);
   const syria = fetchJSON(`${base}&limit=${Math.min(limit, 8)}&bbox=${box.join(',')}&lat=${b.lat.toFixed(4)}&lon=${b.lon.toFixed(4)}`, { signal }, 8000);
   const [g, p, sy] = await Promise.allSettled([general, places, syria]);

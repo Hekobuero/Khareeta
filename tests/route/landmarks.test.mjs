@@ -146,9 +146,9 @@ test('formatLandmarkInstr EN/AR/DE — after / at phrasing', () => {
   assert.equal(atEn, 'At Al-Omari Mosque, continue');
 
   const arAfter = banner({ name: 'الجامع العمري', kind: 'worship', relation: 'after' }, 'انعطف يمينًا', 'ar');
-  assert.equal(arAfter, 'بعد الجامع العمري، انعطف يمينًا');
+  assert.equal(arAfter, 'انعطف يمينًا بعد الجامع العمري');
   const arAt = banner({ name: 'الجامع العمري', kind: 'worship', relation: 'at' }, 'استمر', 'ar');
-  assert.equal(arAt, 'عند الجامع العمري، استمر');
+  assert.equal(arAt, 'استمر عند الجامع العمري');
 });
 
 test('i18n keys lmAfter/lmAt exist for EN/AR/DE (banner + voice)', () => {

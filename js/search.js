@@ -138,7 +138,7 @@ export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
   const lp = poiLocal(text);
   const offline = !navigator.onLine;
   let res = [];
-  if (!offline) try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: z, view, limit, signal })).map(fromPhoton); }
+  if (!offline) try { res = (await photonSearch(text, { lang: photonLang(getLang()), center: c, zoom: z, view, limit, signal, single: true })).map(fromPhoton); }
   catch (e) { if (e.name === 'AbortError' || signal?.aborted) throw e; } // Photon down: local hits still count
   // Matching cities/towns/villages first (near the view first; QA: "Homs" → Homs city), then saved places and
   // POIs, then the rest – nearby before the rest of the world

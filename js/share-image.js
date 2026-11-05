@@ -5,6 +5,7 @@ import { toast } from './util.js';
 import { track } from './analytics.js';
 import { ic } from './icons.js';
 import {
+  basemapMissing,
   ATTR, CARD_W, MAP_H, SHARE_IMAGE_I18N, composeSharePng, normalizeCardMeta, fmtCoordPair,
 } from './share-image-core.js';
 
@@ -43,9 +44,16 @@ export async function captureMapBitmap(map, { padPx = 0 } = {}) {
   return c;
 }
 
-export async function buildShareBlob({ map, meta, lang, dark }) {
+/**
+ * Offline and no basemap tiles rendered (nothing cached for this view)? Then the card would show a blank band:
+ * we label it and toast a hint. Online we never claim "no map".
+ */
+export { basemapMissing };
+
+export async function buildShareBlob({ map, meta, lang, dark, noMap }) {
   const mapImage = map ? await captureMapBitmap(map) : null;
   return composeSharePng({
+    noMap: !!noMap,
     mapImage,
     meta,
     lang: lang || getLang(),
@@ -85,8 +93,10 @@ async function tryClipboard(blob) {
 export async function shareAsImage({ map, meta, lang } = {}) {
   const L = lang || getLang();
   let blob;
+  const noMap = basemapMissing(map);
+  if (noMap) toast(t('shareImageNoMap') || SHARE_IMAGE_I18N.en.shareImageNoMap);
   try {
-    blob = await buildShareBlob({ map, meta, lang: L });
+    blob = await buildShareBlob({ map, meta, lang: L, noMap });
   } catch (e) {
     console.warn('share-image', e);
     toast(t('shareImageFail') || SHARE_IMAGE_I18N.en.shareImageFail);

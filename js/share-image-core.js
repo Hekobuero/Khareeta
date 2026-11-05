@@ -21,6 +21,7 @@ export const SHARE_IMAGE_I18N = {
     shareTo: 'To',
     shareViaStops: 'Via',
     coords: 'Coordinates',
+    shareImageNoMap: 'Map not saved offline – text only',
   },
   ar: {
     shareAsImage: 'مشاركة كصورة',
@@ -32,6 +33,7 @@ export const SHARE_IMAGE_I18N = {
     shareTo: 'إلى',
     shareViaStops: 'عبر',
     coords: 'الإحداثيات',
+    shareImageNoMap: 'الخريطة غير محفوظة دون اتصال – نص فقط',
   },
   de: {
     shareAsImage: 'Als Bild teilen',
@@ -43,8 +45,24 @@ export const SHARE_IMAGE_I18N = {
     shareTo: 'Nach',
     shareViaStops: 'Über',
     coords: 'Koordinaten',
+    shareImageNoMap: 'Karte nicht offline gespeichert – nur Text',
   },
 };
+
+/** Unicode first-strong isolate (FSI … PDI): keeps «Von: مسجد…» readable in LTR and «من: Omari» in RTL. */
+export const FSI = '\u2068', PDI = '\u2069';
+export const isolate = (v) => FSI + String(v ?? '') + PDI;
+/** "Label: value" with the value bidi-isolated (canvas has no <bdi>). */
+export const labelValue = (label, value) => `${label}: ${isolate(value)}`;
+/** After wrapping, every line must carry balanced isolates (a split can leave FSI or PDI alone). */
+export function balanceIsolates(line) {
+  let s = String(line), depth = 0, opensNeeded = 0;
+  for (const ch of s) {
+    if (ch === FSI) depth++;
+    else if (ch === PDI) { if (depth) depth--; else opensNeeded++; }
+  }
+  return FSI.repeat(opensNeeded) + s + PDI.repeat(depth);
+}
 
 const tr = (lang, k) => (SHARE_IMAGE_I18N[lang] || SHARE_IMAGE_I18N.en)[k] ?? SHARE_IMAGE_I18N.en[k];
 
@@ -157,6 +175,7 @@ export function drawShareCard(ctx, {
   mapH = MAP_H,
   attribution = ATTR,
   brand = BRAND,
+  noMap = false,
 } = {}) {
   const th = dark ? THEME.dark : THEME.light;
   const rtl = lang === 'ar';
@@ -174,9 +193,9 @@ export function drawShareCard(ctx, {
   if (meta.kind === 'route') {
     const head = meta.title || [meta.durationLabel, meta.distanceLabel, meta.modeLabel].filter(Boolean).join(' · ');
     if (head) lines.push({ text: head, size: 36, weight: 700, color: th.text });
-    lines.push({ text: `${tr(lang, 'shareFrom')}: ${meta.from}`, size: 26, weight: 500, color: th.text });
-    if (meta.via.length) lines.push({ text: `${tr(lang, 'shareViaStops')}: ${meta.via.join(' · ')}`, size: 24, weight: 500, color: th.text2 });
-    lines.push({ text: `${tr(lang, 'shareTo')}: ${meta.to}`, size: 26, weight: 500, color: th.text });
+    lines.push({ text: labelValue(tr(lang, 'shareFrom'), meta.from), size: 26, weight: 500, color: th.text });
+    if (meta.via.length) lines.push({ text: `${tr(lang, 'shareViaStops')}: ${meta.via.map(isolate).join(' · ')}`, size: 24, weight: 500, color: th.text2 });
+    lines.push({ text: labelValue(tr(lang, 'shareTo'), meta.to), size: 26, weight: 500, color: th.text });
   } else {
     lines.push({ text: meta.name, size: 40, weight: 700, color: th.text });
     if (meta.address) lines.push({ text: meta.address, size: 26, weight: 500, color: th.text2 });
@@ -188,7 +207,7 @@ export function drawShareCard(ctx, {
   const drawn = [];
   for (const L of lines) {
     const wrapped = wrapLines(t => measure(t, L.size, L.weight), L.text, maxText, L.size >= 36 ? 2 : 3);
-    for (const w of wrapped) drawn.push({ ...L, text: w });
+    for (const w of wrapped) drawn.push({ ...L, text: balanceIsolates(w) });
   }
   const lineGap = 10;
   const textH = drawn.reduce((h, L) => h + L.size + lineGap, 0);
@@ -217,6 +236,16 @@ export function drawShareCard(ctx, {
       const dx = (width - dw) / 2, dy = (mapH - dh) / 2;
       ctx.drawImage(mapImage, dx, dy, dw, dh);
     } catch { /* solid fallback already painted */ }
+  }
+  if (noMap) {
+    // offline + no cached tiles: say so on the card instead of an unexplained blank band
+    const hint = tr(lang, 'shareImageNoMap');
+    ctx.font = `600 30px ${font}`;
+    ctx.fillStyle = th.text2;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.direction = rtl ? 'rtl' : 'ltr';
+    ctx.fillText(hint, width / 2, mapH / 2, width - PAD * 2);
   }
   // soft fade into info panel
   const fade = ctx.createLinearGradient?.(0, mapH - 48, 0, mapH);
@@ -270,7 +299,7 @@ export function drawShareCard(ctx, {
   ctx.textAlign = rtl ? 'right' : 'left';
   ctx.fillText(brand, x0, height - 36, maxText);
 
-  return { width, height, attribution: attr, meta };
+  return { width, height, attribution: attr, meta, noMap: !!noMap };
 }
 
 /** Create a real canvas (browser / OffscreenCanvas) and return a PNG Blob. */
@@ -305,4 +334,14 @@ export function pngSize(buf) {
   if (!isPng(u) || u.byteLength < 24) return null;
   const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
   return { width: dv.getUint32(16), height: dv.getUint32(20) };
+}
+
+// offline + no vector-tile features rendered → the snapshot would be an empty map
+export function basemapMissing(map, online = (typeof navigator === 'undefined' ? true : navigator.onLine !== false)) {
+  if (online || !map) return false;
+  try {
+    // only basemap (vector tile) features count – route line, POI overlay and UI guards are local GeoJSON
+    const n = map.queryRenderedFeatures?.();
+    return !Array.isArray(n) || !n.some(f => f?.source === 'openmaptiles' || f?.layer?.source === 'openmaptiles');
+  } catch { return true; }
 }

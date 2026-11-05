@@ -36,6 +36,8 @@ function check(name, m, routeId) {
   const r = m.btns.find(b => b.id === routeId);
   ok(`${name}: route button «${r?.text}» fully visible`, r && !r.clipped && !r.ellipsis && r.inside, JSON.stringify(r));
   for (const b of m.btns) if (b.id !== routeId) ok(`${name}: #${b.id} «${b.text}» fully visible`, !b.clipped && !b.ellipsis && b.inside, JSON.stringify(b));
+  const hs = m.btns.map(b => b.h);
+  ok(`${name}: uniform button height ≥68 px`, hs.length && Math.min(...hs) >= 68 && Math.max(...hs) - Math.min(...hs) <= 1, hs.join(' '));
   ok(`${name}: all buttons ≥44 px`, m.btns.every(b => b.w >= 44 && b.h >= 44), m.btns.map(b => b.w + 'x' + b.h).join(' '));
 }
 (async () => {
