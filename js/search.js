@@ -10,6 +10,7 @@ import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
 import { inSyria as inSyriaPoly } from './syria-poly.js';
 import { gateByView, fitTargets } from './search-core.js';
+const gzOpen = (c, text) => inSyriaPoly(c[0], c[1]) || /[\u0600-\u06FF]/.test(text);
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
 import { localSearch, loadGazetteer } from './offline-search.js';
@@ -136,7 +137,7 @@ export async function placeSuggest(raw, { signal, limit = 8 } = {}) {
   if (!P.all.length) { try { await loadPois(); } catch {} }
   // local first (saved, recent, offline gazetteer – fuzzy, Arabic/Latin variants), then Photon when online
   const { mine: local, places: gz0 } = await localSearch(text);
-  const gzHits = gateByView(gz0, c); // far fuzzy «Kafr…» hits never show for «Café»
+  const gzHits = gateByView(gz0, c, { open: gzOpen(c, text) }); // far fuzzy «Kafr…» hits never show for «Café»
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
   const lp = poiLocal(text);
   const offline = !navigator.onLine;
@@ -201,7 +202,7 @@ export async function fullSearch(text) {
   // bias (never bound: no bounded/countrycodes) to the current map view, worldwide
   const vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map(v => (+v).toFixed(4)).join(',');
   const loc0 = await localSearch(text, { limit: 12 }); // local first – answers without network
-  loc0.places = gateByView(loc0.places, c); // gazetteer: name matches anywhere, fuzzy hits only near the view
+  loc0.places = gateByView(loc0.places, c, { open: gzOpen(c, text) }); // gazetteer: name matches anywhere, fuzzy hits only near the view
   const offline = !navigator.onLine;
   let res = [];
   if (!offline) try {

@@ -163,7 +163,8 @@ export const FIT_NEAR_M = 15000;  // text results only frame the map if they are
 function distM(a, b) { const R = 6371008.8, r = Math.PI / 180, dl = (b[1] - a[1]) * r, dn = (b[0] - a[0]) * r; const x = Math.sin(dl / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(x))); }
 /** Gate gazetteer hits by the current view: name matches (score >= GZ_FAR_MIN) anywhere, nearest first, then fuzzy hits
  *  only when they are near the view. Far fuzzy hits ("Café" ≈ "Kafr …" 2600 km away) are dropped. */
-export function gateByView(items, c, { nearM = GZ_NEAR_M, farMin = GZ_FAR_MIN } = {}) {
+export function gateByView(items, c, { nearM = GZ_NEAR_M, farMin = GZ_FAR_MIN, open = false } = {}) {
+  if (open) return items; // view in Syria or an Arabic query: the whole gazetteer is local (typos like «حمصه» must still find Homs)
   const strong = [], weak = [];
   for (const x of items) {
     if (x.lon == null) continue;

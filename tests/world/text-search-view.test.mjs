@@ -26,6 +26,11 @@ test('search.js: pure category word → chip path, fit never below z12, gazettee
   assert.match(S, /lr\.chip && \(lr\.pure \|\| !lr\.items\.length\)/);
   assert.match(S, /fitTargets\(res, center\(\)\)/);
   assert.match(S, /minZoom: CHIP_MIN_Z/);
-  assert.match(S, /gateByView\(gz0, c\)/);
-  assert.match(S, /gateByView\(loc0\.places, c\)/);
+  assert.match(S, /gateByView\(gz0, c, \{ open: gzOpen\(c, text\) \}\)/);
+  assert.match(S, /gateByView\(loc0\.places, c, \{ open: gzOpen/);
+});
+test('view in Syria / Arabic query: gazetteer stays open (offline typo «حمصه» → حمص)', () => {
+  const typo = { name: 'حمص', lon: 36.7167, lat: 34.7333, score: 88 };
+  assert.deepEqual(gateByView([typo], DAMASCUS, { open: true }), [typo]);
+  assert.deepEqual(gateByView([kafat], BERLIN, { open: false }), []);
 });
