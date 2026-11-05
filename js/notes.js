@@ -1,5 +1,5 @@
 // "Report map error" sheet → anonymous public OpenStreetMap note. Logic in notes-core.js. Separate from report.js (Supabase).
-import { $, esc, fmtCoord } from './util.js';
+import { $, esc, fmtCoord, hideToast } from './util.js';
 import { t } from './i18n.js';
 import { ic } from './icons.js';
 import { openSheet, closeSheet } from './core.js';
@@ -18,6 +18,7 @@ function toastLink(msg, href, ms = 8000) {
 
 /** p: { lat, lon, name?, osm_type?, osm_id? } */
 export function openMapNote(p) {
+  hideToast(); clearTimeout(toastT); // old success/error toasts must not linger over the form
   let type = null;
   const place = p.osm_id || p.name ? { name: p.name || '', osm_type: p.osm_type, osm_id: p.osm_id } : null;
   const body = openSheet(`
@@ -48,7 +49,7 @@ export function openMapNote(p) {
     btn.textContent = t('ntSend');
     if (r.ok) { track('osm_note_sent', {}); closeSheet(); toastLink(t('ntOk'), r.url); return; }
     if (r.err === 'busy') return;
-    err.textContent = r.err === 'throttle' ? t('ntErrWait', { s: Math.ceil(r.wait / 1000) }) : t('ntErr_' + (['offline', 'network', 'client', 'server', 'invalid'].includes(r.err) ? r.err : 'server'));
+    err.textContent = r.err === 'throttle' ? t('ntErrWait', { s: Math.ceil(r.wait / 1000) }) : t('ntErr_' + (['offline', 'network', 'client', 'server', 'invalid', 'ratelimit'].includes(r.err) ? r.err : 'server'));
     err.hidden = false; upd();
   };
 }

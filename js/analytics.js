@@ -143,7 +143,7 @@ const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => m
 
 // ----- queue -----
 let q = lsGet(QKEY, []);
-const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install']);
+const ALLOWED = new Set(['visit', 'search', 'category', 'place_view', 'route', 'directions_open', 'nav_start', 'nav_arrive', 'reroute', 'offline_download', 'lang_change', 'share', 'locate', 'whats_here', 'measure', 'layer', 'install', 'osm_note_sent']);
 // Reports must not be linkable to normal usage events, neither by client time nor by the server's insert time:
 //  - EVERY usage event (visit included) is held back HOLD_MS before it is queued, keeping its original timestamp;
 //  - a "report mark" is stored (localStorage, shared by tabs) when a report form opens and when a report is actually

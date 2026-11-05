@@ -168,7 +168,7 @@ function poiRow(rec) {
 function chipItem(key) {
   const c = CATS.find(x => x[0] === key);
   const n = P.all.filter(r => CHIP_CATS[key].includes(r.c) && haversine(refPoint(), [r.lon, r.lat]) < 10000).length;
-  return { id: 'chip:' + key, chip: key, name: t(key), sub: t('nearbyN', { n: nf(n) }), icon: [c[1], c[2]] };
+  return { id: 'chip:' + key, chip: key, name: t(key), sub: t('nearbyN', { n: nf(n), r: nf(10) }), icon: [c[1], c[2]] };
 }
 export function choose(item) {
   if (item.chip) { $('#suggest').innerHTML = ''; $('#suggest').classList.add('hidden'); const q = $('#q'); q.value = t(item.chip); q.blur(); $('#btnClear').classList.remove('hidden'); track('search', { kind: 'cat', cat: item.chip }); applyChips([item.chip], false); return; }
@@ -268,7 +268,7 @@ export function showFilterSheet(fit = false) {
   const title = cats.map(k => t(k)).join(' · ');
   const chipsHtml = `<div class="ochips fchips"><button class="ochip ${f.openNow ? 'on' : ''}" data-open="1">${ic('clock')}<span>${t('openNow')}</span></button>` +
     [...CATS.filter(c => f.cats.has(c[0])), ...CATS.filter(c => !f.cats.has(c[0]))].map(([k, icn, col]) => `<button class="ochip ${f.cats.has(k) ? 'on' : ''}" data-fc="${k}" style="--chip-ic:${col}">${ic(icn)}<span>${esc(t(k))}</span></button>`).join('') + `</div>`;
-  const countTxt = `${t('nearbyN', { n: nf(r.near) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
+  const countTxt = `${t('nearbyN', { n: nf(r.near), r: nf(10) })} · ${t('inSyria', { n: nf(r.total) })}` + (inSyria(...center()) ? '' : ` · ${t('worldPoiLiveHint')}`) + (f.openNow ? ` · ${t('hoursKnown', { n: nf(r.withHours) })}` : '');
   // hidden-without-hours hint: no big numbers (≤ 99 exact, else 99+), locale digits (ar-SY for AR), tappable "Show anyway"
   const hintHtml = r.hiddenNoHours ? `<p class="psub ohhint" id="ohHint"><span>${esc(t('ohHidden', { n: hintCount(r.hiddenNoHours, locale()) }))}</span> <button type="button" class="linkbtn" id="ohShow">${esc(t('ohShowAnyway'))}</button></p>` : '';
   const list = res.length ? `<div class="list">${res.map((x, i) => row(x, i, x.status ? ` · <span class="${x.status.cls}">${esc(x.status.text.split(' · ')[0])}</span>` : '')).join('')}</div>`

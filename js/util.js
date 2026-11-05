@@ -1,6 +1,6 @@
 import { t, getLang } from './i18n.js';
 
-export const VERSION = '20261105-0422';
+export const VERSION = '20261105-0447';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -126,6 +126,8 @@ export function overpass(q, timeout = 20000, hedge = 3500) {
 
 // ---------- toast ----------
 let toastT;
+/** Hide the toast now (e.g. when a report form opens, old success/error toasts must not stay visible). */
+export function hideToast() { clearTimeout(toastT); $('#toast')?.classList.add('hidden'); }
 export function toast(msg, ms = 2600) {
   const el = $('#toast'); el.textContent = msg; el.classList.remove('hidden');
   clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), ms);
