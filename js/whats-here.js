@@ -4,16 +4,20 @@ import { $, esc, toast, fetchJSON, digits } from './util.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker } from './core.js';
 import { track } from './analytics.js';
-import { buildShareUrl, shareText, geoUri, fmt5, RevCache, Throttle, makeReverse } from './share-core.js';
+import { buildShareUrl, shareText, geoUri, fmt5, RevCache, Throttle, makeReverse, EventGate, pointKey } from './share-core.js';
 
 const cache = new RevCache((() => { try { return localStorage; } catch { return null; } })());
-export const reverse = makeReverse({ fetchFn: u => fetchJSON(u, {}, 10000), cache, throttle: new Throttle() });
+const throttle = new Throttle(), fetchFn = u => fetchJSON(u, {}, 10000);
+export const reverse = makeReverse({ fetchFn, cache, throttle });
+// long-press lookups: only the latest one is fetched; older ones still waiting in the (shared) throttle are dropped
+const reverseLatest = makeReverse({ fetchFn, cache, throttle, latest: true });
+const whGate = new EventGate();
 
 let cur = null;
 export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
   const [lon, lat] = lnglat;
   const my = cur = { lat, lon, name, addr: null };
-  track('whats_here', {});
+  if (whGate.ok(pointKey(lat, lon))) track('whats_here', {}); // max 1 per point / 5 s
   setSelMarker([lon, lat], '#E5484D', null, name || '');
   const coords = fmt5(lat) + ', ' + fmt5(lon);
   const body = openSheet(`
@@ -37,8 +41,8 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
   body.querySelector('#whCoord').onclick = copyCoords;
   body.querySelector('#whRoute').onclick = () => routeTo(my);
   body.querySelector('#whShare').onclick = () => sharePoint(my);
-  reverse(lat, lon, getLang()).then(a => { my.addr = a; if (cur !== my) return; const el = $('#whAddr'); if (el) el.textContent = a || t('whNoAddr'); })
-    .catch(() => { if (cur === my) { const el = $('#whAddr'); if (el) el.textContent = t('whNoAddr'); } });
+  reverseLatest(lat, lon, getLang()).then(a => { my.addr = a; if (cur !== my) return; const el = $('#whAddr'); if (el) el.textContent = a || t('whNoAddr'); })
+    .catch(e => { if (e?.name !== 'AbortError' && cur === my) { const el = $('#whAddr'); if (el) el.textContent = t('whNoAddr'); } });
   if (route) routeTo(my, true);
 }
 
@@ -54,9 +58,9 @@ async function routeTo(p, fromLink = false) {
   openDirections({ to });
 }
 
-export async function sharePoint(p, { route = false } = {}) {
+export async function sharePoint(p, { route = false, linkName = true } = {}) {
   const name = p.name || null;
-  const url = buildShareUrl({ lat: p.lat, lon: p.lon, name, route });
+  const url = buildShareUrl({ lat: p.lat, lon: p.lon, name: linkName ? name : null, route });
   const text = shareText({ lang: getLang(), name: name || p.addr, address: p.addr, url, lat: p.lat, lon: p.lon });
   track('share', {}); // never coordinates
   if (navigator.share) {
@@ -72,5 +76,5 @@ export async function shareMyLocation() {
   if (!App.me) { toast(t('locErr')); return; }
   const [lon, lat] = App.me;
   let addr = ''; try { addr = await reverse(lat, lon, getLang()); } catch {}
-  return sharePoint({ lat, lon, name: t('myLocName'), addr });
+  return sharePoint({ lat, lon, name: t('myLocName'), addr }, { linkName: false }); // no n= in the link (P3)
 }

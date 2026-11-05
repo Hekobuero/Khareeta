@@ -58,7 +58,7 @@ test('reverse: cached by 5-decimal coords + lang, persisted, bounded', async () 
   await rev(52.52, 13.40495, 'ar'); assert.equal(urls.length, 2);
   const c2 = new RevCache(st, 3); assert.equal(c2.get(revKey(52.52, 13.40495, 'de')), 'A, B, C, D');
   for (let i = 0; i < 5; i++) c2.set('k' + i, 'v'); assert.equal(c2.size, 3);
-  assert.equal(JSON.parse(store.get('kh.rev')).length, 3);
+  assert.equal(JSON.parse(store.get('kh.rev2')).length, 3);
 });
 test('wiring: SW precache, i18n merge, no coords to analytics, OSM only', () => {
   const sw = read('sw.js'); for (const f of ['js/share-core.js', 'js/whats-here.js']) assert.ok(sw.includes(`'${f}'`), f);

@@ -162,7 +162,7 @@ export function toItem(rec) {
 }
 
 // ---------- map layers ----------
-let state = { cats: new Set(), openNow: false };
+let state = { cats: new Set(), openNow: false, showNoHours: false };
 export const LAYERS = ['kh-poi-1', 'kh-poi-2', 'kh-poi-3', 'kh-poi-0', 'kh-poi-f'];
 export function poiLayerIds() { return LAYERS; }
 // Symbol layer factory shared with the on-demand world POI layer (world-poi.js)
@@ -232,19 +232,20 @@ function applyFilterToMap(map) {
   if (active) {
     const cats = [...state.cats].flatMap(k => CHIP_CATS[k] || []);
     f = ['in', ['get', 'c'], ['literal', cats]];
-    if (state.openNow) f = ['all', f, ['in', ['get', 'i'], ['literal', openIdx(cats)]]];
+    if (state.openNow) f = ['all', f, ['in', ['get', 'i'], ['literal', openIdx(cats, state.showNoHours)]]];
   }
   map.setLayoutProperty('kh-poi-f', 'visibility', active ? 'visible' : 'none');
   map.setFilter('kh-poi-f', withSel(f));
 }
 let openCache = { k: '', t: 0, v: [] };
-function openIdx(cats) {
-  const k = cats.join(); if (openCache.k === k && Date.now() - openCache.t < 60000) return openCache.v;
-  const v = P.all.filter(r => cats.includes(r.c) && r.oh && ohStatus(r.oh, new Date(), [r.lon, r.lat])?.open).map(r => r.i);
+function openIdx(cats, noHours = false) {
+  const k = cats.join() + (noHours ? '|nh' : ''); if (openCache.k === k && Date.now() - openCache.t < 60000) return openCache.v;
+  const v = P.all.filter(r => cats.includes(r.c) && (r.oh && ohStatus(r.oh, new Date(), [r.lon, r.lat]) ? ohStatus(r.oh, new Date(), [r.lon, r.lat]).open : noHours)).map(r => r.i);
   openCache = { k, t: Date.now(), v }; return v;
 }
 export function getFilter() { return state; }
-export function setFilter(map, cats, openNow = state.openNow) { state = { cats: new Set(cats), openNow }; applyFilterToMap(map); }
+// showNoHours: "Show anyway" on the hidden hint – places without (parsable) opening hours are listed again; reset when the filter changes
+export function setFilter(map, cats, openNow = state.openNow, showNoHours = false) { state = { cats: new Set(cats), openNow, showNoHours: !!(openNow && showNoHours) }; applyFilterToMap(map); }
 
 // results for the current filter, nearest first
 export function filterResults(ref, limit = 80) {
@@ -254,10 +255,10 @@ export function filterResults(ref, limit = 80) {
   // unparsable opening_hours count as "no opening hours" (included in the hidden hint)
   const st = r => r.oh ? ohStatus(r.oh, now, [r.lon, r.lat]) : null;
   const known = list.filter(r => st(r)), withHours = known.length, noHours = list.length - withHours;
-  if (state.openNow) list = known.filter(r => st(r).open);
+  if (state.openNow) list = list.filter(r => st(r) ? st(r).open : state.showNoHours);
   for (const r of list) r.d = haversine(ref, [r.lon, r.lat]);
   list.sort((a, b) => a.d - b.d);
-  return { total: list.length, near: list.filter(r => r.d < 10000).length, withHours, hiddenNoHours: state.openNow ? noHours : 0, list: list.slice(0, limit) };
+  return { total: list.length, near: list.filter(r => r.d < 10000).length, withHours, hiddenNoHours: state.openNow && !state.showNoHours ? noHours : 0, shownNoHours: state.openNow && state.showNoHours ? noHours : 0, list: list.slice(0, limit) };
 }
 
 // ---------- local search ----------
