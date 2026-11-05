@@ -23,7 +23,7 @@ const {
   classifyLandmark, landmarkName, pickLandmark, enrichStepsWithLandmarks,
   clearLandmarkIndex, upsertLandmarks, seedFromSyriaPois, formatLandmarkInstr,
   deArticle, stepUsesLandmark, LANDMARK_RADIUS_M, isBeforeManeuver, getLandmarkIndex,
-  TIER_SLACK_M,
+  TIER_SLACK_M, setLandmarkFocus, nameOkForLang, stripNestedArAfter, HARVEST_MAX,
 } = await import('../../js/landmarks.js');
 const { setLang, t, getLang } = await import('../../js/i18n.js');
 
@@ -35,7 +35,7 @@ function banner(lm, action, lang) {
   setLang(lang);
   const tpl = {
     text: t(lm.relation === 'after' ? 'lmAfter' : 'lmAt'),
-    art: lang === 'de' ? deArticle(lm.kind) : '',
+    art: lang === 'de' ? deArticle(lm.kind, lm.name) : '',
   };
   return formatLandmarkInstr(lm, action, tpl);
 }
@@ -163,12 +163,50 @@ test('i18n keys lmAfter/lmAt exist for EN/AR/DE (banner + voice)', () => {
   }
 });
 
-test('deArticle handles German definite article by kind', () => {
-  assert.equal(deArticle('worship'), 'der ');
-  assert.equal(deArticle('square'), 'dem ');
-  assert.equal(deArticle('historic'), 'dem ');
-  assert.equal(deArticle('park'), 'dem ');
-  assert.equal(deArticle('shop'), '');
+test('deArticle: German nouns get article; foreign/English names do not', () => {
+  assert.equal(deArticle('worship', 'Omari-Moschee'), 'der ');
+  assert.equal(deArticle('square', 'Umayyadenplatz'), 'dem ');
+  assert.equal(deArticle('park', 'Stadtpark'), 'dem ');
+  assert.equal(deArticle('historic', 'Zitadellen-Tor'), 'dem ');
+  assert.equal(deArticle('worship', 'Al-Omari Mosque'), '');
+  assert.equal(deArticle('worship', 'Umayyad Mosque'), '');
+  assert.equal(deArticle('shop', 'Bakery'), '');
+  assert.equal(deArticle('worship'), ''); // no name → no blind article
+});
+
+test('DE banner omits der for English OSM names', () => {
+  const enName = banner({ name: 'Al-Omari Mosque', kind: 'worship', relation: 'after' }, 'rechts abbiegen', 'de');
+  assert.equal(enName, 'Nach Al-Omari Mosque rechts abbiegen');
+  assert.doesNotMatch(enName, /\bder\b/);
+});
+
+test('script mismatch → empty landmarkName → street fallback', () => {
+  assert.equal(nameOkForLang('جامع فتحي', 'en'), false);
+  assert.equal(nameOkForLang('جامع فتحي', 'de'), false);
+  assert.equal(nameOkForLang('جامع فتحي', 'ar'), true);
+  assert.equal(nameOkForLang('Fathi Mosque', 'ar'), false);
+  assert.equal(nameOkForLang('Fathi Mosque', 'en'), true);
+
+  assert.equal(landmarkName({ name: 'جامع فتحي', amenity: 'place_of_worship' }, 'en'), '');
+  assert.equal(landmarkName({ name: 'جامع فتحي', amenity: 'place_of_worship' }, 'de'), '');
+  assert.equal(landmarkName({ name: 'جامع فتحي', 'name:en': 'Fathi Mosque', amenity: 'place_of_worship' }, 'en'), 'Fathi Mosque');
+  assert.equal(landmarkName({ name: 'Al-Omari Mosque', amenity: 'place_of_worship' }, 'ar'), '');
+  assert.equal(landmarkName({ name: 'Al-Omari Mosque', 'name:ar': 'الجامع العمري', amenity: 'place_of_worship' }, 'ar'), 'الجامع العمري');
+
+  const maneuver = [36.3, 33.5];
+  assert.equal(pickLandmark(maneuver, [
+    item(36.3, 33.5, { name: 'جامع فتحي', amenity: 'place_of_worship' }),
+  ], { lang: 'de' }), null);
+  assert.equal(pickLandmark(maneuver, [
+    item(36.3, 33.5, { name: 'Only Latin Shop', shop: 'bakery' }),
+  ], { lang: 'ar' }), null);
+});
+
+test('AR stripNestedArAfter emits بعد once in distance prompts', () => {
+  assert.equal(stripNestedArAfter('بعد جامع فتحي، انعطف يسارًا', 'ar'), 'جامع فتحي، انعطف يسارًا');
+  assert.equal(stripNestedArAfter('بعد الجامع العمري، انعطف يمينًا', 'ar'), 'الجامع العمري، انعطف يمينًا');
+  assert.equal(stripNestedArAfter('بعد جامع فتحي، انعطف يسارًا', 'en'), 'بعد جامع فتحي، انعطف يسارًا');
+  assert.equal(stripNestedArAfter('عند كروسان القيمرية، انعطف', 'ar'), 'عند كروسان القيمرية، انعطف');
 });
 
 test('offline: index from seeded local features; no network', async () => {
@@ -275,6 +313,66 @@ test('roundabout / arrive / depart never get landmark cues', () => {
   assert.ok(steps[5].landmark);
   assert.equal(stepUsesLandmark(steps[1]), false);
   assert.equal(stepUsesLandmark(steps[5]), true);
+});
+
+
+test('P2: bundled Syria POIs never evicted; harvest capped by distance not insertion order', () => {
+  clearLandmarkIndex();
+  // Damascus maneuver near جامع فتحي (approx Old City)
+  const maneuver = [36.30655, 33.51105];
+  const mosque = {
+    lon: 36.30655, lat: 33.51105,
+    tags: {
+      amenity: 'place_of_worship',
+      name: 'جامع فتحي',
+      'name:ar': 'جامع فتحي',
+      'name:en': 'Fathi Mosque',
+    },
+    bundled: true,
+  };
+  // 3568 bundled POIs (mosque + 3567 filler shops elsewhere in Syria)
+  const bundled = [mosque];
+  for (let i = 0; i < 3567; i++) {
+    bundled.push({
+      lon: 36.15 + (i % 120) * 0.002,
+      lat: 33.35 + Math.floor(i / 120) * 0.002,
+      tags: { shop: 'convenience', name: `Syria Shop ${i}`, 'name:en': `Syria Shop ${i}` },
+      bundled: true,
+    });
+  }
+  upsertLandmarks(bundled, { bundled: true });
+  assert.equal(getLandmarkIndex().filter(f => f.bundled).length, 3568);
+
+  // Harvest enough shops to cross the old 4000 insertion-order cap (+ a nearby bakery that would steal the cue)
+  setLandmarkFocus(maneuver);
+  const harvested = [];
+  for (let i = 0; i < 1200; i++) {
+    // far from Damascus (Aleppo / coast-ish) — should be preferred for eviction
+    harvested.push({
+      lon: 37.1 + (i % 40) * 0.02,
+      lat: 35.0 + Math.floor(i / 40) * 0.02,
+      tags: { shop: 'bakery', name: `Far Harvest ${i}` },
+    });
+  }
+  harvested.push({
+    lon: 36.3066, lat: 33.5111,
+    tags: { shop: 'bakery', name: 'كروسان القيمرية', 'name:ar': 'كروسان القيمرية' },
+  });
+  upsertLandmarks(harvested);
+
+  const idx = getLandmarkIndex();
+  const stillBundled = idx.filter(f => f.bundled);
+  assert.equal(stillBundled.length, 3568, 'bundled count must stay 3568');
+  assert.ok(stillBundled.some(f => f.tags['name:ar'] === 'جامع فتحي' || f.tags.name === 'جامع فتحي'),
+    'جامع فتحي must survive eviction');
+  assert.ok(idx.filter(f => !f.bundled).length <= HARVEST_MAX);
+
+  // AR pick for the Damascus maneuver must still prefer the mosque over the nearby croissant shop
+  const lm = pickLandmark(maneuver, idx, { lang: 'ar', radius: LANDMARK_RADIUS_M });
+  assert.ok(lm, 'expected a landmark at the Damascus maneuver');
+  assert.equal(lm.kind, 'worship');
+  assert.match(lm.name, /فتحي|Fathi/);
+  assert.doesNotMatch(lm.name, /كروسان/);
 });
 
 test('CNAME still present', () => {

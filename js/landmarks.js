@@ -44,18 +44,60 @@ export function classifyLandmark(tags = {}) {
 /**
  * Display name for the UI language. Requires a real name tag (name / name:lang / …);
  * never invents. Empty string → ignore the object.
+ * Script filter: DE/EN need Latin letters (prefer name:en / name:de / transliteration);
+ * AR needs Arabic letters. Mismatch → '' so banner+voice fall back to the street instruction.
  */
 export function landmarkName(tags = {}, lang = 'en') {
   if (!tags) return '';
-  // Must have at least one explicit name* (or brand only as last resort via pickNameFor – brand alone is OK for shops)
   const has = tags.name || tags['name:ar'] || tags['name:en'] || tags['name:de'] || tags['name:latin'] || tags.int_name || tags.brand;
   if (!has) return '';
-  return (pickNameFor(tags, lang).primary || '').trim();
+  const chain = lang === 'ar'
+    ? ['name:ar', 'name', 'name:en', 'brand']
+    : lang === 'de'
+      ? ['name:de', 'name:en', 'int_name', 'name:latin', 'name', 'brand']
+      : ['name:en', 'int_name', 'name:latin', 'name', 'brand'];
+  for (const k of chain) {
+    const n = String(tags[k] || '').trim();
+    if (!n) continue;
+    // Mirror pickNameFor: for AR, plain `name` only if it is Arabic-script
+    if (lang === 'ar' && k === 'name' && !AR_SCRIPT_RE.test(n)) continue;
+    if (nameOkForLang(n, lang)) return n;
+  }
+  // Last resort: pickNameFor primary if it already matches the script
+  const primary = (pickNameFor(tags, lang).primary || '').trim();
+  return nameOkForLang(primary, lang) ? primary : '';
 }
 
-/** German article before the landmark name (Nach der Moschee / Nach dem Platz). Empty for shops / unknown. */
-export function deArticle(kind) {
-  return ({ worship: 'der ', square: 'dem ', historic: 'dem ', tourism: 'dem ', park: 'dem ', amenity: 'dem ', shop: '' })[kind] || '';
+const AR_SCRIPT_RE = /[\u0600-\u06FF]/;
+const LAT_SCRIPT_RE = /[A-Za-z\u00C0-\u024F]/
+/** True when `name` has letters the UI language voice can read. */
+export function nameOkForLang(name, lang = 'en') {
+  if (!name) return false;
+  const hasAr = AR_SCRIPT_RE.test(name);
+  const hasLat = LAT_SCRIPT_RE.test(name);
+  if (lang === 'ar') return hasAr;
+  return hasLat; // en / de: need Latin (or transliterated) letters
+}
+
+/** German feminine landmark nouns → "der ", masculine/neuter → "dem ". Foreign/English → no article. */
+const DE_DER_RE = /(Moschee|Kirche|Schule|Universit[aä]t|Synagoge|Kapelle|Anlage|Burg|Festung)\b/i;
+const DE_DEM_RE = /(Platz|Park|Museum|Denkmal|Tor|Bahnhof|Krankenhaus|Dom|Palast|Schloss|Garten|Markt|Brunnen|Grab|Turm)\b/i;
+
+/**
+ * German article before the landmark name.
+ * Only when the name clearly needs it (Omari-Moschee → "der "); never blind "der" on English/foreign names.
+ */
+export function deArticle(kind, name = '') {
+  if (!name) return '';
+  if (DE_DER_RE.test(name)) return 'der ';
+  if (DE_DEM_RE.test(name)) return 'dem ';
+  return '';
+}
+
+/** Strip a leading AR «بعد » so distance prompts do not emit «بعد … بعد …». */
+export function stripNestedArAfter(instrText, lang) {
+  if (lang !== 'ar' || !instrText) return instrText || '';
+  return String(instrText).replace(/^بعد\s+/, '');
 }
 
 /**
@@ -121,15 +163,58 @@ export function formatLandmarkInstr(lm, action, tpl) {
 }
 
 // ---------- in-memory index (loaded tiles / bundled POIs only – no network) ----------
-let index = []; // { lon, lat, tags }
+let index = []; // { lon, lat, tags, bundled? }
+/** Soft total hint; bundled Syria POIs are never evicted even if over this. */
+export const INDEX_SOFT_MAX = 4000;
+/** Max non-bundled (harvested) features kept; farthest from focus evicted first. */
+export const HARVEST_MAX = 2000;
+let focusLonLat = null; // [lon,lat] — current route/position for distance eviction
 
-export function clearLandmarkIndex() { index = []; }
+export function clearLandmarkIndex() { index = []; focusLonLat = null; }
 export function getLandmarkIndex() { return index; }
 
-/** Replace or merge features into the index (dedupe by rounded lon/lat + name). */
-export function upsertLandmarks(features, { replace = false } = {}) {
+/** Focus point for harvest eviction (route start, user position, or current maneuver). */
+export function setLandmarkFocus(lonlat) {
+  if (lonlat && Number.isFinite(+lonlat[0]) && Number.isFinite(+lonlat[1])) {
+    focusLonLat = [+lonlat[0], +lonlat[1]];
+  }
+}
+export function getLandmarkFocus() { return focusLonLat; }
+
+function keyOf(f) {
+  const n = f.tags?.name || f.tags?.['name:ar'] || f.tags?.['name:en'] || '';
+  return `${f.lon.toFixed(5)}|${f.lat.toFixed(5)}|${n}`;
+}
+
+/** Keep every bundled/seeded POI; cap harvested by distance to focus (farthest dropped first). */
+function trimLandmarkIndex() {
+  const bundled = index.filter(f => f.bundled);
+  let harvested = index.filter(f => !f.bundled);
+  if (harvested.length <= HARVEST_MAX) {
+    index = bundled.concat(harvested);
+    return;
+  }
+  const origin = focusLonLat
+    || (bundled[0] && [bundled[0].lon, bundled[0].lat])
+    || (harvested[0] && [harvested[0].lon, harvested[0].lat]);
+  if (origin) {
+    harvested.sort((a, b) => haversine(origin, [a.lon, a.lat]) - haversine(origin, [b.lon, b.lat]));
+    harvested = harvested.slice(0, HARVEST_MAX); // keep nearest
+  } else {
+    harvested = harvested.slice(-HARVEST_MAX);
+  }
+  index = bundled.concat(harvested);
+}
+
+/**
+ * Replace or merge features into the index (dedupe by rounded lon/lat + name).
+ * Bundled/seeded Syria POIs are flagged and never evicted. Harvested features are
+ * capped by distance to the current focus (farthest first), never by insertion order.
+ */
+export function upsertLandmarks(features, { replace = false, bundled = false, focus } = {}) {
+  if (focus) setLandmarkFocus(focus);
   if (replace) index = [];
-  const seen = new Set(index.map(f => keyOf(f)));
+  const seen = new Map(index.map(f => [keyOf(f), f]));
   for (const f of features || []) {
     const lon = +f.lon, lat = +f.lat;
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
@@ -137,20 +222,21 @@ export function upsertLandmarks(features, { replace = false } = {}) {
     if (!classifyLandmark(tags)) continue;
     if (!landmarkName(tags, 'en') && !landmarkName(tags, 'ar') && !landmarkName(tags, 'de')) continue;
     const k = keyOf({ lon, lat, tags });
-    if (seen.has(k)) continue;
-    seen.add(k);
-    index.push({ lon, lat, tags });
+    const isBundled = !!(bundled || f.bundled);
+    const prev = seen.get(k);
+    if (prev) {
+      if (isBundled) prev.bundled = true; // upgrade harvested → bundled
+      continue;
+    }
+    const entry = { lon, lat, tags, bundled: isBundled };
+    seen.set(k, entry);
+    index.push(entry);
   }
-  // soft cap so a long drive does not grow forever
-  if (index.length > 4000) index = index.slice(-3000);
+  trimLandmarkIndex();
   return index.length;
 }
-function keyOf(f) {
-  const n = f.tags?.name || f.tags?.['name:ar'] || f.tags?.['name:en'] || '';
-  return `${f.lon.toFixed(5)}|${f.lat.toFixed(5)}|${n}`;
-}
 
-/** Seed from bundled Syria POI rows (js/poi.js P.all / toItem). Pure, offline. */
+/** Seed from bundled Syria POI rows (js/poi.js P.all / toItem). Pure, offline. Never-evicted. */
 export function seedFromSyriaPois(rows) {
   const out = [];
   for (const r of rows || []) {
@@ -166,9 +252,9 @@ export function seedFromSyriaPois(rows) {
       if (r.en) tags['name:en'] = r.en;
     }
     if (!classifyLandmark(tags)) continue;
-    out.push({ lon: r.lon, lat: r.lat, tags });
+    out.push({ lon: r.lon, lat: r.lat, tags, bundled: true });
   }
-  return upsertLandmarks(out);
+  return upsertLandmarks(out, { bundled: true });
 }
 
 /**

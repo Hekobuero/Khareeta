@@ -12,7 +12,7 @@ import { placeSuggest, offlineNotice } from './search.js';
 import { loadGazetteer } from './offline-search.js';
 import { activeList } from './closures.js';
 import { closuresNearRoute, plural } from './closures-core.js';
-import { enrichStepsWithLandmarks, harvestFromMap, seedFromSyriaPois, stepUsesLandmark, formatLandmarkInstr, deArticle } from './landmarks.js';
+import { enrichStepsWithLandmarks, harvestFromMap, seedFromSyriaPois, stepUsesLandmark, formatLandmarkInstr, deArticle, setLandmarkFocus } from './landmarks.js';
 import { P } from './poi.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -30,7 +30,7 @@ function lmAction(s) {
 }
 function lmBanner(s) {
   const lm = s.landmark;
-  const tpl = { text: t(lm.relation === 'after' ? 'lmAfter' : 'lmAt'), art: getLang() === 'de' ? deArticle(lm.kind) : '' };
+  const tpl = { text: t(lm.relation === 'after' ? 'lmAfter' : 'lmAt'), art: getLang() === 'de' ? deArticle(lm.kind, lm.name) : '' };
   return formatLandmarkInstr(lm, lmAction(s), tpl);
 }
 export function instr(s) {
@@ -170,7 +170,11 @@ export async function computeRoutes(stops, mode, opts) {
   try { routes = await osrm(stops, mode, opts); }
   catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); routes = await valhalla(stops, mode, opts); }
   routes.forEach(r => { r.steps = smoothSteps(r.steps); });
-  try { seedFromSyriaPois(P.all); harvestFromMap(App.map); } catch {}
+  try {
+    const foc = App.me || routes[0]?.coords?.[0];
+    if (foc) setLandmarkFocus(foc);
+    seedFromSyriaPois(P.all); harvestFromMap(App.map);
+  } catch {}
   routes.forEach(r => enrichStepsWithLandmarks(r.steps, getLang()));
   return routes;
 }
@@ -496,7 +500,10 @@ export function navHeading({ heading, speed, compass, compassAge, prev, p, route
 function beginNav(r, sim, coords) {
   const start = coords ? [coords.longitude, coords.latitude] : r.coords[0];
   R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim || !('geolocation' in navigator); N.pos = null; N.prev = null; N.lastDist = null; N.lastRemain = null; N._lmIdx = -1; r._stepAlong = null;
-  try { seedFromSyriaPois(P.all); harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang()); } catch {}
+  try {
+    if (start) setLandmarkFocus(start);
+    seedFromSyriaPois(P.all); harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang());
+  } catch {}
   track('nav_start', { mode: R.mode, sim: N.isSim });
   $('#dirPanel').classList.add('hidden'); closeSheet();
   $('#navHud').classList.remove('hidden');
@@ -586,7 +593,7 @@ function onPos(p, heading, speed, acc) {
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
   // refresh local landmark index from already-loaded tiles/POIs (no network); re-attach if this step has none yet
   if (!step.landmark && (idx !== N._lmIdx)) {
-    try { harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang()); } catch {}
+    try { if (p) setLandmarkFocus(p); harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang()); } catch {}
     N._lmIdx = idx;
   }
   // voice: start prompt, early prompt (car ≈ 13 s ahead = 300–700 m; walk 30 m), "now", close maneuvers chained – see voice.js
