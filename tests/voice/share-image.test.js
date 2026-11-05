@@ -145,9 +145,9 @@ async function composePlace(page, meta, lang) {
       await page.evaluate(async () => (await import(new URL('js/core.js', location.href))).closeSheet());
 
       // Compose PNG (no map tiles – outbound already aborted)
-      // settle: requests started by earlier steps (e.g. the place sheet's lazy Open-Meteo widget) must land before the
+      // settle: requests started by earlier steps (place sheet extras; the map weather chip fires 1.5 s after the sheet-close moveend) must land before the
       // baseline, so the check measures only what compose itself would fetch
-      for (let n = outbound.length, i = 0; i < 8; i++) { await page.waitForTimeout(1200); if (outbound.length === n) break; n = outbound.length; }
+      for (let n = outbound.length, i = 0; i < 6; i++) { await page.waitForTimeout(2200); if (outbound.length === n) break; n = outbound.length; }
       const beforeOut = outbound.length;
       const placeMeta = {
         kind: 'place',
