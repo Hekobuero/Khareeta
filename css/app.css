@@ -559,3 +559,26 @@ button.irow{width:100%;text-align:start;font:inherit;color:inherit;background:no
 .rm-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:start;padding:10px 12px;border-radius:12px;border:1px solid var(--line,rgba(127,127,127,.3));background:var(--card,transparent);color:inherit;font:inherit;cursor:pointer}
 .rm-opt b{font-weight:600;font-size:14px}.rm-opt small{opacity:.7;font-size:12px}
 .rm-edit{justify-self:center;font-size:12px;opacity:.7;color:inherit;padding:4px}
+/* ---------- saved places (list, swipe-to-delete, edit) + offline search notice ---------- */
+.svrow{position:relative;overflow:hidden}
+.svslide{position:relative;z-index:1;background:var(--k-surface);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+.svslide .srow{padding-inline-end:4px}
+.svrow.swiped .svslide{transform:translateX(-96px)}
+[dir=rtl] .svrow.swiped .svslide{transform:translateX(96px)}
+.svdel{position:absolute;inset-block:0;inset-inline-end:0;width:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--k-danger);color:#fff;font-size:var(--k-text-caption);font-weight:600}
+.svdel .ic{width:18px;height:18px}
+.svio{margin-top:8px}
+.abtn.danger{background:var(--k-danger-tint);color:var(--k-danger)}
+.abtn[disabled]{opacity:.45}
+.svedit{display:flex;flex-direction:column;gap:6px;padding-top:4px}
+.svlbl{font-size:var(--k-text-caption);font-weight:600;color:var(--k-text-2);text-transform:none;margin-top:6px}
+.svinput{height:44px;border:0;border-radius:var(--k-radius-sm);background:var(--k-surface-2);color:var(--k-text);font:inherit;font-size:var(--k-text-body);padding-inline:12px;outline:0}
+.svinput:focus{box-shadow:0 0 0 2px var(--k-accent)}
+.svedit .seg{margin:0}
+.seg button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.seg button .ic{width:16px;height:16px}
+.seg button.on{background:var(--k-surface);color:var(--k-text);box-shadow:var(--k-shadow-1)}
+.srow .sstar{color:var(--k-text-2)}
+.srow .sstar.on{color:#E8710A}
+.soff{display:flex;align-items:center;gap:8px;margin:2px 12px 6px;padding:8px 12px;border-radius:var(--k-radius-sm);background:var(--k-surface-2);color:var(--k-text-2);font-size:var(--k-text-sub);line-height:var(--k-lh-tight)}
+.soff .ic{width:16px;height:16px;flex:none}

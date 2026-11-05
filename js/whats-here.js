@@ -5,6 +5,8 @@ import { ic } from './icons.js';
 import { App, openSheet, closeSheet, setSelMarker } from './core.js';
 import { track } from './analytics.js';
 import { reportEntryHtml, wireReportEntry } from './report-entry.js';
+import { isSaved, toggleSaved } from './saved.js';
+import { coordId } from './saved-core.js';
 import { buildShareUrl, shareText, geoUri, fmt5, RevCache, Throttle, makeReverse, EventGate, pointKey } from './share-core.js';
 
 const cache = new RevCache((() => { try { return localStorage; } catch { return null; } })());
@@ -28,6 +30,7 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
   </div><button class="pclose" id="whClose" aria-label="${esc(t('close'))}">${ic('close')}</button></div>
   <div class="arow actions">
     <button class="abtn primary" id="whRoute">${ic('directions')}<span>${esc(t('whRouteHere'))}</span></button>
+    <button class="abtn" id="whSave" aria-pressed="false">${ic('bookmarkOutline')}<span>${esc(t('save'))}</span></button>
     <button class="abtn" id="whShare">${ic('share')}<span>${esc(t('whShare'))}</span></button>
     <button class="abtn" id="whCopy" aria-label="${esc(t('whCopyCoords'))}" title="${esc(t('whCopyCoords'))}">${ic('copy')}<span>${esc(t('whCopyShort'))}</span></button>
   </div>
@@ -47,6 +50,10 @@ export function openWhatsHere(lnglat, { name = null, route = false } = {}) {
     onOsm: () => import('./notes.js').then(m => m.openMapNote({ lat, lon, name })),
   });
   body.querySelector('#whShare').onclick = () => sharePoint(my);
+  const sv = body.querySelector('#whSave'), sid = coordId(lat, lon);
+  const paint = () => { const on = isSaved(sid); sv.setAttribute('aria-pressed', String(on)); sv.innerHTML = `${ic(on ? 'bookmark' : 'bookmarkOutline')}<span>${esc(t(on ? 'savedOk' : 'save'))}</span>`; };
+  paint();
+  sv.onclick = () => { const on = toggleSaved({ id: sid, coord: true, lat, lon, name: my.name || my.addr || coords, sub: my.name || my.addr ? coords : '' }); paint(); toast(t(on ? 'savedOk' : 'svRemoved')); };
   reverseLatest(lat, lon, getLang()).then(a => { my.addr = a; if (cur !== my) return; const el = $('#whAddr'); if (el) el.textContent = a || t('whNoAddr'); })
     .catch(e => { if (e?.name !== 'AbortError' && cur === my) { const el = $('#whAddr'); if (el) el.textContent = t('whNoAddr'); } });
   if (route) routeTo(my, true);

@@ -156,6 +156,9 @@ jobs:
       - name: Report menu visible in half sheet (WebKit iPhone, DE/AR, mocked)
         run: node report-menu.test.js
         timeout-minutes: 5
+      - name: Saved places + offline search (WebKit iPhone 390, setOffline, DE/AR)
+        run: node saved-offline.test.js
+        timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -201,6 +204,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/offline/*.test.mjs'
+
+  saved-tests:
+    # Pure Node unit tests: saved places CRUD/import/export (js/saved-core.js), Arabic normalisation + fuzzy search
+    # over the bundled gazetteer (js/search-core.js, data/gazetteer-sy.json), SW precache + i18n wiring.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/saved/*.test.mjs'
 
   transit-tests:
     # Pure Node unit tests for the Servis/bus lines layer (js/transit-core.js, data/transit/*.json, SW/i18n wiring). No network.

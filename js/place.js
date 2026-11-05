@@ -1,5 +1,6 @@
 // Place details: OSM tags via Overpass (fallback Nominatim), Wikidata/Wikipedia, Wikimedia Commons photos,
 // Panoramax street-level images, Open-Meteo weather, nearby places.
+import { isSaved as isSavedId, toggleSaved, saveItem } from './saved.js';
 import { localItem, poiIndexFor, toItem, P as POIS } from './poi.js';
 import { $, esc, fetchJSON, nominatim, overpass, fmtDist, fmtDur, fmtCoord, plusEncode, haversine, lsGet, lsSet, toast, nf, digits, settings } from './util.js';
 import { t, getLang } from './i18n.js';
@@ -64,17 +65,8 @@ async function loadTags(item) {
   return r;
 }
 
-export function isSaved(id) { return lsGet('kh.saved', []).some(s => s.id === id); }
-export function toggleSave(item, kind = 'fav') {
-  let list = lsGet('kh.saved', []);
-  if (kind !== 'fav') list = list.filter(s => s.kind !== kind);
-  const ex = list.find(s => s.id === item.id && s.kind === kind);
-  if (ex && kind === 'fav') list = list.filter(s => s !== ex);
-  else list.unshift({ id: item.id, osm_type: item.osm_type, osm_id: item.osm_id, name: item.name, sub: item.sub, lon: item.lon, lat: item.lat, tags: slimTags(item.tags), kind, coord: item.coord, ov: item.ov, ovId: item.ovId, ovCat: item.ovCat, full: item.full });
-  lsSet('kh.saved', list);
-  return !ex;
-}
-function slimTags(tg = {}) { const o = {}; for (const k of ['name', 'name:ar', 'name:en', 'amenity', 'shop', 'tourism', 'place', 'opening_hours', 'phone', 'contact:phone', 'website', 'addr:street', 'addr:housenumber', 'addr:city', 'cuisine']) if (tg[k]) o[k] = tg[k]; return o; }
+export function isSaved(id) { return isSavedId(id); }
+export function toggleSave(item, kind = 'fav') { if (kind === 'fav') return toggleSaved(item); saveItem(item, { kind }); return true; }
 
 export function shareUrl(item) {
   const u = new URL(location.href.split('#')[0].split('?')[0]);

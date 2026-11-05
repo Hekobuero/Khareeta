@@ -28,8 +28,8 @@ test('route stops use placeSuggest (the main search pipeline), not their own Pho
   assert.match(s, /export async function placeSuggest/);
   // the main search goes through the same function, and the pipeline includes the local (normalised) POI index
   assert.match(s, /await placeSuggest\(text, \{ signal: photonCtl\.signal \}\)/);
-  const fn = s.slice(s.indexOf('export async function placeSuggest'), s.indexOf('function localMatches'));
-  for (const k of ['cleanQuery(raw)', 'poiLocal(text)', 'localMatches(text)', 'photonLang(getLang())', 'rank(res, text, bbox)', 'dedupe(']) assert.ok(fn.includes(k), k);
+  const fn = s.slice(s.indexOf('export async function placeSuggest'), s.indexOf('export function offlineNotice'));
+  for (const k of ['cleanQuery(raw)', 'poiLocal(text)', 'localSearch(text)', 'photonLang(getLang())', 'rank(res, text, bbox)', 'dedupe(']) assert.ok(fn.includes(k), k);
   // Photon failure (offline / 504) must not hide local hits
   assert.match(fn, /catch \(e\) \{ if \(e\.name === 'AbortError' \|\| signal\?\.aborted\) throw e; \}/);
 });

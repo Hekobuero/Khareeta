@@ -273,7 +273,7 @@ function initPanel() {
     let res = [];
     if (App.me) res.push({ name: t('yourLocation'), lon: App.me[0], lat: App.me[1], isMe: true, sub: '' });
     // empty field: saved places as quick picks; typing: the SAME pipeline as the main search (QA P2: Arabic stops)
-    if (!q) lsGet('kh.saved', []).slice(0, 4).forEach(s => res.push({ ...s, saved: true }));
+    if (!q) lsGet('kh.saved', []).slice(0, 4).forEach(s => res.push({ ...s, name: s.label || s.name, saved: true }));
     if (cleanQuery(q).length >= 2) {
       ctl?.abort(); ctl = new AbortController();
       try {

@@ -94,15 +94,7 @@ async function install() {
   toast(getLang() === 'ar' ? 'في Safari: مشاركة ← إضافة إلى الشاشة الرئيسية' : getLang() === 'de' ? 'In Safari: Teilen → Zum Home-Bildschirm' : 'In Safari: Share → Add to Home Screen', 5000);
 }
 
-export function showSaved() {
-  const list = lsGet('kh.saved', []);
-  const body = openSheet(`<div class="phead"><div><h2 class="ptitle" style="font-size:22px">${t('savedPlaces')}</h2></div></div>
-    <div class="list">${list.map((s, i) => `<div class="srow" data-i="${i}"><div class="sic badge" style="background:${s.kind === 'home' ? 'var(--k-accent)' : s.kind === 'work' ? '#6E7781' : '#E8710A'}">${ic(s.kind === 'home' ? 'home' : s.kind === 'work' ? 'work' : 'star')}</div><div class="st"><div class="t1">${esc(s.name)}</div><div class="t2">${esc(s.sub || '')}</div></div><button class="ib" data-rm="${i}">${ic('trash', 'sm')}</button></div>`).join('') || `<div class="sec"><p class="psub">${t('noSaved')}</p></div>`}</div>`, 'half');
-  body.querySelector('.list').onclick = e => {
-    const rm = e.target.closest('[data-rm]'); if (rm) { list.splice(+rm.dataset.rm, 1); lsSet('kh.saved', list); showSaved(); return; }
-    const r = e.target.closest('.srow[data-i]'); if (r) openPlace({ ...list[+r.dataset.i] });
-  };
-}
+export { showSaved } from './saved.js';
 
 function showAbout() {
   openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
