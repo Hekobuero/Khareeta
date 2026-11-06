@@ -1,7 +1,10 @@
-// Khareeta – route sheet action chips must all fit on iPhone 390×844 (Nour P3: AR «الخطوات» clipped after PDF+Bild).
-// Opens a route sheet with the same ochips markup as showRouteSheet, DE/EN/AR (LTR+RTL), Chromium (+ WebKit when available).
-// Asserts every #rShare/#rShareImg/#rPrint/#rSteps chip is visible, enabled, ≥44 px, and fully inside the viewport (no overflow clip).
-// All non-local requests aborted (no OSM/Nominatim/Overpass/Photon/Supabase/Open-Meteo). Run: node route-chips.test.js
+// Khareeta – route sheet action chips must all fit on iPhone 390×844.
+// After #50 AR «الخطوات» wraps to a second row; default peek must clear that row (Nour P3).
+// Opens a route sheet with the same ochips markup + peek sizing as showRouteSheet (DE/EN/AR).
+// Asserts every #rShare/#rShareImg/#rPrint/#rSteps chip is visible, enabled, ≥44 px, and fully
+// inside the viewport at the DEFAULT peek (not pre-forced to full). DE/EN stay one row.
+// All non-local requests aborted (no OSM/Nominatim/Overpass/Photon/Supabase/Open-Meteo).
+// Run: node route-chips.test.js
 const { webkit, chromium, devices } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const REPO = process.env.KH_REPO || path.resolve(__dirname, '..', '..');
@@ -39,12 +42,15 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
       const dir = await page.evaluate(() => document.documentElement.dir || getComputedStyle(document.body).direction);
       ok(`${pre}: direction ${dir}`, lang === 'ar' ? dir === 'rtl' : dir !== 'rtl');
 
-      await page.evaluate(async (lang) => {
+      // Mirror showRouteSheet: open at peek, then size peek to chips bottom (production path).
+      const sheetMeta = await page.evaluate(async (lang) => {
         const { t, setLang } = await import(new URL('js/i18n.js', location.href));
         const { ic } = await import(new URL('js/icons.js', location.href));
-        const { openSheet, setSheet } = await import(new URL('js/core.js', location.href));
+        const { openSheet, setSheet, App, syncFabs } = await import(new URL('js/core.js', location.href));
         setLang(lang);
-        const html = `<div class="rcard on" role="button"><div style="flex:1;min-width:0"><div class="rt">12 min</div><div class="rd">4.2 km</div></div><button class="gobtn">${t('go')}</button></div>
+        const html = `<div class="cl-warn" role="status"><span>2 closures nearby</span></div>
+          <div class="rcard on" role="button"><div style="flex:1;min-width:0"><div class="rt">12 min</div><div class="rd">4.2 km · via <bdi>Example St</bdi> · ETA 12:00</div><div class="fast">Fastest</div></div><button class="gobtn">${t('go')}</button></div>
+          <div class="rcard" role="button"><div style="flex:1;min-width:0"><div class="rt">14 min</div><div class="rd">3.8 km · via <bdi>Other Rd</bdi> · ETA 12:02</div></div><button class="gobtn">${t('go')}</button></div>
           <div class="ochips rchips">
             <button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button>
             <button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button>
@@ -53,27 +59,55 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
           </div>
           <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
           <div class="steps list"><div class="srow"><div class="st"><div class="t1" dir="auto">→</div></div></div></div>`;
-        openSheet(html, 'half');
-        setSheet('half');
+        openSheet(html, 'peek');
+        const sh = document.getElementById('sheet');
+        const chips = sh.querySelector('.ochips.rchips');
+        const end = chips || document.getElementById('stepsTitle');
+        const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+        const measure = () => Math.round((chips || end).getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 24);
+        const apply = (h) => {
+          App.routePeek = Math.min(h, Math.max(360, cap));
+          App.peekH = App.routePeek;
+          setSheet('peek');
+          syncFabs();
+        };
+        apply(measure());
+        const clearFold = () => {
+          const row = chips || end;
+          const overflow = Math.ceil(row.getBoundingClientRect().bottom - (innerHeight - 4));
+          if (overflow > 0) apply(App.routePeek + overflow + 16);
+        };
+        clearFold();
+        return { peekH: App.peekH, state: sh.dataset.state, need: measure(), cap: Math.max(360, cap) };
       }, lang);
 
-      // Harden: wait attached → full if below fold → visible
+      // Instant peek (syncFabs) — brief rAF settle for WebKit layout, not a spring wait
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.evaluate(async () => {
+        const { syncFabs, App } = await import(new URL('js/core.js', location.href));
+        const sh = document.getElementById('sheet');
+        const chips = sh.querySelector('.ochips.rchips');
+        if (!chips) return;
+        const overflow = Math.ceil(chips.getBoundingClientRect().bottom - (innerHeight - 4));
+        if (overflow > 0) {
+          const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+          App.routePeek = Math.min(App.routePeek + overflow + 16, Math.max(360, cap));
+          App.peekH = App.routePeek;
+          (await import(new URL('js/core.js', location.href))).setSheet('peek');
+          syncFabs();
+        }
+      });
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+
       for (const id of CHIP_IDS) {
-        const loc = page.locator('#' + id);
-        await loc.waitFor({ state: 'attached', timeout: 15000 });
+        await page.locator('#' + id).waitFor({ state: 'attached', timeout: 15000 });
       }
-      const anyBelow = await page.evaluate((ids) => ids.some(id => {
-        const b = document.getElementById(id); if (!b) return true;
-        const r = b.getBoundingClientRect(); return r.bottom > innerHeight - 4 || r.top < 0;
-      }), CHIP_IDS);
-      if (anyBelow) {
-        await page.evaluate(async () => { (await import(new URL('js/core.js', location.href))).setSheet('full'); });
-        await page.waitForTimeout(350);
-      }
+      // Do NOT force full — the bug under test is peek clearance.
       for (const id of CHIP_IDS) await page.locator('#' + id).waitFor({ state: 'visible', timeout: 10000 });
 
       const m = await page.evaluate((ids) => {
         const row = document.querySelector('.ochips.rchips');
+        const sheet = document.getElementById('sheet');
         const vw = window.innerWidth, vh = window.innerHeight;
         const chips = ids.map(id => {
           const b = document.getElementById(id); if (!b) return { id, missing: true };
@@ -89,30 +123,85 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
             clippedByRow: row ? (r.left < row.getBoundingClientRect().left - 1 || r.right > row.getBoundingClientRect().right + 1) : false,
           };
         });
+        const tops = chips.filter(c => !c.missing).map(c => c.top);
+        const sameRow = tops.length >= 2 && (Math.max(...tops) - Math.min(...tops) < 12);
         const rr = row ? row.getBoundingClientRect() : null;
         return {
           wrap: row ? getComputedStyle(row).flexWrap : null,
           overflowX: row ? getComputedStyle(row).overflowX : null,
           rowW: rr ? Math.round(rr.width) : 0,
           scrolled: row ? row.scrollWidth > row.clientWidth + 1 : false,
+          sheetState: sheet ? sheet.dataset.state : null,
+          sameRow,
           chips,
         };
       }, CHIP_IDS);
 
       ok(`${pre}: rchips row found (wrap)`, m.wrap === 'wrap', JSON.stringify({ wrap: m.wrap, overflowX: m.overflowX }));
       ok(`${pre}: row not horizontally scrolled`, !m.scrolled);
+      ok(`${pre}: sheet stays at peek (not forced full)`, m.sheetState === 'peek', JSON.stringify({ state: m.sheetState, meta: sheetMeta }));
+      if (lang === 'ar') ok(`${pre}: AR chips wrap to >1 row`, !m.sameRow, JSON.stringify(m.chips.map(c => ({ id: c.id, top: c.top }))));
+      else ok(`${pre}: DE/EN chips stay one row`, m.sameRow, JSON.stringify(m.chips.map(c => ({ id: c.id, top: c.top }))));
+
       for (const c of m.chips) {
         ok(`${pre}: #${c.id} «${c.text}» present+visible+enabled`, !c.missing && c.visible && c.enabled, JSON.stringify(c));
-        ok(`${pre}: #${c.id} fully in viewport`, !c.missing && c.inViewport, JSON.stringify(c));
+        ok(`${pre}: #${c.id} fully in viewport at peek`, !c.missing && c.inViewport, JSON.stringify(c));
         ok(`${pre}: #${c.id} ≥44×44`, !c.missing && c.w >= 44 && c.h >= 44, `${c.w}x${c.h}`);
         ok(`${pre}: #${c.id} not clipped by row`, !c.missing && !c.clippedByRow, JSON.stringify(c));
       }
 
+      // Tap steps chip to prove it's hittable at peek (then leave sheet alone)
+      const stepsBox = m.chips.find(c => c.id === 'rSteps');
+      if (stepsBox && stepsBox.inViewport) {
+        await page.locator('#rSteps').tap({ timeout: 5000 }).catch(() => page.locator('#rSteps').click({ timeout: 5000 }));
+        ok(`${pre}: #rSteps tappable at peek`, true);
+      } else {
+        ok(`${pre}: #rSteps tappable at peek`, false, JSON.stringify(stepsBox));
+      }
+
       if (bn === browsers[0]) {
+        // Re-open peek for clean screenshot (tap may have expanded sheet)
+        await page.evaluate(async (lang) => {
+          const { t, setLang } = await import(new URL('js/i18n.js', location.href));
+          const { ic } = await import(new URL('js/icons.js', location.href));
+          const { openSheet, setSheet, App } = await import(new URL('js/core.js', location.href));
+          setLang(lang);
+          const html = `<div class="cl-warn" role="status"><span>2 closures nearby</span></div>
+            <div class="rcard on" role="button"><div style="flex:1;min-width:0"><div class="rt">12 min</div><div class="rd">4.2 km · via <bdi>Example St</bdi> · ETA 12:00</div><div class="fast">Fastest</div></div><button class="gobtn">${t('go')}</button></div>
+            <div class="rcard" role="button"><div style="flex:1;min-width:0"><div class="rt">14 min</div><div class="rd">3.8 km · via <bdi>Other Rd</bdi> · ETA 12:02</div></div><button class="gobtn">${t('go')}</button></div>
+            <div class="ochips rchips">
+              <button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button>
+              <button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button>
+              <button class="ochip" id="rPrint">${ic('download', 'xs')}${t('mapExportPrintShort')}</button>
+              <button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button>
+            </div>
+            <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
+            <div class="steps list"><div class="srow"><div class="st"><div class="t1" dir="auto">→</div></div></div></div>`;
+          const { syncFabs } = await import(new URL('js/core.js', location.href));
+          openSheet(html, 'peek');
+          const sh = document.getElementById('sheet');
+          const chips = sh.querySelector('.ochips.rchips');
+          const end = chips || document.getElementById('stepsTitle');
+          const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+          const measure = () => Math.round((chips || end).getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 24);
+          const apply = (h) => {
+            App.routePeek = Math.min(h, Math.max(360, cap));
+            App.peekH = App.routePeek;
+            setSheet('peek');
+            syncFabs();
+          };
+          apply(measure());
+          const overflow = Math.ceil((chips || end).getBoundingClientRect().bottom - (innerHeight - 4));
+          if (overflow > 0) apply(App.routePeek + overflow + 16);
+        }, lang);
+        await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
         const shotName = `route-chips-${lang}-390.png`;
         const p = path.join(OUT, shotName);
         await page.screenshot({ path: p });
         if (EXTRA) fs.copyFileSync(p, path.join(EXTRA, shotName));
+        if (EXTRA && (lang === 'ar' || lang === 'de')) {
+          fs.copyFileSync(p, path.join(EXTRA, lang === 'ar' ? 'ar-peek-chips.png' : 'de-peek-chips.png'));
+        }
       }
       await ctx.close();
     }
