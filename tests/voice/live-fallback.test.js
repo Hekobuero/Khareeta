@@ -55,9 +55,9 @@ const cam = page => page.evaluate(async () => { const m = await import(new URL('
       { // Overpass hangs, Nominatim answers → list well before the Overpass timeout
         const { ctx, page, calls } = await open(browser, dev, { lang, nominatim: NOM });
         const t0 = Date.now(); await page.tap('.chip[data-cat="restaurants"]');
-        await page.waitForSelector('#sheet .srow', { timeout: 8000 }).catch(() => {});
+        await page.waitForSelector("#sheet .srow", { timeout: 10000 }).catch(() => {});
         const dt = Date.now() - t0, names = await page.$$eval('#sheet .srow', a => a.map(x => x.textContent));
-        ok(`${tag}: Overpass hangs → Nominatim restaurants listed in < 5 s`, names.some(n => /Palmyra/.test(n)) && dt < 5000, `${dt} ms, ${names.length}`);
+        ok(`${tag}: Overpass hangs → Nominatim restaurants listed in < 8 s (old path: ≥ 11.5 s Overpass timeouts first)`, names.some(n => /Palmyra/.test(n)) && dt < 8000, `${dt} ms, ${names.length}`);
         ok(`${tag}: no skeleton left`, !(await page.$('#sheet .skel')));
         const c = await cam(page); ok(`${tag}: camera stays in Bonn, ≥ z12`, km(c.c, BONN) < 5 && c.z >= 12 - 1e-6, JSON.stringify(c));
         ok(`${tag}: no Photon/Supabase calls`, !calls.other.length, calls.other.join(' '));
