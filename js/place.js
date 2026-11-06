@@ -243,6 +243,7 @@ function render(item, tg, loading) {
     <button class="abtn" id="pShareImg" aria-label="${esc(t('shareAsImage'))}" title="${esc(t('shareAsImage'))}">${ic('image')}<span>${t('shareImageShort')}</span></button>
     <button class="abtn" id="pPrint" aria-label="${esc(t('mapExportPrint'))}" title="${esc(t('mapExportPrint'))}">${ic('download')}<span>${t('mapExportPrintShort')}</span></button>
     ${item.coord ? `<button class="abtn" id="pRoad">${ic('warning')}<span>${esc(t('clOpen'))}</span></button>` : ''}
+    <button class="abtn" id="pTransit">${ic('bus')}<span>${esc(t('trNearbyPlace'))}</span></button>
     ${fourth}
   </div>
   ${contactRow}
@@ -271,6 +272,7 @@ function render(item, tg, loading) {
   });
   body.querySelector('#pClose').onclick = () => closeSheet();
   body.querySelector('#pRoad')?.addEventListener('click', () => openClosureReport(App.map ? snapToRoad(App.map, item.lon, item.lat) : { ...item, snapped: false }));
+  body.querySelector('#pTransit').onclick = () => import('./transit.js').then(m => m.openNearbyStops(App.map, it));
   body.querySelector('#pDir').onclick = () => import('./route.js').then(m => m.openDirections({ to: it }));
   body.querySelector('#pStart')?.addEventListener('click', () => import('./route.js').then(m => m.openDirections({ to: it, autostart: true })));
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };

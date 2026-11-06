@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { normT, tName, tAlt, lineLabel, shortRef, searchLines, sortLines, linesAtStop, stopCounts, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl, TRANSIT_CITIES } from '../../js/transit-core.js';
+import { normT, tName, tAlt, lineLabel, shortRef, searchLines, sortLines, linesAtStop, stopCounts, linesGeoJSON, stopsGeoJSON, lineBounds, cityFor, osmUrl, TRANSIT_CITIES, nearestStops, nearbyCity } from '../../js/transit-core.js';
 
 const root = new URL('../../', import.meta.url);
 const read = p => readFileSync(new URL(p, root), 'utf8');
@@ -142,4 +142,53 @@ test('polish 2: number badge, city fit centre, purge transit, empty lines droppe
     for (const l of d.lines) assert.ok(l.name || l.name_ar || l.name_en || (l.stops || []).length, `${c} ${l.id}`);
   }
   assert.match(fs.readFileSync(new URL('../../js/transit.js', import.meta.url), 'utf8'), /fitArea\(cityFitBounds/);
+});
+
+
+test('nearest stops: straight-line metres, stable order, radius and result cap, real membership only', () => {
+  const d = structuredClone(D);
+  d.stops.push({ id: 4, c: [36.3001, 33.5] }); // nearer, but not a route member
+  assert.deepEqual(nearestStops(d, [36.3, 33.5]).map(s => s.i), [0, 1]);
+  const rows = nearestStops(d, [36.3, 33.5]);
+  assert.equal(rows[0].distance, 0);
+  assert.ok(rows[1].distance > 1400 && rows[1].distance < 1500);
+  assert.deepEqual(rows[0].lines.map(l => l.id), [10, 11]);
+  assert.deepEqual(nearestStops(d, [36.3, 33.5], { radius: 100 }).map(s => s.i), [0]);
+  assert.equal(nearestStops(d, [36.3, 33.5], { limit: 1 }).length, 1);
+  assert.deepEqual(nearestStops(d, [13.4, 52.5]), []);
+  assert.deepEqual(nearestStops(d, [NaN, 33.5]), []);
+  assert.deepEqual(nearestStops(null, [36.3, 33.5]), []);
+  d.stops[0].c = [NaN, 33.5];
+  assert.deepEqual(nearestStops(d, [36.3, 33.5]).map(s => s.i), [1]);
+});
+test('nearby coverage is strictly Damascus/Aleppo bounds, not the browsing 30 km halo', () => {
+  const ix = JSON.parse(read('data/transit/index.json'));
+  assert.equal(nearbyCity([36.3, 33.5], ix), 'damascus');
+  assert.equal(nearbyCity([37.15, 36.2], ix), 'aleppo');
+  assert.equal(nearbyCity([36.5, 33.5], ix), null);
+  assert.equal(nearbyCity([13.4, 52.5], ix), null);
+  assert.equal(nearbyCity([NaN, 33.5], ix), null);
+  assert.equal(nearbyCity([36.3, 33.5], null), null);
+});
+test('nearest-stop strings exist for EN/AR/DE, no schedules or implied empty coverage', async () => {
+  globalThis.localStorage ??= { getItem() { return null; }, setItem() {} };
+  globalThis.document ??= { documentElement: { lang: '', dir: '' } };
+  const { t, setLang } = await import('../../js/i18n.js');
+  for (const lang of ['ar', 'de', 'en']) {
+    setLang(lang);
+    for (const key of ['trNearby', 'trNearbyMe', 'trNearbyPlace', 'trNearbyCoverage', 'trNearbyDistance', 'trNearbyEmpty'])
+      assert.notEqual(t(key), key, `${lang}.${key}`);
+  }
+  const tr = read('js/transit.js');
+  assert.match(tr, /linesAtStop\(d, S.stop\)/);
+  assert.match(tr, /S.stop = i; draw\(map\)/);
+  assert.match(read('js/place.js'), /openNearbyStops\(App.map, it\)/);
+});
+
+test('nearest stops caps eight and retains deterministic ties without mutating the dataset', () => {
+  const d = { stops: Array.from({ length: 10 }, (_, id) => ({ id, c: [36.3, 33.5] })),
+    lines: [{ id: 1, stops: Array.from({ length: 10 }, (_, i) => i) }] };
+  const before = JSON.stringify(d);
+  assert.deepEqual(nearestStops(d, [36.3, 33.5]).map(s => s.i), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(JSON.stringify(d), before);
 });

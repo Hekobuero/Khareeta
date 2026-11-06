@@ -1,3 +1,4 @@
+import { haversine } from './util.js';
 // Transit lines (Servis / microbus / bus) – pure helpers, no DOM / map (unit-tested in tests/transit).
 // Data: data/transit/<city>.json, built from OpenStreetMap by scripts/transit/build_transit.py (ODbL).
 export const TRANSIT_DIR = 'data/transit/';
@@ -87,3 +88,22 @@ export function cityFor(lng, lat, index) {
 }
 // osm link for a relation / node
 export const osmUrl = (type, id) => `https://www.openstreetmap.org/${type}/${+id}`;
+
+// The nearest-stop experience is limited to the two published city bounding boxes.
+// Unlike cityFor (which supports browsing near a city), this does not claim coverage outside them.
+export function nearbyCity(point, index) {
+  if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)) return null;
+  return TRANSIT_CITIES.find(c => {
+    const b = index?.cities?.[c]?.bbox;
+    return b && point[0] >= b[0] && point[0] <= b[2] && point[1] >= b[1] && point[1] <= b[3];
+  }) || null;
+}
+// Distances are straight-line metres, never walking times or service estimates.
+// Reuse the published route-member stops; do not infer stops from route geometry.
+export function nearestStops(data, point, { radius = 3000, limit = 8 } = {}) {
+  if (!Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)) return [];
+  return (data?.stops || []).map((stop, i) => ({ stop, i, lines: linesAtStop(data, i),
+    distance: Array.isArray(stop.c) && stop.c.length === 2 && stop.c.every(Number.isFinite) ? haversine(point, stop.c) : Infinity }))
+    .filter(s => s.lines.length && s.distance <= radius)
+    .sort((a, b) => a.distance - b.distance || a.i - b.i).slice(0, limit);
+}
