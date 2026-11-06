@@ -65,7 +65,7 @@ test('basemapMissing: only offline and only when no vector-tile features are ren
   assert.match(si, /toast\(t\('shareImageNoMap'\)/);
 });
 
-test('route chips (.ochip): 44 px hit target, 36 px visible pill; action row uniform min-height 68 px', () => {
+test('route chips (.ochip): 44 px hit target, 36 px visible pill; action row uniform min-height 84 px', () => {
   const css = read('css/app.css');
   const ochip = css.match(/\n\.ochip\{[^}]*\}/)[0];
   assert.match(ochip, /height:44px/);
