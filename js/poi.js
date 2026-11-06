@@ -48,7 +48,7 @@ const TAGS = {
 // filter chips (search.js CATS keys) -> data categories
 export const CHIP_CATS = {
   restaurants: ['food'], cafes: ['cafe'], fuel: ['fuel'], pharmacy: ['pharmacy'], mosque: ['mosque'], hotel: ['hotel'], atm: ['money'], supermarket: ['grocery'],
-  hospital: ['hospital', 'clinic'], parking: ['parking'], tourism: ['sight'], church: ['church'], bakery: ['bakery'], police: ['police'], toilets: ['toilets'],
+  hospital: ['hospital', 'clinic'], parking: ['parking'], tourism: ['sight'], church: ['church'], bakery: ['bakery'], police: ['police'], school: ['edu'], toilets: ['toilets'],
 };
 // category words (EN / AR / DE, singular + plural, common colloquial forms) -> chip key
 const WORDS = {
@@ -66,6 +66,7 @@ const WORDS = {
   parking: 'parking park موقف مواقف كراج parkplatz parken',
   tourism: 'attraction attractions museum sight sights castle citadel ruins متحف معلم معالم قلعة اثار آثار sehenswürdigkeit museum burg',
   police: 'police قسم شرطة مخفر polizei',
+  school: 'school schools kindergarten kindergartens university universities college colleges uni مدرسة مدارس روضة روضات جامعة جامعات كلية كليات schule schulen kindergarten universität universitaet universitäten hochschule hochschulen kolleg',
   toilets: 'toilet toilets wc restroom حمام حمامات تواليت toilette',
 };
 
