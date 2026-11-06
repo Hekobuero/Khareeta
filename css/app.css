@@ -127,7 +127,7 @@ span.open{color:var(--k-success);font-weight:600}span.closed{color:var(--k-dange
 /* sheet action rows (What's here / place): never ellipsize a label (AR «المسار إل…» bug). Buttons keep ≥ the width of their
    longest word, labels wrap to max 2 balanced lines, and the row wraps instead of clipping when a 4th/5th button does not fit. */
 .arow.actions{flex-wrap:wrap;overflow-x:visible}
-.arow.actions .abtn{flex:1 1 72px;min-width:min-content;height:auto;min-height:68px;padding:6px 2px}
+.arow.actions .abtn{flex:1 1 72px;min-width:min-content;height:auto;min-height:84px;padding:6px 2px}
 .arow.actions .abtn span{white-space:normal;overflow:visible;text-overflow:clip;text-align:center;line-height:1.2;text-wrap:balance;hyphens:manual;-webkit-hyphens:manual;overflow-wrap:normal}
 .act{display:inline-flex;align-items:center;gap:6px;height:40px;padding-inline:14px;border-radius:var(--k-radius-pill);background:var(--k-surface-2);color:var(--k-text);font-weight:500;font-size:var(--k-text-callout);white-space:nowrap;flex:none}
 .act .ic{width:18px;height:18px}

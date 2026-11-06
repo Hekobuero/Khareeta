@@ -1,6 +1,7 @@
 // UI strings – English is the default on first load (always), Arabic (RTL) and German selectable.
 import { SHARE_I18N } from './share-core.js';
 import { SHARE_IMAGE_I18N } from './share-image-core.js';
+import { MAP_EXPORT_I18N } from './map-export-core.js';
 const S = {
 en: {
   // Health / emergency — inline so the shipped language table contains every UI key.
@@ -615,6 +616,7 @@ de: {
 }};
 for (const l in SHARE_I18N) if (S[l]) for (const k in SHARE_I18N[l]) S[l][k] ??= SHARE_I18N[l][k];
 for (const l in SHARE_IMAGE_I18N) if (S[l]) for (const k in SHARE_IMAGE_I18N[l]) S[l][k] ??= SHARE_IMAGE_I18N[l][k];
+for (const l in MAP_EXPORT_I18N) if (S[l]) for (const k in MAP_EXPORT_I18N[l]) S[l][k] ??= MAP_EXPORT_I18N[l][k];
 
 export const LANGS = [['en', 'English'], ['ar', 'العربية'], ['de', 'Deutsch']];
 // Start language: a manual choice (localStorage kh.lang) always wins; otherwise the first entry of navigator.languages

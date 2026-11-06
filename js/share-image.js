@@ -1,7 +1,7 @@
 // Share place / route as a PNG card. Uses MapLibre canvas capture + share-image-core compose.
 // Web Share API with files when available; otherwise download. No server upload.
 import { t, getLang } from './i18n.js';
-import { toast } from './util.js';
+import { toast, settings } from './util.js';
 import { track } from './analytics.js';
 import { ic } from './icons.js';
 import {
@@ -92,6 +92,7 @@ async function tryClipboard(blob) {
  */
 export async function shareAsImage({ map, meta, lang } = {}) {
   const L = lang || getLang();
+  if (settings.lowData) toast(t('mapExportLowData') || 'Data saver is on – exporting the current view only');
   let blob;
   const noMap = basemapMissing(map);
   if (noMap) toast(t('shareImageNoMap') || SHARE_IMAGE_I18N.en.shareImageNoMap);
