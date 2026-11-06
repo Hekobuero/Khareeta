@@ -51,6 +51,7 @@ const CHIP = {
   tourism: p => ['attraction', 'museum', 'castle', 'monument'].includes(p.class) || p.subclass === 'viewpoint',
   bakery: p => p.class === 'bakery' || ['bakery', 'pastry', 'confectionery'].includes(p.subclass),
   police: p => p.class === 'police',
+  school: p => ['school', 'kindergarten', 'university', 'college'].includes(p.class) || ['school', 'kindergarten', 'university', 'college'].includes(p.subclass),
   toilets: p => p.class === 'toilets',
 };
 export function tileMatchesChip(key, p) { const f = CHIP[key]; return !!(f && p && p.name && f(p)); }
