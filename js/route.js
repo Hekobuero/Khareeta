@@ -413,9 +413,20 @@ function showRouteSheet() {
   // as high as the route card(s) + chips; the steps are one swipe / the "Steps" chip away.
   App.routePeek = 0;
   if (!desk) {
-    const sh = $('#sheet'), st = $('#stepsTitle');
-    const h = Math.round(st.getBoundingClientRect().top - sh.getBoundingClientRect().top + 4);
-    if (h > 120) { App.routePeek = Math.min(h, Math.round(innerHeight * 0.45)); App.peekH = App.routePeek; setSheet('peek'); }
+    // Size peek to the bottom of the action chips so a wrapped AR second row («الخطوات»)
+    // stays fully visible in the default stop (Nour P3: ~12 px below the 844 fold after #50).
+    // Cap raised from 0.45→0.58 vh: just enough for cards + a wrapped chip row (warn/2 alts)
+    // while keeping ~350 px of map; still peek, never force full. Steps = swipe / Steps chip.
+    const sh = $('#sheet'), chips = sh.querySelector('.ochips.rchips'), st = $('#stepsTitle');
+    const end = chips || st;
+    if (end) {
+      const h = Math.round(end.getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 8);
+      if (h > 120) {
+        const cap = Math.min(Math.round(innerHeight * 0.58), innerHeight - 160);
+        App.routePeek = Math.min(h, Math.max(360, cap));
+        App.peekH = App.routePeek; setSheet('peek');
+      }
+    }
   }
   body.onclick = e => {
     const go = e.target.closest('[data-go]'); if (go) { const i = +go.dataset.go; if (i !== R.sel) { R.sel = i; drawRoutes(); } return startNav(); }
