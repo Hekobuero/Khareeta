@@ -72,4 +72,7 @@ test('route chips (.ochip): 44 px hit target, 36 px visible pill; action row uni
   assert.match(ochip, /border:4px solid transparent/);
   assert.match(ochip, /background-clip:padding-box/);
   assert.match(css, /\.arow\.actions \.abtn\{[^}]*min-height:84px/);
+  // P3 AR clip: route sheet chips wrap so «الخطوات» stays in the 390 px viewport
+  assert.match(css, /\.ochips\.rchips\{[^}]*flex-wrap:wrap/);
+  assert.match(css, /\.ochips\.rchips\{[^}]*overflow-x:visible/);
 });

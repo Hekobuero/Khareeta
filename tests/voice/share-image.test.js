@@ -157,7 +157,7 @@ async function composePlace(page, meta, lang) {
         const { openSheet } = await import(new URL('js/core.js', location.href));
         const { ic } = await import(new URL('js/icons.js', location.href));
         const { t } = await import(new URL('js/i18n.js', location.href));
-        openSheet(`<div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>`, 'half');
+        openSheet(`<div class="ochips rchips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>`, 'half');
       });
       await waitBtnVisible(page, '#rShareImg');
       ok(`${pre}: rShareImg present`, !!(await page.$('#rShareImg')));
