@@ -23,7 +23,24 @@ const pngWH = buf => ({ w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) });
 async function boot(page, lang) {
   await page.goto(ROOT, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelector('#btnMenu svg'), null, { timeout: 30000 });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(600);
+  // WebKit harden: wait for home sheet before opening another (same pattern as map-export/action-row).
+  await page.waitForFunction(() => window.KH?.App?.sheetKind === 'home', null, { timeout: 30000 }).catch(() => {});
+}
+
+async function waitBtnVisible(page, sel) {
+  const btn = page.locator(sel);
+  await btn.waitFor({ state: 'attached', timeout: 15000 });
+  for (let i = 0; i < 8; i++) {
+    if (await btn.isVisible().catch(() => false)) break;
+    await page.evaluate(async () => {
+      const c = await import(new URL('js/core.js', location.href));
+      if (typeof c.setSheet === 'function') c.setSheet('full');
+    }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
+  await btn.waitFor({ state: 'visible', timeout: 10000 });
+  return btn;
 }
 
 async function composePlace(page, meta, lang) {
@@ -63,10 +80,10 @@ async function composePlace(page, meta, lang) {
       const dir = await page.evaluate(() => document.documentElement.dir || getComputedStyle(document.body).direction);
       ok(`${pre}: direction`, lang === 'ar' ? dir === 'rtl' : dir !== 'rtl');
 
-      // What's here button
+      // What's here button (harden: attached → full if needed → visible)
       await page.evaluate(async (nm) => { const m = await import(new URL('js/whats-here.js', location.href)); m.openWhatsHere([36.2765, 33.5138], { name: nm }); }, lang === 'ar' ? 'نقطة' : 'Pin');
-      await page.waitForSelector('#whShareImg');
-      const whLab = await page.locator('#whShareImg span').textContent();
+      await waitBtnVisible(page, '#whShareImg');
+      const whLab = await page.locator('#whShareImg span').textContent({ timeout: 10000 });
       ok(`${pre}: whShareImg label`, !!whLab && whLab.length >= 3, whLab);
       // keep link share
       ok(`${pre}: whShare (link) kept`, !!(await page.$('#whShare')));
@@ -92,7 +109,7 @@ async function composePlace(page, meta, lang) {
 
       // Place sheet button
       await page.evaluate(async it => { const m = await import(new URL('js/place.js', location.href)); m.openPlace(it, { noFly: true }); }, POI);
-      await page.waitForSelector('#pShareImg');
+      await waitBtnVisible(page, '#pShareImg');
       ok(`${pre}: pShareImg present`, !!(await page.$('#pShareImg')));
       ok(`${pre}: pShare (link) kept`, !!(await page.$('#pShare')));
       // action-row still wraps without ellipsis on route label
@@ -142,7 +159,7 @@ async function composePlace(page, meta, lang) {
         const { t } = await import(new URL('js/i18n.js', location.href));
         openSheet(`<div class="ochips"><button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button><button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button><button class="ochip" id="rSteps">${ic('directions', 'xs')}${t('steps')}</button></div>`, 'half');
       });
-      await page.waitForSelector('#rShareImg');
+      await waitBtnVisible(page, '#rShareImg');
       ok(`${pre}: rShareImg present`, !!(await page.$('#rShareImg')));
       ok(`${pre}: rShare (link) kept`, !!(await page.$('#rShare')));
       if (bn === browsers[0] && scheme === 'light') {
