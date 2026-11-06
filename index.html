@@ -38,9 +38,13 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
-<link rel="preload" as="fetch" crossorigin href="https://tiles.openfreemap.org/planet">
+<!-- planet TileJSON fetched by MapLibre when the style loads; preloading it raced MapLibre on Slow 4G -->
 <link rel="preload" as="script" href="vendor/maplibre-gl/maplibre-gl.js">
 <link rel="modulepreload" href="js/app.js">
+<link rel="modulepreload" href="js/util.js">
+<link rel="modulepreload" href="js/i18n.js">
+<link rel="modulepreload" href="js/core.js">
+<link rel="modulepreload" href="js/mapstyle.js">
 <link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/inter-latin-400-normal.woff2">
 <link rel="preload" as="font" type="font/woff2" crossorigin href="fonts/inter-latin-600-normal.woff2">
 <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css">

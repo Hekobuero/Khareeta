@@ -6,23 +6,34 @@ import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center,
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
 import { initSearch, renderChips, toggleChip, fullSearch, filterActive, showFilterSheet } from './search.js';
-import { openHealthSheet } from './health.js';
 import { WLAYERS } from './world-poi.js';
 import { tileTags, tileOsm, TILE_POI_LAYERS } from './tile-poi.js';
 import { loadPois, addPoiLayers, setPoiVisible, LAYERS as POI_LAYERS, P as POIS, toItem } from './poi.js';
 import { mapIsDark } from './mapstyle.js';
-import { addOvLayers, syncOverture, ovItemAt, OV_LAYERS } from './overture.js';
 import { OV_ATTR_URL, OV_LICENSE_URL } from './overture-data.js';
-import { parseDeepLink } from './share-core.js';
-import { openPlace, openPoint, openCoordPlace, weatherRaw, wmo, currentPlace } from './place.js';
 import { showSaved } from './ui.js';
 import { addSavedLayer } from './saved.js';
-import { ensureRouteLayers, initRouteMapEvents, routeFromUrl, navActive, openDirections, routeState } from './route.js';
 import { initDrawer, openDrawer, toggleLayers, hooks, measureActive, measureClick, startMeasure } from './ui.js';
-import { initAnalytics, track } from './analytics.js';
-import { initClosures, closureClick } from './closures.js';
 import { installLabelGuard } from './label-guard.js';
-import { addTransitLayers, syncTransit, transitClick, openLines } from './transit.js';
+import { weatherRaw, wmo } from './weather-core.js';
+
+// Heavy features (place/route/voice/photos/overture/transit/closures/analytics/health) load after
+// first map paint so Slow-4G phones spend bandwidth on MapLibre + style first (LCP / map-ready).
+const navActive = () => !!App.navMode;
+const loadPlace = () => import('./place.js');
+const loadRoute = () => import('./route.js');
+const loadOverture = () => import('./overture.js');
+const loadTransit = () => import('./transit.js');
+const loadClosures = () => import('./closures.js');
+const loadAnalytics = () => import('./analytics.js');
+const loadHealth = () => import('./health.js');
+const loadShareCore = () => import('./share-core.js');
+const openPlace = (item, opts) => loadPlace().then(m => m.openPlace(item, opts));
+const openPoint = (ll) => loadPlace().then(m => m.openPoint(ll));
+const openCoordPlace = (c) => loadPlace().then(m => m.openCoordPlace(c));
+const track = (name, props) => { loadAnalytics().then(m => m.track(name, props)).catch(() => {}); };
+let _ovLayers = [];
+let _ovItemAt = () => null;
 
 applyDir();
 try { performance.setResourceTimingBufferSize(1000); } catch {} // warmSW() reads the page's resource list
@@ -43,7 +54,7 @@ function renderUI() {
   $('#map').setAttribute('aria-label', t('mapAria'));
   App.map?.getCanvas().setAttribute('aria-label', t('mapAria'));
   attrib?.render();
-  App.map && syncTransit(App.map);
+  if (App.map) loadTransit().then(m => m.syncTransit(App.map)).catch(() => {});
   renderChips();
   document.title = t('docTitle'); // tab title follows the UI language (static <title> in index.html stays EN for SEO)
 }
@@ -164,15 +175,32 @@ function startPois() {
   'requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 2000 }) : setTimeout(go, 200);
 }
 // Overture shops layer (optional, unverified): drawn below our OSM POIs, synced on every move
-function ovLayers() { if (!map.isStyleLoaded()) { setTimeout(ovLayers, 250); return; } addOvLayers(map, mapIsDark()); ovSync(); }
-const ovSync = () => syncOverture(map, settings.overture !== false && !settings.lowData && !navActive(), on => attrib.setOverture(on));
+function ovLayers() {
+  if (!map.isStyleLoaded()) { setTimeout(ovLayers, 250); return; }
+  loadOverture().then(m => {
+    _ovLayers = m.OV_LAYERS;
+    _ovItemAt = m.ovItemAt;
+    m.addOvLayers(map, mapIsDark());
+    ovSync();
+  }).catch(e => console.warn('overture', e));
+}
+const ovSync = () => {
+  loadOverture().then(m => {
+    _ovLayers = m.OV_LAYERS;
+    _ovItemAt = m.ovItemAt;
+    m.syncOverture(map, settings.overture !== false && !settings.lowData && !navActive(), on => attrib.setOverture(on));
+  }).catch(() => {});
+};
 hooks.overture = ovSync;
 // Servis / bus lines from OSM (js/transit.js): off by default, synced on every move
-function trLayers() { if (!map.isStyleLoaded()) { setTimeout(trLayers, 250); return; } addTransitLayers(map, mapIsDark()); syncTransit(map); }
-hooks.transit = () => syncTransit(map);
-map.on('moveend', () => syncTransit(map));
+function trLayers() {
+  if (!map.isStyleLoaded()) { setTimeout(trLayers, 250); return; }
+  loadTransit().then(m => { m.addTransitLayers(map, mapIsDark()); m.syncTransit(map); }).catch(e => console.warn('transit', e));
+}
+hooks.transit = () => loadTransit().then(m => m.syncTransit(map)).catch(() => {});
+map.on('moveend', () => loadTransit().then(m => m.syncTransit(map)).catch(() => {}));
 map.once('idle', trLayers);
-$('#trPill').onclick = () => openLines(map);
+$('#trPill').onclick = () => loadTransit().then(m => m.openLines(map));
 map.on('moveend', ovSync);
 map.once('idle', ovLayers); setTimeout(ovLayers, 5000);
 map.once('idle', () => addSavedLayer(map));
@@ -185,7 +213,7 @@ map.on('style.load', () => {
   if (POIS.geo) addPoiLayers(map, mapIsDark());
   ovLayers(); trLayers(); addSavedLayer(map);
   if (navActive()) setPoiVisible(map, false);
-  relabel(map); ensureRouteLayers(); resetPoiFilters();
+  relabel(map); loadRoute().then(m => m.ensureRouteLayers()).catch(() => {}); resetPoiFilters();
   if (App.selName) applySelFilter(App.selName);
   if (navActive()) for (const id of ['label-housenumber']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
 });
@@ -220,15 +248,16 @@ hooks.set3d = on => {
   map.easeTo({ pitch: on ? 55 : 0, duration: 600 });
 };
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (getTheme() === 'system') hooks.restyle(); });
-hooks.rerenderUI = () => { renderUI(); const p = currentPlace(); if (p && sheetState() !== 'hidden') openPlace(p, { noFly: true }); else if (App.sheetKind === 'home') showHome(true); };
+hooks.rerenderUI = () => { renderUI(); loadPlace().then(m => { const p = m.currentPlace(); if (p && sheetState() !== 'hidden') m.openPlace(p, { noFly: true }); else if (App.sheetKind === 'home') showHome(true); }).catch(() => { if (App.sheetKind === 'home') showHome(true); }); };
 
 // ---------- POI clicks on base map ----------
 map.on('click', async e => {
   if (navActive()) return;
   if (measureActive()) { measureClick([e.lngLat.lng, e.lngLat.lat]); return; }
   $('#layersPop').classList.add('hidden');
-  if (closureClick(map, e.point)) return;
-  if (transitClick(map, e)) return;
+  // Closures / transit modules may still be loading on first taps – ignore until ready.
+  if (window.__khClosureClick?.(map, e.point)) return;
+  if (window.__khTransitClick?.(map, e)) return;
   const kp = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: POI_LAYERS.filter(id => map.getLayer(id)) });
   if (kp.length) {
     const rec = POIS.all[kp[0].properties.i];
@@ -240,8 +269,8 @@ map.on('click', async e => {
     const tags = {}; for (const k of ['name', 'name:ar', 'name:en', 'name:de', 'int_name', 'name:latin', 'brand']) if (p[k]) tags[k] = p[k];
     openPlace({ id: osm_type[0].toUpperCase() + osm_id, osm_type, osm_id, name: pickName(tags).primary, lon: wp[0].geometry.coordinates[0], lat: wp[0].geometry.coordinates[1], tags }, { noFly: true }); return;
   }
-  const ko = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: OV_LAYERS.filter(id => map.getLayer(id)) });
-  if (ko.length) { const it = ovItemAt(ko[0].properties.i); if (it) { openPlace(it, { noFly: true }); return; } }
+  const ko = map.queryRenderedFeatures([[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]], { layers: _ovLayers.filter(id => map.getLayer(id)) });
+  if (ko.length) { const it = _ovItemAt(ko[0].properties.i); if (it) { openPlace(it, { noFly: true }); return; } }
   // tile POIs (esp. poi-dot badges at z14) need a ±12 px hit area; other symbol layers keep ±8
   const tileHit = map.queryRenderedFeatures([[e.point.x - 12, e.point.y - 12], [e.point.x + 12, e.point.y + 12]], { layers: TILE_POI_LAYERS.filter(id => map.getLayer(id)) }).filter(f => f.properties.name);
   const feats = tileHit.length ? tileHit : map.queryRenderedFeatures([[e.point.x - 8, e.point.y - 8], [e.point.x + 8, e.point.y + 8]]).filter(f => f.layer.type === 'symbol' && ['poi', 'place', 'aerodrome_label', 'mountain_peak', 'water_name', 'park'].includes(f.sourceLayer) && f.properties.name);
@@ -264,10 +293,11 @@ map.on('click', async e => {
   }
   if (!document.body.classList.contains('dir-open') && App.sheetKind !== 'home') { if (sheetState() !== 'hidden') closeSheet(); else showHome(); }
 });
-initClosures(map);
+loadClosures().then(m => { window.__khClosureClick = m.closureClick; m.initClosures(map); }).catch(e => console.warn('closures', e));
+loadTransit().then(m => { window.__khTransitClick = m.transitClick; }).catch(() => {});
 map.on('contextmenu', e => { if (!navActive()) openPoint([e.lngLat.lng, e.lngLat.lat]); });
 map.on('mouseenter', 'route-alt', () => map.getCanvas().style.cursor = 'pointer');
-for (const id of [...POI_LAYERS, ...WLAYERS, ...OV_LAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
+for (const id of [...POI_LAYERS, ...WLAYERS]) { map.on('mouseenter', id, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', id, () => map.getCanvas().style.cursor = ''); }
 // long-press ("what's here") for touch devices
 {
   let tm = null, sx = 0, sy = 0;
@@ -388,7 +418,7 @@ $('#btnLocate').onclick = () => {
   else { App.locMode = 1; map.easeTo({ bearing: 0, duration: 400 }); }
   renderLocBtn();
 };
-$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; if (c.dataset.health) { openHealthSheet(); return; } toggleChip(c.dataset.cat); };
+$('#chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; if (c.dataset.health) { loadHealth().then(m => m.openHealthSheet()); return; } toggleChip(c.dataset.cat); };
 
 // weather chip (map centre)
 const updWx = debounce(async () => {
@@ -420,36 +450,52 @@ addEventListener('offline', net); net();
 addEventListener('resize', syncFabs);
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); App.installPrompt = e; });
 
-initSheetDrag(); initSearch(); initDrawer(); initRouteMapEvents(); initAnalytics();
+initSheetDrag(); initSearch(); initDrawer();
+const bootSecondary = () => {
+  loadRoute().then(m => m.initRouteMapEvents()).catch(e => console.warn('route', e));
+  loadAnalytics().then(m => m.initAnalytics()).catch(e => console.warn('analytics', e));
+};
+map.once('idle', () => { 'requestIdleCallback' in window ? requestIdleCallback(bootSecondary, { timeout: 2500 }) : setTimeout(bootSecondary, 400); });
+setTimeout(bootSecondary, 8000);
 map.once('idle', () => setTimeout(prefetchStyles, 3000)); // skipped automatically in Datensparmodus (see mapstyle.prefetchStyles)
 
 // ---------- deep links ----------
 map.once('load', () => {
   const sp = new URLSearchParams(location.search);
+  const finishChrome = () => { map.once('idle', () => setTimeout(updWx, 2000)); };
   if (sp.get('r')) {
-    const stops = sp.get('r').split(';').map(s => s.split(',').map(Number)).filter(a => a.length === 2 && !a.some(isNaN)).map(([la, lo], i) => ({ name: `${la.toFixed(4)}, ${lo.toFixed(4)}`, lat: la, lon: lo }));
-    if (stops.length >= 2) routeFromUrl(stops, sp.get('m') || 'car');
-  } else if (parseDeepLink(location.search)) {
-    const d = parseDeepLink(location.search);
+    const stops = sp.get('r').split(';').map(s => s.split(',').map(Number)).filter(a => a.length === 2 && !a.some(isNaN)).map(([la, lo]) => ({ name: `${la.toFixed(4)}, ${lo.toFixed(4)}`, lat: la, lon: lo }));
+    if (stops.length >= 2) loadRoute().then(m => m.routeFromUrl(stops, sp.get('m') || 'car'));
+    else showHome();
+    finishChrome();
+    if (sp.has('debug')) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;bottom:4px;left:50%;transform:translateX(-50%);font:11px monospace;background:#000a;color:#fff;padding:2px 6px;z-index:999;border-radius:4px'; document.body.appendChild(d); setInterval(() => d.textContent = `v${VERSION} z${map.getZoom().toFixed(1)} dpr${devicePixelRatio} ${navigator.onLine ? 'on' : 'off'}`, 1000); }
+    return;
+  }
+  const pParam = sp.get('p') || '';
+  const maybeShare = pParam.includes(','); // share-core ?p=lat,lon (OSM ids never contain a comma)
+  const goShare = () => loadShareCore().then(sc => {
+    const d = sc.parseDeepLink(location.search);
+    if (!d) { showHome(); return; }
     map.jumpTo({ center: [d.lon, d.lat], zoom: d.z });
     import('./whats-here.js').then(m => {
       m.openWhatsHere([d.lon, d.lat], { name: d.name, route: d.route });
-      // phone: the bottom sheet covers the lower half – move the point into the free map area above it (like fitArea)
       setTimeout(() => {
         const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sheet-visible')) || 0;
-        if (v > 0) { const top = App.topPad ?? 120, H = map.getContainer().clientHeight, p = map.getPadding(); map.easeTo({ center: [d.lon, d.lat], zoom: d.z, offset: [0, (top + H - v) / 2 - (p.top + H - p.bottom) / 2], duration: 0 }); }
+        if (v > 0) { const top = App.topPad ?? 120, H = map.getContainer().clientHeight, pad = map.getPadding(); map.easeTo({ center: [d.lon, d.lat], zoom: d.z, offset: [0, (top + H - v) / 2 - (pad.top + H - pad.bottom) / 2], duration: 0 }); }
       }, 400);
     });
-  } else if (sp.get('ll')) {
+  }).catch(() => showHome());
+  if (maybeShare) goShare();
+  else if (sp.get('ll')) {
     const [la, lo] = sp.get('ll').split(',').map(Number);
-    const p = sp.get('p'); const types = { n: 'node', w: 'way', r: 'relation' };
-    const item = { id: p || 'pt', lon: lo, lat: la, name: sp.get('n') || t('whatsHere'), tags: {}, coord: !p };
-    if (p) { item.osm_type = types[p[0]]; item.osm_id = +p.slice(1); }
+    const pid = sp.get('p'); const types = { n: 'node', w: 'way', r: 'relation' };
+    const item = { id: pid || 'pt', lon: lo, lat: la, name: sp.get('n') || t('whatsHere'), tags: {}, coord: !pid };
+    if (pid && !pid.includes(',')) { item.osm_type = types[pid[0]]; item.osm_id = +pid.slice(1); }
     map.jumpTo({ center: [lo, la], zoom: 17 });
     openPlace(item, { noFly: true });
   } else if (sp.get('q')) { $('#q').value = sp.get('q'); fullSearch(sp.get('q')); }
   else showHome();
-  updWx();
+  finishChrome();
   if (sp.has('debug')) { const d = document.createElement('div'); d.style.cssText = 'position:fixed;bottom:4px;left:50%;transform:translateX(-50%);font:11px monospace;background:#000a;color:#fff;padding:2px 6px;z-index:999;border-radius:4px'; document.body.appendChild(d); setInterval(() => d.textContent = `v${VERSION} z${map.getZoom().toFixed(1)} dpr${devicePixelRatio} ${navigator.onLine ? 'on' : 'off'}`, 1000); }
 });
 // app start: granted → follow the real position (and centre on it); prompt / no Permissions API (iOS) → ask once;
