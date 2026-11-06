@@ -240,6 +240,7 @@ function render(item, tg, loading) {
     <button class="abtn" id="pSave">${ic(saved ? 'bookmark' : 'bookmarkOutline')}<span>${saved ? t('savedOk') : t('save')}</span></button>
     <button class="abtn" id="pShare">${ic('share')}<span>${t('share')}</span></button>
     <button class="abtn" id="pShareImg" aria-label="${esc(t('shareAsImage'))}" title="${esc(t('shareAsImage'))}">${ic('image')}<span>${t('shareImageShort')}</span></button>
+    <button class="abtn" id="pPrint" aria-label="${esc(t('mapExportPrint'))}" title="${esc(t('mapExportPrint'))}">${ic('download')}<span>${t('mapExportPrintShort')}</span></button>
     ${item.coord ? `<button class="abtn" id="pRoad">${ic('warning')}<span>${esc(t('clOpen'))}</span></button>` : ''}
     ${fourth}
   </div>
@@ -277,6 +278,7 @@ function render(item, tg, loading) {
     map: App.map,
     meta: placeMetaFrom({ name: title, address: addr || item.sub || '', lat: item.lat, lon: item.lon, ohStatus: st }),
   });
+  body.querySelector('#pPrint').onclick = () => import('./map-export.js').then(m => m.printPlace({ map: App.map, place: { ...it, address: addr || item.sub || '', lat: item.lat, lon: item.lon } }));
   body.querySelector('#pMore')?.addEventListener('click', () => { const g = body.querySelector('.igroup'); setSheet('full'); g?.scrollIntoView({ behavior: 'smooth' }); });
   const hr = body.querySelector('#pHours');
   if (hr) {

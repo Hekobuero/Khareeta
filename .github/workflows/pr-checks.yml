@@ -195,6 +195,9 @@ jobs:
       - name: Share as image (buttons + PNG card, iPhone 390, DE/EN/AR, light/dark, WebKit + Chromium, mocked)
         run: node share-image.test.js
         timeout-minutes: 10
+      - name: Map export print/PDF (WebKit iPhone 390×844, DE/AR, mocked)
+        run: node map-export.test.js
+        timeout-minutes: 5
       - name: Category chip never jumps to Syria + GPS start (Germany view, mocked Overpass, DE/AR, WebKit + Chromium)
         run: node chip-view.test.js
         timeout-minutes: 8
@@ -209,6 +212,7 @@ jobs:
           path: |
             tests/voice/out/ios/
             tests/voice/out/health-sheet/
+            tests/voice/out/map-export/
           if-no-files-found: ignore
           retention-days: 7
 
