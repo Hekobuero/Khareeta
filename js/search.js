@@ -33,6 +33,7 @@ export const CATS = [
   ['church', 'church', POI.worship, 'nwr["amenity"="place_of_worship"]["religion"="christian"]'],
   ['bakery', 'bakery', POI.food, 'nwr["shop"~"^(bakery|pastry|confectionery)$"]'],
   ['police', 'police', POI.civic, 'nwr["amenity"="police"]'],
+  ['school', 'school', POI.civic, 'nwr["amenity"~"^(school|kindergarten|university|college)$"]'],
   ['toilets', 'toilets', POI.civic, 'nwr["amenity"="toilets"]'],
 ];
 
