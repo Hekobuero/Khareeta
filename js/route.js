@@ -12,7 +12,7 @@ import { placeSuggest, offlineNotice } from './search.js';
 import { loadGazetteer } from './offline-search.js';
 import { activeList } from './closures.js';
 import { closuresNearRoute, plural } from './closures-core.js';
-import { enrichStepsWithLandmarks, harvestFromMap, seedFromSyriaPois, stepUsesLandmark, formatLandmarkInstr, deArticle, setLandmarkFocus } from './landmarks.js';
+import { enrichStepsWithLandmarks, harvestFromMap, seedFromSyriaPois, stepUsesLandmark, formatLandmarkInstr, deArticle, setLandmarkFocus, streetNameHelpful } from './landmarks.js';
 import { P } from './poi.js';
 
 const R = { stops: [], mode: 'car', routes: [], sel: 0, markers: [], active: false };
@@ -35,7 +35,9 @@ function lmBanner(s) {
 }
 export function instr(s) {
   if (stepUsesLandmark(s)) return lmBanner(s);
-  const n = s.name ? (s.ref && !s.name.includes(s.ref) ? `${s.name} (${s.ref})` : s.name) : (s.ref || '');
+  // Mirror voice: hide street names whose script does not fit the UI language (e.g. French-only in AR)
+  const raw = s.name ? (s.ref && !s.name.includes(s.ref) ? `${s.name} (${s.ref})` : s.name) : (s.ref || '');
+  const n = streetNameHelpful(s, getLang()) ? raw : '';
   const mods = t('mods'), m = s.modifier || 'straight';
   const side = /left/.test(m) ? t('sideL') : t('sideR');
   switch (s.type) {
@@ -171,12 +173,27 @@ export async function computeRoutes(stops, mode, opts) {
   catch (e) { console.warn('OSRM failed', e); toast(t('netErr')); routes = await valhalla(stops, mode, opts); }
   routes.forEach(r => { r.steps = smoothSteps(r.steps); });
   try {
+    // POIs load after first map idle – wait briefly so Syria landmarks are available on first route
+    if (!P.all.length && P.ready) await Promise.race([P.ready, new Promise(r => setTimeout(r, 1500))]);
     const foc = App.me || routes[0]?.coords?.[0];
     if (foc) setLandmarkFocus(foc);
     seedFromSyriaPois(P.all); harvestFromMap(App.map);
   } catch {}
   routes.forEach(r => enrichStepsWithLandmarks(r.steps, getLang()));
   return routes;
+}
+
+/** Re-seed landmarks after bundled Syria POIs finish loading (race: first route often runs before P.all is ready). */
+export function refreshLandmarksOnRoutes() {
+  if (!R.routes?.length) return false;
+  try {
+    const foc = App.me || R.routes[0]?.coords?.[0];
+    if (foc) setLandmarkFocus(foc);
+    seedFromSyriaPois(P.all);
+    harvestFromMap(App.map);
+    R.routes.forEach(r => enrichStepsWithLandmarks(r.steps, getLang()));
+    return true;
+  } catch { return false; }
 }
 
 // ---------------- map layers (route layers live in the style, source 'khareeta-route') ----------------
@@ -562,7 +579,7 @@ export function navHeading({ heading, speed, compass, compassAge, prev, p, route
 }
 function beginNav(r, sim, coords) {
   const start = coords ? [coords.longitude, coords.latitude] : r.coords[0];
-  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim || !('geolocation' in navigator); N.pos = null; N.prev = null; N.lastDist = null; N.lastRemain = null; N._lmIdx = -1; r._stepAlong = null;
+  R.active = true; App.navMode = true; document.body.classList.add('nav'); N.cum = cumulative(r.coords); N.stepIdx = 0; N.off = 0; N.spoken = {}; N.follow = true; N.arrived = false; N.rerouting = false; N.moved = false; N.anchor = null; N.isSim = !!sim || !('geolocation' in navigator); N.pos = null; N.prev = null; N.lastDist = null; N.lastRemain = null; N._lmIdx = -1; N._lmSeedN = -1; r._stepAlong = null;
   try {
     if (start) setLandmarkFocus(start);
     seedFromSyriaPois(P.all); harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang());
@@ -654,9 +671,16 @@ function onPos(p, heading, speed, acc) {
   let idx = r._stepAlong.findIndex(a => a > along + 5); if (idx < 0) idx = r.steps.length - 1;
   N.stepIdx = idx;
   const step = r.steps[idx], distTo = r._stepAlong[idx] - along;
-  // refresh local landmark index from already-loaded tiles/POIs (no network); re-attach if this step has none yet
-  if (!step.landmark && (idx !== N._lmIdx)) {
-    try { if (p) setLandmarkFocus(p); harvestFromMap(App.map); enrichStepsWithLandmarks(r.steps, getLang()); } catch {}
+  // refresh local landmark index from already-loaded tiles/POIs (no network); re-attach if this step has none yet.
+  // Retry when bundled Syria POIs finish loading (P.all grows) – first pass often runs with an empty seed.
+  if (!step.landmark && (idx !== N._lmIdx || (P.all.length && P.all.length !== N._lmSeedN))) {
+    try {
+      if (p) setLandmarkFocus(p);
+      seedFromSyriaPois(P.all);
+      harvestFromMap(App.map);
+      enrichStepsWithLandmarks(r.steps, getLang());
+      N._lmSeedN = P.all.length;
+    } catch {}
     N._lmIdx = idx;
   }
   // voice: start prompt, early prompt (car ≈ 13 s ahead = 300–700 m; walk 30 m), "now", close maneuvers chained – see voice.js

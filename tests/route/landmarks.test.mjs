@@ -22,7 +22,7 @@ const read = p => readFileSync(new URL(p, root), 'utf8');
 const {
   classifyLandmark, landmarkName, pickLandmark, enrichStepsWithLandmarks,
   clearLandmarkIndex, upsertLandmarks, seedFromSyriaPois, formatLandmarkInstr,
-  deArticle, stepUsesLandmark, LANDMARK_RADIUS_M, isBeforeManeuver, getLandmarkIndex,
+  deArticle, stepUsesLandmark, streetNameHelpful, LANDMARK_RADIUS_M, isBeforeManeuver, getLandmarkIndex,
   TIER_SLACK_M, setLandmarkFocus, nameOkForLang, stripNestedArAfter, HARVEST_MAX,
 } = await import('../../js/landmarks.js');
 const { setLang, t, getLang } = await import('../../js/i18n.js');
@@ -373,6 +373,94 @@ test('P2: bundled Syria POIs never evicted; harvest capped by distance not inser
   assert.equal(lm.kind, 'worship');
   assert.match(lm.name, /فتحي|Fathi/);
   assert.doesNotMatch(lm.name, /كروسان/);
+});
+
+
+test('streetNameHelpful: empty / foreign script / road numbers', () => {
+  assert.equal(streetNameHelpful({ name: '' }, 'ar'), false);
+  assert.equal(streetNameHelpful({ name: 'Rue de France' }, 'ar'), false);
+  assert.equal(streetNameHelpful({ name: 'شارع بغداد' }, 'ar'), true);
+  assert.equal(streetNameHelpful({ name: 'شارع بغداد' }, 'en'), false);
+  assert.equal(streetNameHelpful({ name: 'Baghdad Street' }, 'en'), true);
+  assert.equal(streetNameHelpful({ name: 'Baghdad Street' }, 'de'), true);
+  assert.equal(streetNameHelpful({ ref: 'M5' }, 'ar'), true);
+  assert.equal(streetNameHelpful({ name: '', ref: '' }, 'de'), false);
+});
+
+test('AR prefers landmark when street missing or foreign-only', () => {
+  clearLandmarkIndex();
+  const features = [
+    item(36.30669, 33.51157, {
+      amenity: 'place_of_worship',
+      name: 'الجامع الأموي',
+      'name:ar': 'الجامع الأموي',
+      'name:en': 'Umayyad Mosque',
+      'name:de': 'Umayyaden-Moschee',
+    }),
+  ];
+  upsertLandmarks(features);
+
+  for (const street of ['', 'Rue de France', 'Avenue Foch']) {
+    const steps = [
+      { type: 'depart', loc: [36.305, 33.511], bearing_after: 90 },
+      { type: 'turn', modifier: 'left', name: street, loc: [36.30669, 33.51157] },
+      { type: 'arrive', last: true, loc: [36.308, 33.512] },
+    ];
+    enrichStepsWithLandmarks(steps, 'ar');
+    assert.ok(steps[1].landmark, `expected landmark for street=${JSON.stringify(street)}`);
+    assert.equal(steps[1].landmark.name, 'الجامع الأموي');
+    assert.ok(stepUsesLandmark(steps[1]));
+    const textAr = banner(steps[1].landmark, 'انعطف يسارًا', 'ar');
+    assert.equal(textAr, 'انعطف يسارًا بعد الجامع الأموي');
+    assert.match(textAr, /الجامع الأموي/);
+    assert.doesNotMatch(textAr, /Rue|Avenue|Foch/);
+  }
+});
+
+test('voice AR distance prompt keeps landmark without doubled leading بعد', () => {
+  setLang('ar');
+  const lm = { name: 'الجامع الأموي', kind: 'worship', relation: 'after' };
+  const action = 'انعطف يسارًا';
+  const vo = t('vo'); // Syrian
+  const voMsa = t('voMsa');
+  const fill = (s, o) => String(s).replace(/\{(\w+)\}/g, (_, k) => o[k] ?? '');
+  for (const [variant, o, d] of [['sy', vo, 'مية متر'], ['msa', voMsa, 'مئة متر']]) {
+    const instrText = formatLandmarkInstr(lm, action, { text: o.lmAfter, art: '' });
+    // action-first AR templates: stripNestedArAfter is a no-op (بعد is not leading)
+    const stripped = stripNestedArAfter(instrText, 'ar');
+    assert.equal(stripped, instrText);
+    const spoken = fill(o.inDist, { d, i: stripped });
+    assert.match(spoken, /الجامع الأموي/, variant);
+    assert.doesNotMatch(spoken, /^بعد .+، بعد /, variant); // no «بعد <dist>، بعد <landmark>…» with landmark-first
+    assert.match(spoken, new RegExp(`بعد ${d}، .+ بعد الجامع الأموي`), variant);
+  }
+});
+
+test('DE/EN landmark instructions stay grammatical with Umayyad', () => {
+  const lmDe = { name: 'Umayyaden-Moschee', kind: 'worship', relation: 'after' };
+  const lmEn = { name: 'Umayyad Mosque', kind: 'worship', relation: 'after' };
+  assert.equal(banner(lmDe, 'links abbiegen', 'de'), 'Nach der Umayyaden-Moschee links abbiegen');
+  assert.equal(banner(lmEn, 'turn left', 'en'), 'After Umayyad Mosque, turn left');
+  setLang('de');
+  const voDe = t('vo');
+  const fill = (s, o) => String(s).replace(/\{(\w+)\}/g, (_, k) => o[k] ?? '');
+  const iDe = formatLandmarkInstr(lmDe, 'links abbiegen', { text: voDe.lmAfter, art: deArticle(lmDe.kind, lmDe.name) });
+  assert.equal(fill(voDe.inDist, { d: '100 Meter', i: iDe }), 'In 100 Meter nach der Umayyaden-Moschee links abbiegen.');
+  setLang('en');
+  const voEn = t('vo');
+  const iEn = formatLandmarkInstr(lmEn, 'turn left', { text: voEn.lmAfter, art: '' });
+  assert.equal(fill(voEn.inDist, { d: '100 metres', i: iEn }), 'In 100 metres, after Umayyad Mosque, turn left.');
+});
+
+test('route.js banner filters unhelpful streets; nav re-seeds Syria POIs', () => {
+  const routeSrc = read('js/route.js');
+  assert.match(routeSrc, /streetNameHelpful/);
+  assert.match(routeSrc, /seedFromSyriaPois\(P\.all\)/);
+  assert.match(routeSrc, /P\.all\.length !== N\._lmSeedN/);
+  assert.match(routeSrc, /refreshLandmarksOnRoutes/);
+  assert.match(routeSrc, /await Promise\.race\(\[P\.ready/);
+  const appSrc = read('js/app.js');
+  assert.match(appSrc, /refreshLandmarksOnRoutes/);
 });
 
 test('CNAME still present', () => {

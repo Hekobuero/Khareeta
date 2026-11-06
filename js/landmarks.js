@@ -360,7 +360,19 @@ export function enrichStepsWithLandmarks(steps, lang = 'en', features = null) {
   return steps;
 }
 
-/** True when a step should prefer the landmark cue over the street-name instruction. */
+/** True when step name/ref is usable in `lang` (non-empty + matching script, or a bare road number). */
+export function streetNameHelpful(s, lang = 'en') {
+  const name = String(s?.name || '').trim();
+  const ref = String(s?.ref || '').split(';')[0].trim();
+  if (name) return nameOkForLang(name, lang);
+  if (!ref) return false;
+  // M5 / A1-style refs are language-agnostic (same rule as voice.js nameFor for AR)
+  if (/^[A-Z]{0,2}\d+([\/\-]\w+)?$/i.test(ref)) return true;
+  return nameOkForLang(ref, lang);
+}
+
+/** True when a step should prefer the landmark cue over the street-name instruction.
+ *  Landmarks win whenever one is attached (covers missing and unhelpful/foreign street names). */
 export function stepUsesLandmark(s) {
   return !!(s && s.landmark && s.landmark.name && landmarkEligible(s));
 }

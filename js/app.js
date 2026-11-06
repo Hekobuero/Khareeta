@@ -171,7 +171,12 @@ function poiLayers() { if (!POIS.geo || map.getSource('kh-poi')) return; addPoiL
 let poiStarted = false;
 function startPois() {
   if (poiStarted) return; poiStarted = true;
-  const go = () => loadPois().then(function tryAdd() { if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250); }).catch(e => { poiStarted = false; console.warn('poi data', e); });
+  const go = () => loadPois().then(function tryAdd() {
+    if (map.getSource('kh-poi')) return; if (map.isStyleLoaded()) poiLayers(); else setTimeout(tryAdd, 250);
+  }).then(() => {
+    // Landmark-Directions: first route often finishes before P.all is ready – re-seed once POIs land
+    loadRoute().then(m => { try { m.refreshLandmarksOnRoutes?.(); } catch {} }).catch(() => {});
+  }).catch(e => { poiStarted = false; console.warn('poi data', e); });
   'requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 2000 }) : setTimeout(go, 200);
 }
 // Overture shops layer (optional, unverified): drawn below our OSM POIs, synced on every move
