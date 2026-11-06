@@ -115,11 +115,13 @@ else the UI language at the first page load.
 
 Deep links combine normally: `https://khareeta.app/?q=Aleppo&utm_source=fb&utm_content=post2_ar`.
 
-**Funnel** `visit → search → route → nav_start → install`: the first event of each step in a session carries `props.f = 1`
-(at most once per step and session). Repeated `search` / `route` / `nav_start` events are sent **on purpose** (they are the
+**Funnel** `visit → search → place_view → route → nav_start → install`: the first event of each step in a session carries `props.f = 1`
+(at most once per step and session). Repeated `search` / `place_view` / `route` / `nav_start` events are sent **on purpose** (they are the
 usage counts in the dashboard); only the funnel flag is once per session. The funnel step `search` = event type `search`
-(typed searches and category chips, `props.kind`); `category` events (chip filter changes) are not a funnel step.
+(typed searches and category chips, `props.kind`); `place_view` = opening a place (first meaningful use of a result); `category` events (chip filter changes) are not a funnel step.
+There is no separate `map_ready` event type (a new every-session type would be rejected by `kh_type_ok` until migrated and could drop whole batches).
 In `kh_tracking()` a session counts for a step only if it also has the previous steps; `install` needs a `visit` earlier in the same session.
+The optional `supabase/migrations/20261108_funnel_place_view.sql` extends the admin funnel bars with `place_view` (client already sets `props.f` without it).
 **Install**: event type `install` with `props.stage` = `available` (browser offered install, once per session),
 `prompt_shown`, `accepted`, `dismissed` (stages only) and `installed` (`appinstalled`) – the one real install: sent at
 most **once per device** (`localStorage kh.inst`) and once per session, even if the browser fires `appinstalled` twice;
@@ -128,6 +130,7 @@ only it can carry `f = 1`. The admin counts installs as distinct devices. `visit
 All of this uses existing columns + `props` JSON, so **no migration is required for collecting**.
 The optional `supabase/migrations/20261102_tracking.sql` adds the `kh_tracking()` RPC + indexes for the Funnel /
 channel_language / Campaign / Install cards in `admin.html` (they stay hidden until it is applied).
+Apply `20261108_funnel_place_view.sql` afterwards if you want the six-step funnel (with `place_view`) in the admin bars.
 
 ## Development
 Static site, no build step. Serve the folder with any static web server (`python3 -m http.server`).

@@ -101,11 +101,19 @@ export function parseCh(v) {
   const m = String(v || '').trim().toLowerCase().match(/^([a-z]{1,20})[_-](ar|en|de)$/);
   return m && CH_KNOWN.has(m[1]) ? { ch: m[1], l: m[2] } : null;
 }
-function attribution() {
-  try { const a = JSON.parse(sessionStorage.getItem('kh.att') || 'null'); if (a) return a; } catch {}
-  const sp = new URLSearchParams(location.search);
-  let refHost = null, refRaw = '';
-  try { refRaw = document.referrer || ''; if (refRaw) { const u = new URL(refRaw); const h = u.protocol === 'android-app:' ? u.host || refRaw.slice(14).split('/')[0] : u.hostname; if (h && h !== location.hostname) refHost = h.replace(/^www\./, '').slice(0, 120); } } catch {}
+// Pure parse of a landing URL (+ optional referrer host and UI language). Used by attribution() and by unit tests.
+// click-ids (fbclid/gclid/…) are NOT stored – they stay out of analytics; report-core still strips them from shared links.
+export function buildAttribution({ search = '', referrer = '', lang = 'en' } = {}) {
+  const sp = search instanceof URLSearchParams ? search : new URLSearchParams(String(search || '').replace(/^\?/, ''));
+  let refHost = null;
+  try {
+    const refRaw = referrer || '';
+    if (refRaw) {
+      const u = new URL(refRaw);
+      const h = u.protocol === 'android-app:' ? u.host || refRaw.slice(14).split('/')[0] : u.hostname;
+      if (h) refHost = h.replace(/^www\./, '').slice(0, 120);
+    }
+  } catch {}
   const a = {
     utm_source: clip(sp.get('utm_source') || sp.get('ref') || sp.get('source'), 80),
     utm_medium: clip(sp.get('utm_medium')), utm_campaign: clip(sp.get('utm_campaign')),
@@ -118,15 +126,27 @@ function attribution() {
   if (cp && !a.utm_source) a.utm_source = cp.ch;
   const ch = deriveChannel(a.utm_source, refHost);
   const pl = (sp.get('lang') || '').toLowerCase().slice(0, 2);
-  const l = (cp && cp.l) || (LANGS.includes(pl) && pl) || langHint(a.utm_content, a.utm_campaign) || getLang();
+  const l = (cp && cp.l) || (LANGS.includes(pl) && pl) || langHint(a.utm_content, a.utm_campaign) || (LANGS.includes(lang) ? lang : 'en');
   a.ch = ch; a.chl = `${ch}_${l}`;
+  return a;
+}
+// First-touch per session: compute once from the landing URL, then reuse sessionStorage across reloads in this tab.
+export function attribution() {
+  try { const a = JSON.parse(sessionStorage.getItem('kh.att') || 'null'); if (a && a.chl) return a; } catch {}
+  let ref = '';
+  try { ref = document.referrer || ''; } catch {}
+  // drop same-origin referrer so it does not become a fake "referral" channel
+  try { if (ref) { const u = new URL(ref); if (u.hostname.replace(/^www\./, '') === location.hostname.replace(/^www\./, '')) ref = ''; } } catch {}
+  const a = buildAttribution({ search: location.search || '', referrer: ref, lang: getLang() });
   try { sessionStorage.setItem('kh.att', JSON.stringify(a)); } catch {}
   return a;
 }
-const ATT = attribution();
+attribution(); // warm first-touch as soon as the module loads (same as before)
 const UTM_KEYS = ['utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
-// Funnel visit → search → route → nav_start → install: the first event of each step in a session carries props.f = 1
-const FUNNEL = new Set(['visit', 'search', 'route', 'nav_start', 'install']);
+// Funnel visit → search → place_view → route → nav_start → install.
+// place_view = place open / first meaningful use of a result (already fired from js/place.js; no new event type).
+// map_ready is NOT a separate type: a new every-session type would 400-drop whole batches until a kh_type_ok migration is applied.
+const FUNNEL = new Set(['visit', 'search', 'place_view', 'route', 'nav_start', 'install']);
 function funnelFirst(type, pr) {
   if (!FUNNEL.has(type)) return false;
   if (type === 'install' && pr.stage !== 'installed') return false; // 'accepted' is only a stage, not an install
@@ -134,11 +154,14 @@ function funnelFirst(type, pr) {
 }
 // Install events (all as type 'install' – the table's type check already allows it; props.stage tells them apart)
 const onceSession = k => { try { if (sessionStorage.getItem(k)) return false; sessionStorage.setItem(k, '1'); return true; } catch { return true; } };
-addEventListener('beforeinstallprompt', () => { if (onceSession('kh.bip')) track('install', { stage: 'available' }); });
+const onceDevice = k => { try { if (localStorage.getItem(k)) return false; localStorage.setItem(k, String(Date.now())); return true; } catch { return true; } };
+// Exported so unit tests can fire the same handlers Node's stub addEventListener would otherwise swallow.
+export function onBeforeInstallPrompt() { if (onceSession('kh.bip')) track('install', { stage: 'available' }); }
 // 'installed' = the real install: at most one per device (localStorage) and per session, even if the browser fires
 // appinstalled twice (seen in Chrome). Only this event can carry the funnel flag f = 1.
-const onceDevice = k => { try { if (localStorage.getItem(k)) return false; localStorage.setItem(k, String(Date.now())); return true; } catch { return true; } };
-addEventListener('appinstalled', () => { if (onceSession('kh.inst') && onceDevice('kh.inst')) track('install', { stage: 'installed' }); });
+export function onAppInstalled() { if (onceSession('kh.inst') && onceDevice('kh.inst')) track('install', { stage: 'installed' }); }
+addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+addEventListener('appinstalled', onAppInstalled);
 const displayMode = () => ['standalone', 'fullscreen', 'minimal-ui'].find(m => matchMedia(`(display-mode: ${m})`).matches) || (navigator.standalone === true ? 'standalone' : 'browser');
 
 // ----- queue -----
@@ -178,7 +201,7 @@ export const reportQuietOff = (now = Date.now()) => { mark(now); dropAround(now)
 export const _heldCount = () => held.length;
 export const _held = () => held.map(h => h.type + '@' + h.ts);
 export const _queue = () => q.slice();
-export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); rtm = null; clearTimeout(timer); timer = null; timerAt = 0; rsending = false; sending = false; for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY]) try { localStorage.removeItem(k); } catch {} }
+export function _resetPrivacy() { for (const h of held) clearTimeout(h.tm); held = []; clearTimeout(rtm); rtm = null; clearTimeout(timer); timer = null; timerAt = 0; rsending = false; sending = false; q = []; for (const k of [HKEY, MKEY, QUKEY, RQKEY, FKEY, QKEY]) try { localStorage.removeItem(k); } catch {} }
 function hold(x, now = Date.now()) {
   const h = { ...x, tm: null };
   held.push(h);
@@ -219,16 +242,17 @@ function enqueue(type, props, ts = Date.now(), sid = sessionId) {
     const pr = { ...props }; delete pr.rid; // rid (idempotency key) is for reports only, never on usage events
     if (type === 'locate' && pr.lat != null) { gpsGeo(pr.lat, pr.lon); delete pr.lat; delete pr.lon; }
     for (const k in pr) if (pr[k] == null || (typeof pr[k] === 'string' && pr[k].length > 40)) delete pr[k];
-    pr.ch = ATT.chl; // channel_language on every event (props JSON: works without new columns)
+    const att = attribution(); // first-touch from sessionStorage (or freshly computed)
+    pr.ch = att.chl; // channel_language on every event (props JSON: works without new columns)
     if (funnelFirst(type, pr)) pr.f = 1;
-    if (type === 'visit' || pr.f) { for (const k of UTM_KEYS) if (ATT[k]) pr[k] = ATT[k]; }
+    if (type === 'visit' || pr.f) { for (const k of UTM_KEYS) if (att[k]) pr[k] = att[k]; }
     if (type === 'visit') pr.dm = displayMode();
     const ev = {
       client_ts: new Date(ts).toISOString(), install_id: installId, session_id: sid, type, lang: getLang(),
       device: DEV.device, os: DEV.os, standalone: DEV.standalone, app_version: VERSION,
       country: geo.country || null, city: geo.city || null, geo_src: geo.geo_src || null,
       lat_r: geo.geo_src === 'gps' ? geo.lat_r : null, lon_r: geo.geo_src === 'gps' ? geo.lon_r : null,
-      referrer: type === 'visit' ? ATT.referrer : null, utm_source: ATT.utm_source, props: pr,
+      referrer: type === 'visit' ? att.referrer : null, utm_source: att.utm_source, props: pr,
     };
     q.push(ev); if (q.length > MAXQ) q = q.slice(-MAXQ);
     lsSet(QKEY, q); schedule();
