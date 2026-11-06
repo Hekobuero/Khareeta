@@ -5,11 +5,11 @@ import { t, getLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, center, refPoint, chipRef, catIcon, catLabel, pickName, openSheet, clearMarkers, markerEl, closeSheet, POI, mapPadding, fitTo } from './core.js';
 import { ohStatus } from './hours.js';
-import { openPlace } from './place.js';
-import { track } from './analytics.js';
 import { photonSearch, rank, dedupe, inSyria, combobox, biasBox, cleanQuery, photonLang } from './suggest.js';
 import { inSyria as inSyriaPoly } from './syria-poly.js';
 import { gateByView, fitTargets } from './search-core.js';
+const goPlace = (item, opts) => import('./place.js').then(m => m.openPlace(item, opts));
+const track = (name, props) => import('./analytics.js').then(m => m.track(name, props)).catch(() => {});
 const gzOpen = (c, text) => inSyriaPoly(c[0], c[1]) || /[\u0600-\u06FF]/.test(text);
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
@@ -189,7 +189,7 @@ export function choose(item) {
   track('search', { kind: item.coord ? 'coord' : 'place', cat: catLabelKey(item.tags) });
   if (!item.coord) addRecent(item);
   clearMarkers();
-  openPlace(item);
+  goPlace(item);
 }
 function catLabelKey(tags = {}) { return tags.amenity || tags.shop || tags.tourism || tags.place || tags.highway || null; }
 
@@ -236,14 +236,14 @@ export function showResultList(res, title, fit = true, offline = false) {
   res.forEach((r, i) => {
     const [icn, col] = catIcon(r.tags || {});
     const m = new maplibregl.Marker({ element: markerEl(icn, col, App.map.getZoom() > 14 && res.length < 40 ? r.name : '') }).setLngLat([r.lon, r.lat]).addTo(App.map);
-    m.getElement().addEventListener('click', e => { e.stopPropagation(); addRecent(r); openPlace(r); });
+    m.getElement().addEventListener('click', e => { e.stopPropagation(); addRecent(r); goPlace(r); });
     App.markers.push(m);
   });
   const body = openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub">${res.length} · OpenStreetMap</p></div>${offline ? offlineNotice() : ''}<div class="list">${res.map((r, i) => withStar(row(r, i, r.status ? ` · <span class="${r.status.cls}">${esc(r.status.text.split(' · ')[0])}</span>` : ''), r, i)).join('')}</div>`, 'half', () => clearMarkers());
   body.querySelector('.list').addEventListener('click', e => {
     const st = e.target.closest('[data-star]');
     if (st) { e.stopPropagation(); const r = res[+st.dataset.star]; const on = toggleSaved(r); st.outerHTML = starBtn(r, +st.dataset.star); toast(t(on ? 'savedOk' : 'svRemoved')); return; }
-    const el = e.target.closest('.srow'); if (el) { const r = res[+el.dataset.i]; addRecent(r); openPlace(r); } });
+    const el = e.target.closest('.srow'); if (el) { const r = res[+el.dataset.i]; addRecent(r); goPlace(r); } });
   if (fit && res.length > 1) {
     // frame only results near the current view (never a Tunisia–Syria box at z2.6); nothing near → camera stays
     const near = fitTargets(res, center()), top = res[0];
@@ -304,7 +304,7 @@ export function showFilterSheet(fit = false) {
   const body = openSheet(`<div class="sec fhead"><div class="fhrow"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><button class="act" id="fClear">${t('clear')}</button></div><p class="psub">${esc(countTxt)}</p>${hintHtml}</div>${chipsHtml}${list}<div class="sec"><button class="act" id="fLive">${ic('search')}<span>${t('liveSearch')}</span></button><p class="psub small">${esc(t('poiData', { d: P.meta?.date || '' }))}</p></div>`, fit ? 'half' : (sheetStateSafe() || 'half'),
     () => { if (sheetStateSafe() === 'hidden') { setFilter(App.map, []); document.querySelectorAll('.chip.on').forEach(c => c.classList.remove('on')); clearMarkers(); } });
   App.sheetKind = 'filter';
-  body.querySelector('.list')?.addEventListener('click', e => { const el = e.target.closest('.srow'); if (el) { const x = res[+el.dataset.i]; addRecent(x); openPlace(x); } });
+  body.querySelector('.list')?.addEventListener('click', e => { const el = e.target.closest('.srow'); if (el) { const x = res[+el.dataset.i]; addRecent(x); goPlace(x); } });
   body.querySelector('.fchips').addEventListener('click', e => {
     const b = e.target.closest('.ochip'); if (!b) return;
     if (b.dataset.open) { applyChips(cats, !f.openNow, false); return; }

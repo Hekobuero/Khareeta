@@ -1,5 +1,5 @@
 /* Khareeta service worker – offline app shell + map data cache */
-const VERSION = '20261106-0317';
+const VERSION = '20261106-0423';
 const SHELL = 'kh-shell-' + VERSION;
 // Minimal app shell: what the first screen needs to boot offline (≈1.8 MB raw, mostly revalidated 304s on the
 // first visit because the page has just loaded the same files). Fonts, sprites, logos, icons and the POI data
@@ -51,6 +51,7 @@ const SHELL_FILES = [
   'js/update.js',
   'js/util.js',
   'js/lowdata-core.js',
+  'js/weather-core.js',
   'js/voice.js',
   'js/names.js',
   'js/world-core.js',

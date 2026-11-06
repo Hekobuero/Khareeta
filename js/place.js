@@ -10,9 +10,9 @@ import { ovRefresh } from './overture.js';
 import { App, openSheet, setSheet, closeSheet, setSelMarker, pickName, catLabel, catIcon, refPoint, sheetState, mapPadding, fitTo } from './core.js';
 import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
-import { openDirections } from './route.js';
 import { track } from './analytics.js';
 import { allowPlaceExtras } from './lowdata-core.js';
+import { weatherRaw, wmo } from './weather-core.js';
 import { shareAsImage, placeMetaFrom } from './share-image.js';
 import { openReport } from './report.js';
 import { reportEntryHtml, wireReportEntry, REPORT_ICON } from './report-entry.js';
@@ -271,8 +271,8 @@ function render(item, tg, loading) {
   });
   body.querySelector('#pClose').onclick = () => closeSheet();
   body.querySelector('#pRoad')?.addEventListener('click', () => openClosureReport(App.map ? snapToRoad(App.map, item.lon, item.lat) : { ...item, snapped: false }));
-  body.querySelector('#pDir').onclick = () => openDirections({ to: it });
-  body.querySelector('#pStart')?.addEventListener('click', () => openDirections({ to: it, autostart: true }));
+  body.querySelector('#pDir').onclick = () => import('./route.js').then(m => m.openDirections({ to: it }));
+  body.querySelector('#pStart')?.addEventListener('click', () => import('./route.js').then(m => m.openDirections({ to: it, autostart: true })));
   body.querySelector('#pSave').onclick = () => { const on = toggleSave(it); toast(on ? t('savedOk') : t('remove')); render(item, tg, false); };
   body.querySelector('#pShare').onclick = () => share(title, shareUrl(it));
   body.querySelector('#pShareImg').onclick = () => shareAsImage({
@@ -350,15 +350,8 @@ function applyExtras(ex) {
   }
 }
 
-const WMO = { 0: ['☀️', 'Clear', 'صافٍ', 'Klar'], 1: ['🌤️', 'Mainly clear', 'صافٍ غالبًا', 'Überwiegend klar'], 2: ['⛅', 'Partly cloudy', 'غائم جزئيًا', 'Teilweise bewölkt'], 3: ['☁️', 'Overcast', 'غائم', 'Bedeckt'], 45: ['🌫️', 'Fog', 'ضباب', 'Nebel'], 48: ['🌫️', 'Fog', 'ضباب', 'Nebel'], 51: ['🌦️', 'Drizzle', 'رذاذ', 'Nieselregen'], 53: ['🌦️', 'Drizzle', 'رذاذ', 'Nieselregen'], 55: ['🌦️', 'Drizzle', 'رذاذ', 'Nieselregen'], 61: ['🌧️', 'Rain', 'مطر', 'Regen'], 63: ['🌧️', 'Rain', 'مطر', 'Regen'], 65: ['🌧️', 'Heavy rain', 'مطر غزير', 'Starkregen'], 71: ['🌨️', 'Snow', 'ثلج', 'Schnee'], 73: ['🌨️', 'Snow', 'ثلج', 'Schnee'], 75: ['❄️', 'Heavy snow', 'ثلج كثيف', 'Starker Schneefall'], 80: ['🌦️', 'Showers', 'زخات', 'Schauer'], 81: ['🌧️', 'Showers', 'زخات', 'Schauer'], 82: ['⛈️', 'Heavy showers', 'زخات غزيرة', 'Starke Schauer'], 95: ['⛈️', 'Thunderstorm', 'عاصفة رعدية', 'Gewitter'], 96: ['⛈️', 'Thunderstorm', 'عاصفة رعدية', 'Gewitter'], 99: ['⛈️', 'Thunderstorm', 'عاصفة رعدية', 'Gewitter'] };
-export function wmo(code, isDay = 1) { const w = WMO[code] || WMO[Math.floor(code / 10) * 10] || ['🌡️', '', '', '']; const i = getLang() === 'ar' ? 2 : getLang() === 'de' ? 3 : 1; let e = w[0]; if (!isDay && code <= 1) e = '🌙'; return [e, w[i]]; }
-const wxCache = new Map();
-export async function weatherRaw(lat, lon) {
-  const k = lat.toFixed(2) + ',' + lon.toFixed(2);
-  const c = wxCache.get(k); if (c && Date.now() - c.t < 15 * 60000) return c.j;
-  const j = await fetchJSON(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto`, {}, 8000);
-  wxCache.set(k, { t: Date.now(), j }); return j;
-}
+export { weatherRaw, wmo } from './weather-core.js';
+
 async function weather(lat, lon) {
   const j = await weatherRaw(lat, lon), c = j.current;
   const [e, txt] = wmo(c.weather_code, c.is_day);

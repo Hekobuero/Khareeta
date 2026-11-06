@@ -378,7 +378,7 @@ async function navRun(browser, { prof, lang, mode, base = ROOT, settings = null,
       const wait = ms => new Promise(r => setTimeout(r, ms));
       await wait(1500);
       const probe = { ...route, steps: route.steps.map(s => ({ ...s })), _stepAlong: [0, 800, 1500, 2100] };
-      probe.steps[1] = { ...probe.steps[1], loc: [36.3, 33.6], name: 'Probe Street' }; // a maneuver the sim never reaches
+      probe.steps[1] = { ...probe.steps[1], loc: [36.3, 33.6], name: 'Probe Street' }; delete probe.steps[1].landmark; // drop map-harvested landmark so the unique name is spoken
       const n = () => window.__spoken.filter(s => /Probe Street/.test(s.text)).length;
       v.navPrompt(probe, 1, 250, 'car', 14, null, {}); await wait(5000); const a = n();
       document.querySelector('#navVoice').click(); document.querySelector('#navVoice').click(); await wait(200);   // HUD off + on

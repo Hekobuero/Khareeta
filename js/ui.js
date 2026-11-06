@@ -4,14 +4,11 @@ import { t, LANGS, getLang, setLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
 import { getTheme, setTheme } from './mapstyle.js';
-import { openOfflinePanel } from './offline.js';
-import { openPlace } from './place.js';
-import { track } from './analytics.js';
-import { openReport } from './report.js';
-import { openHealthSheet } from './health.js';
-import { voiceRowsHtml, bindVoiceRows, stopSpeaking } from './voice.js';
 
 export const hooks = { overture: null, restyle: null, transit: null, relabel: null, rerenderUI: null, set3d: null };
+
+const track = (name, props) => import('./analytics.js').then(m => m.track(name, props)).catch(() => {});
+const stopSpeaking = () => import('./voice.js').then(m => m.stopSpeaking()).catch(() => {});
 
 // ---------- brand lockup (light/dark variant switched in CSS via the theme tokens) ----------
 const brandLogo = cls => `<span class="klogo ${cls}" role="img" aria-label="Khareeta · خريطة"><img class="klogo-l" src="icons/logo-lockup.svg" alt="" width="964" height="208" decoding="async"><img class="klogo-d" src="icons/logo-lockup-dark.svg" alt="" width="964" height="208" decoding="async"></span>`;
@@ -20,8 +17,9 @@ const brandLogo = cls => `<span class="klogo ${cls}" role="img" aria-label="Khar
 const sw = on => `<span class="sw ${on ? 'on' : ''}" aria-hidden="true"></span>`;
 const seg = (id, opts, cur) => `<div class="seg" id="${id}" role="radiogroup">${opts.map(([k, n]) => `<button data-v="${k}" role="radio" aria-checked="${cur === k}" class="${cur === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
 const appearance = () => seg('dTheme', [['system', t('system')], ['light', t('light')], ['dark', t('dark')]], getTheme());
-export function openDrawer() {
+export async function openDrawer() {
   const d = $('#drawer');
+  const voice = await import('./voice.js');
   d.innerHTML = `
     <div class="dbrand">${brandLogo('dlogo')}<button class="ib" id="dClose" style="margin-inline-start:auto" aria-label="${t('close')}">${ic('close')}</button></div>
     <h2 class="dtitle">${t('settings')}</h2>
@@ -37,7 +35,7 @@ export function openDrawer() {
     <div class="dlabel">${t('navHdr').toUpperCase()}</div>
     <div class="dgroup">
       <button class="ditem" data-a="voice">${ic('volume')}${t('voice')}${sw(settings.voice)}</button>
-      ${voiceRowsHtml(ic)}
+      ${voice.voiceRowsHtml(ic)}
     </div>
     <div class="dlabel">${t('more').toUpperCase()}</div>
     <div class="dgroup">
@@ -54,7 +52,7 @@ export function openDrawer() {
     </div>
     <div class="dfoot">Khareeta v${VERSION}<br><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${t('osmAttr')}</a> · OpenFreeMap · OpenMapTiles</div>`;
   d.setAttribute('aria-label', t('settings'));
-  bindVoiceRows(d, () => { const y = d.scrollTop; openDrawer(); d.scrollTop = y; });
+  voice.bindVoiceRows(d, () => { const y = d.scrollTop; openDrawer(); d.scrollTop = y; });
   d.classList.add('open'); $('#scrim').classList.remove('hidden');
   if (!App.installPrompt && !/iphone|ipad/i.test(navigator.userAgent)) $('#dInstall').classList.add('hidden');
   if (matchMedia('(display-mode: standalone)').matches) $('#dInstall').classList.add('hidden');
@@ -86,12 +84,12 @@ export function initDrawer() {
       openDrawer(); return;
     }
     closeDrawer();
-    if (a === 'health') openHealthSheet();
+    if (a === 'health') import('./health.js').then(m => m.openHealthSheet());
     if (a === 'saved') showSaved();
-    if (a === 'offline') openOfflinePanel();
+    if (a === 'offline') import('./offline.js').then(m => m.openOfflinePanel());
     if (a === 'measure') startMeasure();
     if (a === 'shareLoc') import('./whats-here.js').then(m => m.shareMyLocation());
-    if (a === 'report') { closeDrawer(); openReport(null, 'missing'); return; }
+    if (a === 'report') { closeDrawer(); import('./report.js').then(m => m.openReport(null, 'missing')); return; }
     if (a === 'about') showAbout();
     if (a === 'install') install();
   });
