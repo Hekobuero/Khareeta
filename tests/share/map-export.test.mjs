@@ -94,6 +94,7 @@ test('wiring: SW precache, route/place buttons, analytics, i18n merge, no propri
   assert.ok(sw.includes("'js/map-export-core.js'"));
   assert.ok(sw.includes("'js/map-export.js'"));
   assert.match(route, /id="rPrint"/);
+  assert.match(route, /ochips rchips/);
   assert.match(route, /printRouteSheet/);
   assert.match(place, /id="pPrint"/);
   assert.match(place, /printPlace/);

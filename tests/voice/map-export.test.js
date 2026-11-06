@@ -125,7 +125,7 @@ const ROUTE = {
       const { openSheet, setSheet } = await import(new URL('js/core.js', location.href));
       setLang(lang);
       const html = `<div class="rcard on"><div style="flex:1"><div class="rt">12 min</div><div class="rd">4.2 km · Auto</div></div></div>
-        <div class="ochips">
+        <div class="ochips rchips">
           <button class="ochip" id="rShare">${ic('share', 'xs')}${t('share_route')}</button>
           <button class="ochip" id="rShareImg">${ic('image', 'xs')}${t('shareImageShort')}</button>
           <button class="ochip" id="rPrint">${ic('download', 'xs')}${t('mapExportPrintShort')}</button>

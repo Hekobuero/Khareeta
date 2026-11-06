@@ -201,6 +201,9 @@ jobs:
       - name: Map export print/PDF (WebKit iPhone 390×844, DE/AR, mocked)
         run: node map-export.test.js
         timeout-minutes: 5
+      - name: Route action chips fully visible at 390×844 (DE/EN/AR, Chromium+WebKit, mocked)
+        run: node route-chips.test.js
+        timeout-minutes: 8
       - name: Category chip never jumps to Syria + GPS start (Germany view, mocked Overpass, DE/AR, WebKit + Chromium)
         run: node chip-view.test.js
         timeout-minutes: 8
@@ -216,6 +219,7 @@ jobs:
             tests/voice/out/ios/
             tests/voice/out/health-sheet/
             tests/voice/out/map-export/
+            tests/voice/out/route-chips/
             tests/voice/out/data-saver/
           if-no-files-found: ignore
           retention-days: 7
