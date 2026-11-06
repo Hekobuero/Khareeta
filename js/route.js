@@ -4,7 +4,7 @@ import { setPoiVisible } from './poi.js';
 import { $, esc, fetchJSON, fmtDist, fmtDur, fmtTime, nf, digits, haversine, bearing, compass8, nearestOnLine, cumulative, toast, settings, saveSettings, lsGet } from './util.js';
 import { t, getLang, SPEECH_LANG } from './i18n.js';
 import { ic } from './icons.js';
-import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, mapPadding, fitTo } from './core.js';
+import { App, openSheet, closeSheet, setSelMarker, clearMarkers, center, pinEl, setSheet, syncFabs, mapPadding, fitTo } from './core.js';
 import { track } from './analytics.js';
 import { speak as voiceSpeak, navPrompt, navVoiceStart, arriveText, reroutingText, stopSpeaking, unlockSpeech, sampleText, isIOS } from './voice.js';
 import { dedupe, combobox, cleanQuery } from './suggest.js';
@@ -414,18 +414,31 @@ function showRouteSheet() {
   App.routePeek = 0;
   if (!desk) {
     // Size peek to the bottom of the action chips so a wrapped AR second row («الخطوات»)
-    // stays fully visible in the default stop (Nour P3: ~12 px below the 844 fold after #50).
-    // Cap raised from 0.45→0.58 vh: just enough for cards + a wrapped chip row (warn/2 alts)
-    // while keeping ~350 px of map; still peek, never force full. Steps = swipe / Steps chip.
+    // stays fully visible in the default stop (Nour P3 + WebKit ios-webkit: chips landed
+    // ~15–36 px below the 844 fold when the spring was still settling / subpixel).
+    // Measure chip-row bottom, apply peek INSTANTLY (syncFabs), then remeasure vs the
+    // viewport and grow if anything still clips — still peek, never force full.
     const sh = $('#sheet'), chips = sh.querySelector('.ochips.rchips'), st = $('#stepsTitle');
     const end = chips || st;
     if (end) {
-      const h = Math.round(end.getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 8);
-      if (h > 120) {
-        const cap = Math.min(Math.round(innerHeight * 0.58), innerHeight - 160);
+      const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+      const measure = () => Math.round((chips || end).getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 24);
+      const apply = (h) => {
+        if (h <= 120) return;
         App.routePeek = Math.min(h, Math.max(360, cap));
-        App.peekH = App.routePeek; setSheet('peek');
-      }
+        App.peekH = App.routePeek;
+        setSheet('peek');
+        syncFabs(); // instant: WebKit spring left chips ~20–36 px below the fold in CI
+      };
+      apply(measure());
+      // Post-settle: grow if any chip still sits under the fold (WebKit font/safe-area slack).
+      const clearFold = () => {
+        const row = chips || end;
+        const overflow = Math.ceil(row.getBoundingClientRect().bottom - (innerHeight - 4));
+        if (overflow > 0) apply(App.routePeek + overflow + 16);
+      };
+      clearFold();
+      requestAnimationFrame(() => { clearFold(); requestAnimationFrame(clearFold); });
     }
   }
   body.onclick = e => {

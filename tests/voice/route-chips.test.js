@@ -46,7 +46,7 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
       const sheetMeta = await page.evaluate(async (lang) => {
         const { t, setLang } = await import(new URL('js/i18n.js', location.href));
         const { ic } = await import(new URL('js/icons.js', location.href));
-        const { openSheet, setSheet, App } = await import(new URL('js/core.js', location.href));
+        const { openSheet, setSheet, App, syncFabs } = await import(new URL('js/core.js', location.href));
         setLang(lang);
         const html = `<div class="cl-warn" role="status"><span>2 closures nearby</span></div>
           <div class="rcard on" role="button"><div style="flex:1;min-width:0"><div class="rt">12 min</div><div class="rd">4.2 km · via <bdi>Example St</bdi> · ETA 12:00</div><div class="fast">Fastest</div></div><button class="gobtn">${t('go')}</button></div>
@@ -63,15 +63,41 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
         const sh = document.getElementById('sheet');
         const chips = sh.querySelector('.ochips.rchips');
         const end = chips || document.getElementById('stepsTitle');
-        const h = Math.round(end.getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 8);
-        App.routePeek = Math.min(h, Math.max(360, Math.min(Math.round(innerHeight * 0.58), innerHeight - 160)));
-        App.peekH = App.routePeek;
-        setSheet('peek');
-        // Let spring settle for geometry asserts
-        return { peekH: App.peekH, state: sh.dataset.state, need: h, cap: Math.max(360, Math.min(Math.round(innerHeight * 0.58), innerHeight - 160)) };
+        const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+        const measure = () => Math.round((chips || end).getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 24);
+        const apply = (h) => {
+          App.routePeek = Math.min(h, Math.max(360, cap));
+          App.peekH = App.routePeek;
+          setSheet('peek');
+          syncFabs();
+        };
+        apply(measure());
+        const clearFold = () => {
+          const row = chips || end;
+          const overflow = Math.ceil(row.getBoundingClientRect().bottom - (innerHeight - 4));
+          if (overflow > 0) apply(App.routePeek + overflow + 16);
+        };
+        clearFold();
+        return { peekH: App.peekH, state: sh.dataset.state, need: measure(), cap: Math.max(360, cap) };
       }, lang);
 
-      await page.waitForTimeout(450); // spring settle
+      // Instant peek (syncFabs) — brief rAF settle for WebKit layout, not a spring wait
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.evaluate(async () => {
+        const { syncFabs, App } = await import(new URL('js/core.js', location.href));
+        const sh = document.getElementById('sheet');
+        const chips = sh.querySelector('.ochips.rchips');
+        if (!chips) return;
+        const overflow = Math.ceil(chips.getBoundingClientRect().bottom - (innerHeight - 4));
+        if (overflow > 0) {
+          const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+          App.routePeek = Math.min(App.routePeek + overflow + 16, Math.max(360, cap));
+          App.peekH = App.routePeek;
+          (await import(new URL('js/core.js', location.href))).setSheet('peek');
+          syncFabs();
+        }
+      });
+      await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
 
       for (const id of CHIP_IDS) {
         await page.locator('#' + id).waitFor({ state: 'attached', timeout: 15000 });
@@ -151,16 +177,24 @@ const CHIP_IDS = ['rShare', 'rShareImg', 'rPrint', 'rSteps'];
             </div>
             <h3 class="sect-title" id="stepsTitle">${t('steps')}</h3>
             <div class="steps list"><div class="srow"><div class="st"><div class="t1" dir="auto">→</div></div></div></div>`;
+          const { syncFabs } = await import(new URL('js/core.js', location.href));
           openSheet(html, 'peek');
           const sh = document.getElementById('sheet');
           const chips = sh.querySelector('.ochips.rchips');
           const end = chips || document.getElementById('stepsTitle');
-          const h = Math.round(end.getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 8);
-          App.routePeek = Math.min(h, Math.max(360, Math.min(Math.round(innerHeight * 0.58), innerHeight - 160)));
-          App.peekH = App.routePeek;
-          setSheet('peek');
+          const cap = Math.min(Math.round(innerHeight * 0.62), innerHeight - 140);
+          const measure = () => Math.round((chips || end).getBoundingClientRect().bottom - sh.getBoundingClientRect().top + 24);
+          const apply = (h) => {
+            App.routePeek = Math.min(h, Math.max(360, cap));
+            App.peekH = App.routePeek;
+            setSheet('peek');
+            syncFabs();
+          };
+          apply(measure());
+          const overflow = Math.ceil((chips || end).getBoundingClientRect().bottom - (innerHeight - 4));
+          if (overflow > 0) apply(App.routePeek + overflow + 16);
         }, lang);
-        await page.waitForTimeout(450);
+        await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
         const shotName = `route-chips-${lang}-390.png`;
         const p = path.join(OUT, shotName);
         await page.screenshot({ path: p });
