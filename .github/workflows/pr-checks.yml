@@ -213,6 +213,9 @@ jobs:
       - name: Install / UTM funnel (first-touch, channel_language, appinstalled, WebKit iPhone 390×844, mocked)
         run: node utm-funnel.test.js
         timeout-minutes: 5
+      - name: Nearest transit stops (GPS/place, EN/AR/DE, WebKit + Chromium, mocked)
+        run: node transit-nearby.test.js
+        timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -225,6 +228,7 @@ jobs:
             tests/voice/out/route-chips/
             tests/voice/out/data-saver/
             tests/voice/out/utm-funnel/
+            tests/voice/out/transit-nearby/
           if-no-files-found: ignore
           retention-days: 7
 
