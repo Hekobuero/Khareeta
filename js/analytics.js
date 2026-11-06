@@ -389,7 +389,7 @@ async function sendDueLocked({ fetchImpl = globalThis.fetch } = {}, locked) {
   if (!locked && lsGet(LKEY, null)?.tok === tok) lsSet(LKEY, null);
   rsending = false; scheduleReports(); reschedule(); return sent;
 }
-const wait = () => 120 + Math.random() * 70; // < 200 ms; BroadcastChannel claims arrive within a few ms
+const wait = () => 250 + Math.random() * 200; // 250–450 ms (matches comment above); CI load needs more than ~190 ms for BC claims
 let timer = null, sending = false, leaving = false;
 // The single place that sets the usage flush timer: always clears it and recomputes the next attempt from the current
 // state (quiet period end, pending report due dates). Called on every state change (quiet on/off, report sent,

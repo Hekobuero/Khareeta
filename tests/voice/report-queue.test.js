@@ -86,7 +86,7 @@ const queue = page => page.evaluate(() => JSON.parse(localStorage.getItem('kh.rq
     await submit(a, 60e3);
     await a.evaluate(() => { const k = 'kh.rq'; localStorage.setItem(k, JSON.stringify(JSON.parse(localStorage.getItem(k)).map(x => ({ ...x, due: Date.now() - 1000 })))); });
     await Promise.all([a, b].map(p => p.evaluate(async () => (await import(new URL('js/analytics.js', location.href))).sendDueReports())));
-    await a.waitForTimeout(1500);
+    await a.waitForTimeout(2500);
     ok(`run ${run + 1}: two tabs without Web Locks → one POST`, posts.length === 1, JSON.stringify(posts.map(p => p.rid)));
     await ctx.close();
   }

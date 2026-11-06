@@ -1,7 +1,7 @@
 import { t, getLang } from './i18n.js';
 import { resolveLowData } from './lowdata-core.js';
 
-export const VERSION = '20261106-0653';
+export const VERSION = '20261106-0725';
 export const $ = (s, r = document) => r.querySelector(s);
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
