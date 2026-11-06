@@ -210,6 +210,9 @@ jobs:
       - name: Text search "Café" stays in the view (Berlin/Paris, no far fuzzy gazetteer hits; Homs from Syria; DE/AR, WebKit + Chromium)
         run: node text-search-view.test.js
         timeout-minutes: 8
+      - name: Install / UTM funnel (first-touch, channel_language, appinstalled, WebKit iPhone 390×844, mocked)
+        run: node utm-funnel.test.js
+        timeout-minutes: 5
       - name: Upload iPhone screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -221,6 +224,7 @@ jobs:
             tests/voice/out/map-export/
             tests/voice/out/route-chips/
             tests/voice/out/data-saver/
+            tests/voice/out/utm-funnel/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -322,6 +326,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test 'tests/notes/*.test.mjs'
+
+  analytics-tests:
+    # Pure Node unit tests for UTM / channel_language / first-touch / appinstalled / funnel flags (js/analytics.js).
+    # fetch is always mocked – never hits the production Supabase project.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test 'tests/analytics/*.test.mjs'
 
   closures-tests:
     # Pure Node unit tests for community road reports (js/closures-core.js): payload rounding/anonymity, data/closures.json
