@@ -31,7 +31,7 @@ test('overpass: a 5xx stops after 2 attempts (not every mirror); success still r
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ elements: [] }) });
   assert.deepEqual((await overpass('x', 2000, 5)).elements, []);
   const s = read('js/search.js');
-  assert.match(s, /if \(opDown\) throw/); assert.match(s, /overpass\(q, \d+, \d+, \{ tries: 2 \}\)/);
+  assert.match(read('js/live-core.js'), /raceBox\(\(\) => runOp\(b\), \(\) => runNom\(b\), \{ nomDelay, opDown, wait \}\)/); assert.match(s, /LIVE_OP_TIMEOUT, LIVE_OP_HEDGE, \{ tries: 2 \}\)/); // opDown → wider radii skip Overpass
 });
 
 test('tN plurals: AR lines 0/1/2/3/13/100, stops + lines in EN/AR/DE, no regex hack left', async () => {

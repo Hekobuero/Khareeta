@@ -17,6 +17,11 @@ echo "sw.js      VERSION: ${S:-<missing>}"
 [ "$U" = "$S" ] || { echo "::error::VERSION differs: js/util.js=$U, sw.js=$S (run scripts/bump-version.sh)"; exit 1; }
 [[ "$U" =~ $RE ]] || { echo "::error::VERSION '$U' is not in the format YYYYMMDD-HHMM"; exit 1; }
 
+# index.html loads i18n.js as js/i18n.js?v=VERSION (import map + modulepreload) – must match
+for IV in $(grep -o "js/i18n.js?v=[0-9-]*" index.html | sed 's/.*v=//'); do
+  [ "$IV" = "$U" ] || { echo "::error::index.html i18n.js?v=$IV differs from VERSION $U (run scripts/bump-version.sh)"; exit 1; }
+done
+
 git rev-parse --verify -q "$BASE^{commit}" >/dev/null || { echo "::error::base ref '$BASE' not found (git fetch origin main?)"; exit 1; }
 MB=$(git merge-base "$BASE" HEAD)
 # files changed on this branch since it left the base (+ uncommitted changes when run locally)

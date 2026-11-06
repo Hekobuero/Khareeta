@@ -55,5 +55,6 @@ test('live search widens when empty: fixed radii 2.5/5/10 km around chip ref; ch
   assert.doesNotMatch(S, /for \(const f of \[2, 4\]\)/); // no view-relative 2x/4x
   assert.match(S, /const ref = chipRef\(\);[^\n]*\n\s*const boxes = liveBoxes\(ref\)/);
   assert.match(S, /CHIP_MIN_Z = 12/); assert.match(S, /minZoom: CHIP_MIN_Z/);
-  assert.match(S, /if \(j\.elements\?\.length\) break;/);
+  // radii walk + stop at the first non-empty box now lives in js/live-core.js (liveCategory, tested in tests/poi/live-fallback)
+  assert.match(readFileSync(new URL('../../js/live-core.js', import.meta.url), 'utf8'), /for \(const b of boxes\)[\s\S]*if \(r\.elements\.length\) return r;/);
 });

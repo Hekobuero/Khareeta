@@ -14,4 +14,7 @@ for f in js/util.js sw.js; do
   grep -q "const VERSION = '[0-9-]*';" "$f" || { echo "VERSION line not found in $f" >&2; exit 1; }
   sed "s/const VERSION = '[0-9-]*';/const VERSION = '$V';/" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 done
+# index.html: cache-busted i18n.js (import map + modulepreload) must carry the same VERSION
+sed "s/js\/i18n\.js?v=[0-9-]*/js\/i18n.js?v=$V/g" index.html > index.html.tmp && mv index.html.tmp index.html
 grep -H "const VERSION" js/util.js sw.js
+grep -o "js/i18n.js?v=[0-9-]*" index.html

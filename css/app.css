@@ -368,6 +368,7 @@ body.sheet-up:not(.dir-open) #chips{opacity:0;pointer-events:none}
    zoom) + UI overlays allow panning/scrolling only; gesture events outside #map are cancelled in js/app.js.
    +/- buttons are always visible in the right control column (Apple Maps style). */
 html,body{width:100%;max-width:100%;overscroll-behavior:none}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%} /* DDG iOS: no font boost → computed input size stays ≥16px */
 /* .sheet is NOT listed: it keeps touch-action:none (own pointer drag in core.js; none also blocks page pinch),
    .sheet-body keeps pan-y. */
 #top,#fabs,#fabsBottom,.dirpanel,.pop,.updbar,.toast,.pill,.nav-banner,.nav-bottom,.maplibregl-ctrl{touch-action:pan-x pan-y}

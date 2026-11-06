@@ -207,6 +207,9 @@ jobs:
       - name: Category chip never jumps to Syria + GPS start (Germany view, mocked Overpass, DE/AR, WebKit + Chromium)
         run: node chip-view.test.js
         timeout-minutes: 8
+      - name: Category chip with Overpass down (Bonn, hanging mirrors → Nominatim list; all down → honesty + retry; DE/EN/AR, WebKit + Chromium, mocked)
+        run: node live-fallback.test.js
+
       - name: Text search "Café" stays in the view (Berlin/Paris, no far fuzzy gazetteer hits; Homs from Syria; DE/AR, WebKit + Chromium)
         run: node text-search-view.test.js
         timeout-minutes: 8

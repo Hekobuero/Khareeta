@@ -2,6 +2,7 @@
 import { $, esc, settings, saveSettings, lsGet, lsSet, toast, debounce, fmtDist, nf, overpass, haversine, VERSION } from './util.js';
 import { t, applyDir, getLang } from './i18n.js';
 import { ic } from './icons.js';
+import { initVVGuard } from './vv.js';
 import { App, initSheetDrag, closeSheet, sheetState, syncFabs, pickName, center, openSheet, catIcon, resetPoiFilters, applySelFilter } from './core.js';
 import { buildStyle, prefetchStyles, relabel, getTheme, isDark } from './mapstyle.js';
 import { initRTL } from './map-i18n.js';
@@ -406,6 +407,7 @@ $('#btnZin').onclick = () => map.zoomIn(); $('#btnZout').onclick = () => map.zoo
 // iOS Safari: pinch/double-tap that starts on UI overlays would zoom the whole page (visual viewport) and push the
 // search bar, chips and sheet off-screen. Cancel Safari's page gesture events only outside the map – MapLibre uses
 // touch events for its own pinch zoom, so the map keeps working (gesture* events are WebKit-only, no-op elsewhere).
+initVVGuard(); // DuckDuckGo iOS ignores the viewport lock on input focus → undo page zoom/shift (never the map's pinch)
 for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, e => { if (!e.target?.closest?.('#map')) e.preventDefault(); }, { passive: false });
 $('#btnCompass').onclick = () => { if (App.locMode === 2) App.locMode = 1; renderLocBtn(); map.easeTo({ bearing: 0, pitch: 0, duration: 400 }); if (settings.b3dOn) { settings.b3dOn = false; saveSettings(); hooks.set3d(false); } };
 $('#btn3d').onclick = () => { settings.b3dOn = !(map.getPitch() > 10); saveSettings(); hooks.set3d(settings.b3dOn); };

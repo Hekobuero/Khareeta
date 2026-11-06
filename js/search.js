@@ -13,6 +13,7 @@ const track = (name, props) => import('./analytics.js').then(m => m.track(name, 
 const gzOpen = (c, text) => inSyriaPoly(c[0], c[1]) || /[\u0600-\u06FF]/.test(text);
 import { tileCategoryItems, mergeTileItems } from './tile-poi.js';
 import { hintCount } from './share-core.js';
+import { liveCategory, liveOutcome, LIVE_OP_TIMEOUT, LIVE_OP_HEDGE } from './live-core.js';
 import { localSearch, loadGazetteer } from './offline-search.js';
 import { isSaved, toggleSaved } from './saved.js';
 import { norm, loadPois, searchLocal, toItem, getFilter, setFilter, filterResults, poiStatus, P, CHIP_CATS } from './poi.js';
@@ -232,7 +233,7 @@ export async function fullSearch(text) {
 
 const starBtn = (r, i) => r.lon == null || r.chip ? '' : `<button class="ib sstar${isSaved(r.id) ? ' on' : ''}" data-star="${i}" aria-pressed="${isSaved(r.id)}" aria-label="${esc(t(isSaved(r.id) ? 'svUnsaveAria' : 'svSaveAria'))}">${ic(isSaved(r.id) ? 'star' : 'starOutline', 'sm')}</button>`;
 const withStar = (html, r, i) => html.replace(/<\/div>$/, starBtn(r, i) + '</div>');
-export function showResultList(res, title, fit = true, offline = false) {
+export function showResultList(res, title, fit = true, offline = false, note = null) {
   clearMarkers();
   res.forEach((r, i) => {
     const [icn, col] = catIcon(r.tags || {});
@@ -240,7 +241,7 @@ export function showResultList(res, title, fit = true, offline = false) {
     m.getElement().addEventListener('click', e => { e.stopPropagation(); addRecent(r); goPlace(r); });
     App.markers.push(m);
   });
-  const body = openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub">${res.length} · OpenStreetMap</p></div>${offline ? offlineNotice() : ''}<div class="list">${res.map((r, i) => withStar(row(r, i, r.status ? ` · <span class="${r.status.cls}">${esc(r.status.text.split(' · ')[0])}</span>` : ''), r, i)).join('')}</div>`, 'half', () => clearMarkers());
+  const body = openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub">${res.length} · OpenStreetMap</p>${note ? `<p class="psub small catnote">${esc(note.note)}${note.retry ? ` <button type="button" class="linkbtn" id="retryCat">${esc(t('tryAgain'))}</button>` : ''}</p>` : ''}</div>${offline ? offlineNotice() : ''}<div class="list">${res.map((r, i) => withStar(row(r, i, r.status ? ` · <span class="${r.status.cls}">${esc(r.status.text.split(' · ')[0])}</span>` : ''), r, i)).join('')}</div>`, 'half', () => clearMarkers());
   body.querySelector('.list').addEventListener('click', e => {
     const st = e.target.closest('[data-star]');
     if (st) { e.stopPropagation(); const r = res[+st.dataset.star]; const on = toggleSaved(r); st.outerHTML = starBtn(r, +st.dataset.star); toast(t(on ? 'savedOk' : 'svRemoved')); return; }
@@ -336,37 +337,40 @@ export async function searchCategoryLive(key) {
   const boxes = liveBoxes(ref);
   // named POIs already in the loaded vector tiles (0 requests, offline) – merged with the live answer; same widest radius
   const tileRes = () => { try { const [bs, bw, bn, be] = boxes[boxes.length - 1]; return tileCategoryItems(App.map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' }), key, ref, tg => pickName(tg).primary || catLabel(tg), 100, [bw, bs, be, bn]).map(x => Object.assign(x, { sub: catLabel(x.tags) })); } catch { return []; } };
-  openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)} · OSM live</h2><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
-  try {
-    let j, opDown = false; // Overpass 5xx/failed once → the wider steps go straight to Nominatim (P3: faster fallback)
-    for (const [s, w, n, e] of boxes) { // nothing found: widen the radius automatically (2.5 km, 5 km, 10 km)
-      const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
-      const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
-      const q = `[out:json][timeout:20];(${qs});out center tags 150;`;
-      try { if (opDown) throw new Error('overpass down'); j = await overpass(q, 9000, 2500, { tries: 2 }); }
-      catch (opErr) { opDown = true; // fallback: Nominatim special phrase search in the box
-        const word = { restaurants: 'restaurant', cafes: 'cafe', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', atm: 'atm', mosque: 'mosque', church: 'church', hotel: 'hotel', supermarket: 'supermarket', bakery: 'bakery', tourism: 'attraction', parking: 'parking', police: 'police', toilets: 'toilets' }[key];
-        const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
-        j = { elements: r.map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
-      }
-      if (mySeq !== catSeq) return;
-      if (j.elements?.length) break;
-    }
-    let res = j.elements.map(el => {
-      const lon = el.lon ?? el.center?.lon, lat = el.lat ?? el.center?.lat;
-      const tags = el.tags || {};
-      const nm = pickName(tags).primary || catLabel(tags);
-      const addr = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
-      return { id: el.type[0].toUpperCase() + el.id, osm_type: el.type, osm_id: el.id, name: nm, sub: [catLabel(tags), addr].filter(Boolean).join(' · '), lon, lat, tags, full: true, status: ohStatus(tags.opening_hours), d: haversine(ref, [lon, lat]) };
-    }).filter(r => r.lon != null);
-    res.sort((a, b) => (b.tags.name || b.tags.brand ? 1 : 0) - (a.tags.name || a.tags.brand ? 1 : 0) || a.d - b.d);
-    res = sortByRef(mergeTileItems(res.slice(0, 100), tileRes()).slice(0, 100));
-    if (!res.length) { openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('noResults')}</p></div>`, 'peek'); return; }
-    showResultList(res, t(key) + ' · OSM live', false);
-  } catch (err) {
-    if (mySeq !== catSeq) return;
-    const tr = tileRes(); if (tr.length) { showResultList(tr, t(key), false); return; } // live down: map data still answers
-    openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${t(key)}</h2><p class="psub">${t('serviceDown')}</p><div class="actions"><button class="act" id="retryCat">${t('tryAgain')}</button></div></div>`, 'peek');
-    $('#retryCat').onclick = () => searchCategoryLive(key);
-  }
+  const title = t(key) + ' · OSM live', mark = 'catlive' + mySeq;
+  // P0 (live 20261106-1756): never only skeleton bars while Overpass times out – tile hits at once, live hint below
+  const tr0 = tileRes();
+  if (tr0.length) { showResultList(sortByRef(tr0), title, false, false, { note: t('catLiveWait') }); App.sheetKind = mark; }
+  else openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(title)}</h2><p class="psub small">${esc(t('catLiveWait'))}</p><div class="skel" style="width:60%"></div><div class="skel"></div><div class="skel" style="width:80%"></div></div>`, 'peek');
+  const mine = () => mySeq === catSeq && (!tr0.length || App.sheetKind === mark); // user opened a place → leave it
+  const retry = () => { const b = $('#retryCat'); if (b) b.onclick = () => searchCategoryLive(key); };
+  const word = { restaurants: 'restaurant', cafes: 'cafe', fuel: 'fuel', pharmacy: 'pharmacy', hospital: 'hospital', atm: 'atm', mosque: 'mosque', church: 'church', hotel: 'hotel', supermarket: 'supermarket', bakery: 'bakery', tourism: 'attraction', parking: 'parking', police: 'police', toilets: 'toilets' }[key];
+  const runOp = ([s, w, n, e]) => {
+    const bbox = [s, w, n, e].map(v => v.toFixed(5)).join(',');
+    const qs = cat[3].split(';').map(x => `${x}(${bbox});`).join('');
+    return overpass(`[out:json][timeout:20];(${qs});out center tags 150;`, LIVE_OP_TIMEOUT, LIVE_OP_HEDGE, { tries: 2 });
+  };
+  const runNom = async ([s, w, n, e]) => { // Nominatim special phrase search in the box (OSM data, bounded)
+    if (!word) return { elements: [] };
+    const r = await nominatim(`search?q=${encodeURIComponent('[' + word + ']')}&format=jsonv2&limit=40&bounded=1&viewbox=${w},${n},${e},${s}&extratags=1&namedetails=1&accept-language=${getLang()}`);
+    return { elements: (r || []).map(x => ({ type: x.osm_type, id: x.osm_id, lat: +x.lat, lon: +x.lon, tags: Object.assign({}, x.extratags, x.namedetails, { [x.category]: x.type }) })) };
+  };
+  let j = null, failed = false;
+  try { j = await liveCategory(boxes, runOp, runNom, { isStale: () => mySeq !== catSeq }); }
+  catch (err) { if (err?.stale) return; failed = true; }
+  if (!mine()) return;
+  let res = (j?.elements || []).map(el => {
+    const lon = el.lon ?? el.center?.lon, lat = el.lat ?? el.center?.lat;
+    const tags = el.tags || {};
+    const nm = pickName(tags).primary || catLabel(tags);
+    const addr = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
+    return { id: el.type[0].toUpperCase() + el.id, osm_type: el.type, osm_id: el.id, name: nm, sub: [catLabel(tags), addr].filter(Boolean).join(' · '), lon, lat, tags, full: true, status: ohStatus(tags.opening_hours), d: haversine(ref, [lon, lat]) };
+  }).filter(r => r.lon != null);
+  res.sort((a, b) => (b.tags.name || b.tags.brand ? 1 : 0) - (a.tags.name || a.tags.brand ? 1 : 0) || a.d - b.d);
+  const tr = tileRes(), out = liveOutcome({ live: res, failed, tiles: tr.length });
+  if (out === 'live') { showResultList(sortByRef(mergeTileItems(res.slice(0, 100), tr).slice(0, 100)), title, false); return; } // fit=false: never leave the view
+  if (out === 'tiles' || out === 'tiles-down') { showResultList(sortByRef(tr), t(key), false, false, out === 'tiles-down' ? { note: t('catTileOnly'), retry: true } : null); retry(); return; }
+  const msg = out === 'down' ? t('catLiveDown') : t('noResults');
+  openSheet(`<div class="sec"><h2 class="ptitle" style="font-size:18px">${esc(t(key))}</h2><p class="psub">${esc(msg)}</p>${out === 'down' ? `<div class="actions"><button class="act" id="retryCat">${esc(t('tryAgain'))}</button></div>` : ''}</div>`, 'peek');
+  retry();
 }
