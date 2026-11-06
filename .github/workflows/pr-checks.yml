@@ -186,6 +186,9 @@ jobs:
       - name: Saved places + offline search (WebKit iPhone 390, setOffline, DE/AR)
         run: node saved-offline.test.js
         timeout-minutes: 5
+      - name: Datensparmodus / data-saver (WebKit iPhone 390×844, DE/AR, Save-Data default, mocked)
+        run: node data-saver.test.js
+        timeout-minutes: 5
       - name: What's here – report choice closed until tapped, every reopen (WebKit + Chromium, DE/AR)
         run: node wh-menu.test.js
         timeout-minutes: 5
@@ -213,6 +216,7 @@ jobs:
             tests/voice/out/ios/
             tests/voice/out/health-sheet/
             tests/voice/out/map-export/
+            tests/voice/out/data-saver/
           if-no-files-found: ignore
           retention-days: 7
 

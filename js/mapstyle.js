@@ -3,6 +3,7 @@
 import { settings } from './util.js';
 import { getLang } from './i18n.js';
 import { loadStyle, applyMapLanguage } from './map-i18n.js';
+import { allowMapExtras, allowStylePrefetch } from './lowdata-core.js';
 
 export const ATTR = {
   mapterhorn: '<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a> terrain',
@@ -34,9 +35,10 @@ export async function buildStyle(kind = settings.style) {
   if (!cache[theme]) cache[theme] = await loadStyle(theme);
   const style = JSON.parse(JSON.stringify(cache[theme]));
   if (settings.lowData) style.layers = style.layers.filter(l => l.id !== 'building-3d');
-  for (const l of style.layers) if (l.id === 'building-3d') (l.layout ||= {}).visibility = settings.b3dOn ? 'visible' : 'none';
+  for (const l of style.layers) if (l.id === 'building-3d') (l.layout ||= {}).visibility = (!settings.lowData && settings.b3dOn) ? 'visible' : 'none';
   const terrain = kind === 'terrain';
-  if (terrain || settings.hillshade || settings.terrain3d) {
+  // Datensparmodus: no DEM / hillshade / 3D terrain extras (keeps the lighter vector style only).
+  if (allowMapExtras(settings) && (terrain || settings.hillshade || settings.terrain3d)) {
     style.sources.dem = { type: 'raster-dem', tiles: ['https://tiles.mapterhorn.com/{z}/{x}/{y}.webp'], tileSize: 512, maxzoom: 12, encoding: 'terrarium', attribution: ATTR.mapterhorn };
     if (terrain || settings.hillshade) {
       const idx = style.layers.findIndex(l => l.id === 'building' || /^road-/.test(l.id));
@@ -49,4 +51,7 @@ export async function buildStyle(kind = settings.style) {
   }
   return style;
 }
-export function prefetchStyles() { for (const th of ['light', 'dark']) if (!cache[th]) loadStyle(th).then(s => cache[th] = s).catch(() => {}); }
+export function prefetchStyles() {
+  if (!allowStylePrefetch(settings)) return;
+  for (const th of ['light', 'dark']) if (!cache[th]) loadStyle(th).then(s => cache[th] = s).catch(() => {});
+}
