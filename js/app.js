@@ -165,7 +165,7 @@ function startPois() {
 }
 // Overture shops layer (optional, unverified): drawn below our OSM POIs, synced on every move
 function ovLayers() { if (!map.isStyleLoaded()) { setTimeout(ovLayers, 250); return; } addOvLayers(map, mapIsDark()); ovSync(); }
-const ovSync = () => syncOverture(map, settings.overture !== false && !navActive(), on => attrib.setOverture(on));
+const ovSync = () => syncOverture(map, settings.overture !== false && !settings.lowData && !navActive(), on => attrib.setOverture(on));
 hooks.overture = ovSync;
 // Servis / bus lines from OSM (js/transit.js): off by default, synced on every move
 function trLayers() { if (!map.isStyleLoaded()) { setTimeout(trLayers, 250); return; } addTransitLayers(map, mapIsDark()); syncTransit(map); }
@@ -205,11 +205,12 @@ map.on('error', e => { if (e?.error?.status === 404) return; console.warn('map e
 
 hooks.restyle = async () => {
   syncDarkClass();
+  syncLowDataPill();
   try {
     const st = await buildStyle(settings.style);
     const el = $('#map'); el.style.transition = 'none'; el.style.opacity = '0.4';
     map.setStyle(st, { diff: false });
-    map.once('idle', () => { el.style.transition = 'opacity .24s'; el.style.opacity = '1'; });
+    map.once('idle', () => { el.style.transition = 'opacity .24s'; el.style.opacity = '1'; ovSync(); updWx(); });
     setTimeout(() => { el.style.transition = 'opacity .24s'; el.style.opacity = '1'; }, 1500);
   } catch { toast(t('serviceDown')); }
 };
@@ -399,11 +400,20 @@ const updWx = debounce(async () => {
 map.on('moveend', updWx);
 $('#weatherChip').onclick = () => openCoordPlace(center());
 
-// ---------- network state ----------
+// ---------- network + data-saver indicators ----------
 function net() {
   const off = !navigator.onLine; const el = $('#netState');
   el.innerHTML = ic('offline', 'xs') + ' ' + t('offline'); el.classList.toggle('hidden', !off); document.body.classList.toggle('offline', off);
   if (off) $('#q').placeholder = t('searchOffline');
+  syncLowDataPill();
+}
+function syncLowDataPill() {
+  const el = $('#lowDataState'); if (!el) return;
+  el.innerHTML = ic('data', 'xs') + ' ' + t('lowDataOn');
+  el.setAttribute('aria-label', t('lowDataHint'));
+  el.title = t('lowDataHint');
+  el.classList.toggle('hidden', !settings.lowData);
+  document.body.classList.toggle('low-data', !!settings.lowData);
 }
 addEventListener('online', () => { net(); toast(t('online')); $('#q').placeholder = t('search'); });
 addEventListener('offline', net); net();
@@ -411,7 +421,7 @@ addEventListener('resize', syncFabs);
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); App.installPrompt = e; });
 
 initSheetDrag(); initSearch(); initDrawer(); initRouteMapEvents(); initAnalytics();
-map.once('idle', () => setTimeout(prefetchStyles, 3000)); // the other theme's style is only needed for a theme switch
+map.once('idle', () => setTimeout(prefetchStyles, 3000)); // skipped automatically in Datensparmodus (see mapstyle.prefetchStyles)
 
 // ---------- deep links ----------
 map.once('load', () => {

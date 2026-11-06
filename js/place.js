@@ -12,6 +12,7 @@ import { ohStatus, ohTable } from './hours.js';
 import { phones as phoneList, website as websiteOf, socials as socialList } from './links.js';
 import { openDirections } from './route.js';
 import { track } from './analytics.js';
+import { allowPlaceExtras } from './lowdata-core.js';
 import { shareAsImage, placeMetaFrom } from './share-image.js';
 import { openReport } from './report.js';
 import { reportEntryHtml, wireReportEntry, REPORT_ICON } from './report-entry.js';
@@ -244,14 +245,14 @@ function render(item, tg, loading) {
     ${fourth}
   </div>
   ${contactRow}
-  ${!settings.lowData && hasPhotoSrc(item, withPhotoTags(item, tg)) ? photoBox() : ''}
+  ${allowPlaceExtras(settings) && hasPhotoSrc(item, withPhotoTags(item, tg)) ? photoBox() : ''}
   <div id="pWiki"></div>
   ${facts.length ? `<div class="tags">${facts.map(([i, s]) => `<span class="tag">${i}<bdi>${esc(s)}</bdi></span>`).join('')}</div>` : ''}
   <div class="igroup">${rows.join('')}</div>
   ${item.ov && item.ovId ? `<div class="ov-report"><button class="abtn ov-rep" id="pOvRep" aria-expanded="false" aria-controls="pOvWhy">${ic(REPORT_ICON)}<span>${esc(t('ovReport'))}</span></button>
     <div class="ov-why" id="pOvWhy" role="group" aria-label="${esc(t('ovReportWhy'))}" hidden><small>${esc(t('ovReportWhy'))}</small>${OV_REASONS.map(r => `<button class="abtn" data-r="${r}">${esc(t('ovR_' + r))}</button>`).join('')}</div></div>` : ''}
   ${reportEntryHtml('pRm', '', 'rmKhSubPoi')}
-  <div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>
+  ${allowPlaceExtras(settings) ? `<div class="igroup" id="pWxG"><div class="irow" id="pWx"><div class="iv"><label>${t('weather')}</label><div class="val"><span class="muted">${t('loading')}</span></div></div></div></div>` : ''}
   <div id="pPano"></div>
   <div id="pNearby"></div>
   <div class="arow" style="margin-top:12px">
@@ -309,10 +310,10 @@ async function extras(item, tg, my, phase) {
   const jobs = [];
   if (!phase) {
     if (!addrFromTags(tg) && !item.sub) jobs.push(nominatim(`reverse?lat=${item.lat}&lon=${item.lon}&format=jsonv2&zoom=18&accept-language=${getLang()}`).then(j => { ex.addr = (j.display_name || '').split(',').slice(0, 4).join(','); }).catch(() => { ex.addr = ''; }));
-    jobs.push(weather(item.lat, item.lon).then(w => ex.wx = w).catch(() => ex.wx = null));
+    if (allowPlaceExtras(settings)) jobs.push(weather(item.lat, item.lon).then(w => ex.wx = w).catch(() => ex.wx = null));
     jobs.push(nearby(item).then(n => ex.nearby = n).catch(() => {}));
-    if (!settings.lowData) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
-  } else if (!settings.lowData) {
+    if (allowPlaceExtras(settings)) jobs.push(panoramax(item.lat, item.lon).then(p => ex.pano = p).catch(() => {}));
+  } else if (allowPlaceExtras(settings)) {
     tg = withPhotoTags(item, tg);
     if (hasPhotoSrc(item, tg)) jobs.push(loadPhotos(tg, u => fetchJSON(u, {}, 8000), { lat: item.lat, lon: item.lon }).then(p => {
       ex.photos = p;

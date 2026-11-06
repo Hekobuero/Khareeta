@@ -251,7 +251,7 @@ test('i18n: new photo strip texts in EN/AR/DE; SW caches geosearch JSON', () => 
   const re = new RegExp(sw.match(/const isPhotoApi = u => \/(.+)\/\.test\(u\);/)[1]);
   assert.ok(re.test(geoUrl(33.5, 36.3)));
   const place = readFileSync(new URL('../../js/place.js', import.meta.url), 'utf8');
-  assert.match(place, /settings\.lowData/); assert.match(place, /srcset=/); assert.match(place, /loading="lazy"/);
+  assert.match(place, /allowPlaceExtras\(settings\)/); assert.match(place, /srcset=/); assert.match(place, /loading="lazy"/);
 });
 
 // ---- QA round 2 (PR #23) ----

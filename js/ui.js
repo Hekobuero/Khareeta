@@ -76,7 +76,11 @@ export function initDrawer() {
     if (a === 'bilingual') { settings.bilingual = settings.bilingual === false; saveSettings(); hooks.relabel(); openDrawer(); return; }
     if (['lowData', 'voice', 'arabicDigits'].includes(a)) {
       settings[a] = !settings[a]; saveSettings();
-      if (a === 'lowData') hooks.restyle();
+      if (a === 'lowData') {
+        track('low_data', { on: !!settings.lowData });
+        hooks.restyle();
+        toast(settings.lowData ? t('lowDataOnToast') : t('lowDataOffToast'));
+      }
       if (a === 'voice' && !settings.voice) stopSpeaking();
       if (a === 'arabicDigits') hooks.rerenderUI();
       openDrawer(); return;
