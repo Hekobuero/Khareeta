@@ -4,6 +4,9 @@ import { t, LANGS, getLang, setLang } from './i18n.js';
 import { ic } from './icons.js';
 import { App, openSheet, closeSheet } from './core.js';
 import { getTheme, setTheme } from './mapstyle.js';
+// Local binding the drawer calls; also exported so app.js can import it for #hAll.
+import { showSaved } from './saved.js';
+export { showSaved };
 
 export const hooks = { overture: null, restyle: null, transit: null, relabel: null, rerenderUI: null, set3d: null };
 
@@ -98,8 +101,6 @@ async function install() {
   if (App.installPrompt) { track('install', { stage: 'prompt_shown' }); App.installPrompt.prompt(); const r = await App.installPrompt.userChoice; track('install', { stage: r.outcome === 'accepted' ? 'accepted' : 'dismissed' }); App.installPrompt = null; return; }
   toast(getLang() === 'ar' ? 'في Safari: مشاركة ← إضافة إلى الشاشة الرئيسية' : getLang() === 'de' ? 'In Safari: Teilen → Zum Home-Bildschirm' : 'In Safari: Share → Add to Home Screen', 5000);
 }
-
-export { showSaved } from './saved.js';
 
 function showAbout() {
   openSheet(`<div class="sec about-brand">${brandLogo('alogo')}<h2 class="sr-only">Khareeta · خريطة</h2><p class="psub">v${VERSION}</p></div>
